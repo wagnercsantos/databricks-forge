@@ -42,9 +42,21 @@ env:
     valueFrom: serving-endpoint-embedding
   - name: DATABRICKS_REVIEW_ENDPOINT
     valueFrom: serving-endpoint-review
+  - name: FORGE_APP_NAME
+    value: "forge-demo"
+  - name: LAKEBASE_BOOTSTRAP_USER
+    value: "al.thrussell@databricks.com"
+  - name: LAKEBASE_ENABLE_POOLER_EXPERIMENT
+    value: "false"
+  - name: FORGE_SEED_BENCHMARKS
+    value: "false"
+  - name: FORGE_SEED_BENCHMARKS_ALL_INDUSTRIES
+    value: "false"
+  - name: FORGE_DEMO_MODE_ENABLED
+    value: "true"
   - name: DATABRICKS_SERVING_ENDPOINT_REASONING_2
     valueFrom: serving-endpoint-reasoning-2
   - name: DATABRICKS_SERVING_ENDPOINT_GENERATION
     valueFrom: serving-endpoint-generation
-  - name: DATABRICKS_SERVING_ENDPOINT_SQL
-    valueFrom: serving-endpoint-sql
+  - name: DATABRICKS_SERVING_ENDPOINT_LIGHTWEIGHT
+    valueFrom: serving-endpoint-lightweight

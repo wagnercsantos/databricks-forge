@@ -18,6 +18,10 @@ export function GenieBuildProgress({
   statusMessage,
 }: GenieBuildProgressProps) {
   const currentIdx = currentStep ? GENIE_BUILDER_STEPS.findIndex((s) => s.key === currentStep) : -1;
+  const pctFallback = currentIdx < 0 && status === "generating";
+  const nextPendingIdx = pctFallback
+    ? GENIE_BUILDER_STEPS.findIndex((s) => progressPct < s.pct)
+    : -1;
 
   return (
     <div className="space-y-3" role="list" aria-label="Build steps" aria-live="polite">
@@ -25,10 +29,13 @@ export function GenieBuildProgress({
         const isCompleted =
           status === "completed" ||
           (currentIdx >= 0 && idx < currentIdx) ||
-          (idx === currentIdx && progressPct >= step.pct);
-        const isActive = idx === currentIdx && status === "generating" && progressPct < step.pct;
-        const isFailed = status === "failed" && idx === currentIdx;
-        const isCancelled = status === "cancelled" && idx === currentIdx;
+          (idx === currentIdx && progressPct >= step.pct) ||
+          (pctFallback && progressPct >= step.pct);
+        const isActive =
+          (idx === currentIdx && status === "generating" && progressPct < step.pct) ||
+          (pctFallback && idx === nextPendingIdx);
+        const isFailed = status === "failed" && (idx === currentIdx || (currentIdx < 0 && idx === nextPendingIdx));
+        const isCancelled = status === "cancelled" && (idx === currentIdx || (currentIdx < 0 && idx === nextPendingIdx));
         const isPending = !isCompleted && !isActive && !isFailed && !isCancelled;
 
         return (
