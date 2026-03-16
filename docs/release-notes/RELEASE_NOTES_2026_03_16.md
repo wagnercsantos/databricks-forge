@@ -1,6 +1,6 @@
 # Release Notes -- 2026-03-16
 
-**Databricks Forge v0.37.5**
+**Databricks Forge v0.37.5 → v0.37.6**
 
 ---
 
@@ -14,8 +14,17 @@
 
 ---
 
+## v0.37.6 -- Replace placeholder repo URL in quickstart docs
+
+### Improvements
+#### Copy-pasteable clone command in all quickstart docs
+The `git clone <repo-url>` placeholder in `README.md`, `QUICKSTART.md`, and `docs/quickstart.md` has been replaced with the actual repository URL (`https://github.com/althrussell/databricks-forge.git`), so users can copy and paste the deploy command block directly without editing.
+
+---
+
 ## All Commits
 
 | Hash | Summary |
 |---|---|
-| *(uncommitted)* | fix: Genie build progress steps not marking complete in fast mode |
+| `2ec7a65` | fix: Genie build progress steps not marking complete in fast mode |
+| *(uncommitted)* | docs: replace placeholder repo URL with actual clone URL |

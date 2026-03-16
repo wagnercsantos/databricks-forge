@@ -32,7 +32,7 @@ The supported deployment path is the included `deploy.sh` script. It keeps resou
 ### Step 1: Deploy
 
 ```bash
-git clone <repo-url> databricks-forge
+git clone https://github.com/althrussell/databricks-forge.git
 cd databricks-forge
 ./deploy.sh
 ```

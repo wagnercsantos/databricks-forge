@@ -19,7 +19,7 @@ databricks auth login --host https://your-workspace.cloud.databricks.com
 ## Deploy
 
 ```bash
-git clone <repo-url> databricks-forge
+git clone https://github.com/althrussell/databricks-forge.git
 cd databricks-forge
 ./deploy.sh
 ```
