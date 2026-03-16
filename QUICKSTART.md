@@ -52,6 +52,7 @@ All flags are optional. Combine as needed.
 | `--app-name "name"` | Custom app name for multi-instance deployments. Isolates the Databricks App and Lakebase database. Default: `databricks-forge` |
 | `--warehouse "Name"` | Skip the interactive warehouse prompt |
 | `--profile "name"` | Use a specific Databricks CLI profile |
+| `--prebuilt` | Build locally and deploy a pre-compiled bundle (~3x faster) |
 | `--full` | Full sync: upload all files. Default is diff sync (only changed files since last deploy) |
 | `--destroy` | Remove the app and clean up workspace files |
 
@@ -59,10 +60,20 @@ All flags are optional. Combine as needed.
 
 | Flag | Default |
 |------|---------|
-| `--endpoint "name"` | `databricks-claude-opus-4-6` (premium) |
+| `--endpoint "name"` | `databricks-claude-opus-4-6` (premium/reasoning) |
 | `--fast-endpoint "name"` | `databricks-claude-sonnet-4-6` (fast/classification) |
 | `--embedding-endpoint "name"` | `databricks-qwen3-embedding-0-6b` (1024-dim) |
 | `--review-endpoint "name"` | `databricks-gpt-5-4` (SQL quality review) |
+| `--reasoning-endpoint-2 "name"` | `databricks-gemini-3-flash` (secondary reasoning) |
+| `--generation-endpoint "name"` | `databricks-llama-4-maverick` (dedicated generation) |
+| `--sql-endpoint "name"` | *(none)* (optional SQL/codex endpoint) |
+| `--lightweight-endpoint "name"` | `databricks-gemini-3-1-flash-lite` (lightweight/classification) |
+| `--allowed-models "a,b,c"` | Restrict the model pool to only these models |
+| `--skip-probe` | Skip deploy-time model availability probing (use defaults as-is) |
+
+Models are automatically probed at deploy time. If a preferred model is unavailable
+in your region/cloud, the script silently falls back to the best alternative.
+Use `--skip-probe` to bypass this check.
 
 ### Lakebase (database)
 
@@ -83,7 +94,9 @@ All flags are optional. Combine as needed.
 
 | Flag | Description |
 |------|-------------|
-| `--enable-metric-views` | Enable metric view generation (on by default) |
+| `--enable-demo-mode` | Enable Demo Mode for Field Engineering / Sales demos |
+| `--enable-metric-views` | Enable metric view generation |
+| `--enable-fabric` | Enable Fabric / Power BI features |
 
 ### Benchmark catalog
 
