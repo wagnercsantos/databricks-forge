@@ -21,7 +21,7 @@
 import { getConfig, getAppHeaders } from "./client";
 import { fetchWithTimeout } from "./fetch-with-timeout";
 import { getPoolRateLimiter, DEFAULT_429_BACKOFF_MS } from "./rate-limiter";
-import { getModelCapabilities } from "./model-registry";
+import { getModelCapabilities, markEndpointUnavailable } from "./model-registry";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -127,6 +127,16 @@ function parseRetryAfterHeader(resp: Response): number {
   return DEFAULT_429_BACKOFF_MS;
 }
 
+/**
+ * Detect whether an HTTP response indicates the endpoint does not exist.
+ * Covers 404 and 400 with RESOURCE_DOES_NOT_EXIST in the body.
+ */
+function isEndpointNotFoundResponse(status: number, body: string): boolean {
+  if (status === 404) return true;
+  if (status === 400 && body.includes("RESOURCE_DOES_NOT_EXIST")) return true;
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Chat Completions (non-streaming)
 // ---------------------------------------------------------------------------
@@ -194,6 +204,10 @@ export async function chatCompletion(
 
     if (!resp.ok) {
       const text = await resp.text();
+      const unavailable = isEndpointNotFoundResponse(resp.status, text);
+      if (unavailable) {
+        markEndpointUnavailable(options.endpoint);
+      }
       const retryAfterMs = resp.status === 429 ? parseRetryAfterHeader(resp) : undefined;
       if (resp.status === 429) {
         const rawRetryAfter = resp.headers.get("Retry-After");
@@ -210,6 +224,7 @@ export async function chatCompletion(
         `Model Serving request failed (${resp.status}): ${text}`,
         resp.status,
         retryAfterMs,
+        unavailable,
       );
     }
 
@@ -285,6 +300,10 @@ export async function chatCompletionStream(
 
     if (!resp.ok) {
       const text = await resp.text();
+      const unavailable = isEndpointNotFoundResponse(resp.status, text);
+      if (unavailable) {
+        markEndpointUnavailable(options.endpoint);
+      }
       const retryAfterMs = resp.status === 429 ? parseRetryAfterHeader(resp) : undefined;
       if (resp.status === 429) {
         const rawRetryAfter = resp.headers.get("Retry-After");
@@ -301,6 +320,7 @@ export async function chatCompletionStream(
         `Model Serving streaming request failed (${resp.status}): ${text}`,
         resp.status,
         retryAfterMs,
+        unavailable,
       );
     }
 
@@ -462,10 +482,24 @@ export class ModelServingError extends Error {
   /** Parsed Retry-After delay in ms (set on 429 responses). */
   readonly retryAfterMs?: number;
 
-  constructor(message: string, statusCode: number, retryAfterMs?: number) {
+  /**
+   * True when the error indicates the endpoint does not exist in this
+   * workspace/region (404, or 400 with RESOURCE_DOES_NOT_EXIST). The
+   * runtime rotation layer uses this to skip retries and immediately
+   * rotate to an alternative endpoint.
+   */
+  readonly endpointUnavailable: boolean;
+
+  constructor(
+    message: string,
+    statusCode: number,
+    retryAfterMs?: number,
+    endpointUnavailable = false,
+  ) {
     super(message);
     this.name = "ModelServingError";
     this.statusCode = statusCode;
     this.retryAfterMs = retryAfterMs;
+    this.endpointUnavailable = endpointUnavailable;
   }
 }

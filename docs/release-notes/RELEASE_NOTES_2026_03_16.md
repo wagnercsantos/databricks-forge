@@ -1,6 +1,6 @@
 # Release Notes -- 2026-03-16
 
-**Databricks Forge v0.37.5 → v0.37.6**
+**Databricks Forge v0.37.5 → v0.38.0**
 
 ---
 
@@ -22,9 +22,29 @@ The `git clone <repo-url>` placeholder in `README.md`, `QUICKSTART.md`, and `doc
 
 ---
 
+## v0.38.0 -- Model availability failover across regions and clouds
+
+### New Features
+#### Three-layer model availability failover
+Databricks Forge now gracefully handles model availability differences across regions and clouds. When a preferred model endpoint is not available, the app silently falls back to the best alternative at three levels:
+
+1. **Deploy-time probing** -- `deploy.sh` probes each model endpoint via the Databricks CLI before binding resources. Per-role fallback chains select the best available model (e.g. if `databricks-claude-sonnet-4-6` is unavailable, it falls back to `databricks-gemini-3-flash`). Use `--skip-probe` to bypass.
+2. **Startup-time validation** -- New `scripts/validate-endpoints.mjs` probes configured endpoints on app boot via the Serving Endpoints API, setting `FORGE_VALIDATED_ENDPOINTS` so the runtime pool starts with only reachable models.
+3. **Runtime resilience** -- When a model returns 404 or `RESOURCE_DOES_NOT_EXIST`, it is permanently marked unavailable and the request immediately rotates to an alternative endpoint with zero retries on the dead endpoint.
+
+### Improvements
+#### Health endpoint exposes model pool status
+`GET /api/health` (authenticated) now includes a `modelPool` section showing available and unavailable endpoints, useful for debugging cross-region deployment issues.
+
+#### Streaming LLM client handles unavailable endpoints
+The streaming fallback path (`databricks-llm-client.ts`) now rotates on endpoint unavailability in addition to 429 rate limits.
+
+---
+
 ## All Commits
 
 | Hash | Summary |
 |---|---|
 | `2ec7a65` | fix: Genie build progress steps not marking complete in fast mode |
-| *(uncommitted)* | docs: replace placeholder repo URL with actual clone URL |
+| `aa5a5f8` | docs: replace placeholder repo URL with actual clone URL |
+| `f5c943b` | feat: three-layer model availability failover for cross-region deployments |

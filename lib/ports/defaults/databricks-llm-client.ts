@@ -52,7 +52,10 @@ export const databricksLLMClient: LLMClient = {
     try {
       return await doStream(options);
     } catch (error) {
-      if (error instanceof ModelServingError && error.statusCode === 429) {
+      if (
+        error instanceof ModelServingError &&
+        (error.statusCode === 429 || error.endpointUnavailable)
+      ) {
         const fallbacks = getFallbacksForTier("generation", options.endpoint);
         for (const alt of fallbacks.slice(0, 2)) {
           try {

@@ -71,7 +71,9 @@ export function resolveEndpoint(tier: TaskTier): string {
         chosen = best;
         source = "tier-match";
       } else {
-        const allNames = getModelPool().map((ep) => ep.name);
+        const allNames = getModelPool()
+          .filter((ep) => ep.available)
+          .map((ep) => ep.name);
         const fallback = limiter.bestAvailable(allNames);
         if (fallback && !limiter.isBlocked(fallback)) {
           chosen = fallback;
@@ -104,8 +106,9 @@ export function getFallbacksForTier(tier: TaskTier, currentEndpoint: string): st
 
   if (filtered.length > 0) return filtered;
 
-  // Fall back to any endpoint in the pool
+  // Fall back to any available endpoint in the pool
   return getModelPool()
+    .filter((ep) => ep.available)
     .map((ep) => ep.name)
     .filter((n) => n !== currentEndpoint);
 }

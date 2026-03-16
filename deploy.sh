@@ -98,6 +98,7 @@ ARG_BENCHMARK_ADMINS=""
 ARG_ENABLE_METRIC_VIEWS=false
 ARG_ENABLE_FABRIC=false
 ARG_ENABLE_DEMO_MODE=false
+ARG_SKIP_PROBE=false
 ARG_PREBUILT=false
 ARG_FULL_SYNC=false
 ARG_DESTROY=false
@@ -163,6 +164,8 @@ Options:
   --enable-metric-views      Enable metric view generation (off by default)
   --enable-fabric            Enable Fabric / Power BI features (off by default)
   --enable-demo-mode         Enable Demo Mode for FE/Sales (off by default)
+  --skip-probe                Skip model availability probing (use defaults without checking).
+                             Useful for air-gapped workspaces or when probing is slow.
   --prebuilt                  Build locally and deploy pre-compiled standalone bundle.
                              Eliminates remote npm install + npm run build (~3x faster).
   --full                      Full sync: upload all files (slower, but guarantees clean state).
@@ -207,6 +210,7 @@ while [[ $# -gt 0 ]]; do
     --enable-metric-views) ARG_ENABLE_METRIC_VIEWS=true; shift ;;
     --enable-fabric)       ARG_ENABLE_FABRIC=true; shift ;;
     --enable-demo-mode)    ARG_ENABLE_DEMO_MODE=true; shift ;;
+    --skip-probe)          ARG_SKIP_PROBE=true; shift ;;
     --prebuilt)            ARG_PREBUILT=true; shift ;;
     --full)                ARG_FULL_SYNC=true; shift ;;
     --destroy)             ARG_DESTROY=true; shift ;;
@@ -308,6 +312,121 @@ ok()   { if [ -n "${1:-}" ]; then printf "OK  (%s)\n" "$1"; else printf "OK\n"; 
 # Extract a value from JSON via Python 3.
 # Usage: echo '{"k":"v"}' | json_val "['k']"
 json_val() { python3 -c "import sys,json; print(json.load(sys.stdin)$1)"; }
+
+# -------------------------------------------------------------------------
+# Model endpoint probing and fallback
+#
+# Before binding endpoints, verify each model exists in the workspace.
+# If a preferred model is unavailable, walk a fallback chain of alternatives
+# until one is found. This handles cross-region/cloud model availability
+# differences silently.
+# -------------------------------------------------------------------------
+
+# Check if a serving endpoint exists. Returns 0 if available, 1 otherwise.
+probe_endpoint() {
+  local name="$1"
+  if [ -z "$name" ]; then return 1; fi
+  databricks serving-endpoints get "$name" --output json &>/dev/null
+}
+
+# Given a space-separated list of endpoint names, return the first available.
+# If none are available (or probing fails), returns the first name as fallback.
+# Usage: resolve_with_fallback "model-a model-b model-c"
+resolve_with_fallback() {
+  local chain="$1"
+  local first=""
+  for candidate in $chain; do
+    if [ -z "$first" ]; then first="$candidate"; fi
+    if probe_endpoint "$candidate"; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  echo "$first"
+  return 1
+}
+
+# Probe all endpoint roles and resolve to best available.
+# Skips probing for roles where the user provided an explicit --flag override.
+# Sets the global ENDPOINT, FAST_ENDPOINT, etc. variables.
+probe_and_resolve_endpoints() {
+  if [ "$ARG_SKIP_PROBE" = "true" ]; then
+    printf "\n  Model probing skipped (--skip-probe).\n"
+    return
+  fi
+
+  printf "\n  Probing model availability...\n"
+
+  local resolved="" preferred="" label="" did_fallback=false
+
+  # Helper: probe a role and print status
+  # Usage: probe_role "Label" "user_override" "fallback chain" VARNAME
+  probe_role() {
+    local role_label="$1"
+    local user_override="$2"
+    local chain="$3"
+    local varname="$4"
+
+    if [ -n "$user_override" ]; then
+      printf "  %-20s %s (user override)\n" "$role_label:" "$user_override"
+      eval "$varname=\"$user_override\""
+      return
+    fi
+
+    preferred="${chain%% *}"
+    if probe_endpoint "$preferred"; then
+      printf "  %-20s %s\n" "$role_label:" "$preferred"
+      eval "$varname=\"$preferred\""
+    else
+      resolved=$(resolve_with_fallback "$chain")
+      if [ "$resolved" != "$preferred" ]; then
+        printf "  %-20s %s → %s\n" "$role_label:" "$preferred" "$resolved"
+        did_fallback=true
+      else
+        printf "  %-20s %s (probe failed, using default)\n" "$role_label:" "$preferred"
+      fi
+      eval "$varname=\"$resolved\""
+    fi
+  }
+
+  probe_role "Primary" "$ARG_ENDPOINT" \
+    "databricks-claude-opus-4-6 databricks-claude-opus-4-5 databricks-gpt-5-4 databricks-claude-sonnet-4-6" \
+    ENDPOINT
+
+  probe_role "Fast" "$ARG_FAST_ENDPOINT" \
+    "databricks-claude-sonnet-4-6 databricks-claude-sonnet-4-5 databricks-gemini-3-flash databricks-gemini-3-1-flash-lite" \
+    FAST_ENDPOINT
+
+  probe_role "Review" "$ARG_REVIEW_ENDPOINT" \
+    "databricks-gpt-5-4 databricks-claude-opus-4-6 databricks-claude-sonnet-4-6" \
+    REVIEW_ENDPOINT
+
+  probe_role "Embedding" "$ARG_EMBEDDING_ENDPOINT" \
+    "databricks-qwen3-embedding-0-6b" \
+    EMBEDDING_ENDPOINT
+
+  probe_role "Reasoning2" "$ARG_REASONING_ENDPOINT_2" \
+    "databricks-gemini-3-flash databricks-gemini-3-1-flash-lite databricks-llama-4-maverick" \
+    REASONING_ENDPOINT_2
+
+  probe_role "Generation" "$ARG_GENERATION_ENDPOINT" \
+    "databricks-llama-4-maverick databricks-gemini-3-flash databricks-gemini-3-1-flash-lite databricks-claude-sonnet-4-6" \
+    GENERATION_ENDPOINT
+
+  probe_role "Lightweight" "$ARG_LIGHTWEIGHT_ENDPOINT" \
+    "databricks-gemini-3-1-flash-lite databricks-gemini-3-flash databricks-claude-sonnet-4-5" \
+    LIGHTWEIGHT_ENDPOINT
+
+  if [ -n "$ARG_SQL_ENDPOINT" ]; then
+    printf "  %-20s %s (user override)\n" "SQL:" "$ARG_SQL_ENDPOINT"
+    SQL_ENDPOINT="$ARG_SQL_ENDPOINT"
+  fi
+
+  if [ "$did_fallback" = true ]; then
+    printf "\n  Some models were substituted. The app adapts automatically.\n"
+    printf "  Use explicit --endpoint flags to override selections.\n"
+  fi
+}
 
 get_app_compute_state() {
   local app_json
@@ -597,6 +716,7 @@ assemble_prebuilt() {
   cp scripts/start.sh "$DEPLOY_PKG/scripts/"
   cp scripts/provision-lakebase.mjs "$DEPLOY_PKG/scripts/"
   cp scripts/seed-benchmarks.mjs "$DEPLOY_PKG/scripts/"
+  cp scripts/validate-endpoints.mjs "$DEPLOY_PKG/scripts/"
 
   # -- Copy prisma schema + config -----------------------------------------
   mkdir -p "$DEPLOY_PKG/prisma"
@@ -1107,6 +1227,7 @@ main() {
     exit 0
   fi
 
+  probe_and_resolve_endpoints
   select_warehouse
   create_app
   wait_for_stable_state

@@ -38,6 +38,14 @@ export interface ModelEndpoint {
   supportsJsonMode: boolean;
   /** Maximum output tokens the model can generate per request. */
   maxOutputTokens: number;
+  /**
+   * Whether this endpoint is known to be reachable. Set to false at runtime
+   * when a 404/RESOURCE_DOES_NOT_EXIST is received, or when startup
+   * validation (FORGE_VALIDATED_ENDPOINTS) confirms it is missing.
+   * Once marked unavailable the endpoint is excluded from tier routing
+   * for the lifetime of the process.
+   */
+  available: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +176,7 @@ function buildPool(): ModelEndpoint[] {
       return;
     }
     seen.add(key);
-    pool.push({ name, ...tmpl });
+    pool.push({ name, ...tmpl, available: true });
   };
 
   // Primary endpoints (legacy env vars)
@@ -184,10 +192,12 @@ function buildPool(): ModelEndpoint[] {
 
   if (pool.length === 0) {
     const def = "databricks-claude-opus-4-6";
-    pool.push({ name: def, ...KNOWN_MODELS[def]! });
+    pool.push({ name: def, ...KNOWN_MODELS[def]!, available: true });
   }
 
-  return applyAllowlist(pool);
+  const filtered = applyAllowlist(pool);
+  applyStartupValidation(filtered);
+  return filtered;
 }
 
 /**
@@ -221,6 +231,52 @@ function applyAllowlist(pool: ModelEndpoint[]): ModelEndpoint[] {
   return filtered;
 }
 
+/**
+ * Apply startup-time endpoint validation results from FORGE_VALIDATED_ENDPOINTS.
+ * Set by scripts/validate-endpoints.mjs via start.sh. When present, any pool
+ * endpoint NOT in the validated list is marked unavailable.
+ */
+function applyStartupValidation(pool: ModelEndpoint[]): void {
+  const raw = process.env.FORGE_VALIDATED_ENDPOINTS;
+  if (!raw) return;
+
+  const validated = new Set(
+    raw
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  if (validated.size === 0) return;
+
+  let markedCount = 0;
+  for (const ep of pool) {
+    if (!validated.has(ep.name.toLowerCase())) {
+      ep.available = false;
+      markedCount++;
+    }
+  }
+
+  if (markedCount > 0) {
+    const stillAvailable = pool.filter((ep) => ep.available);
+    if (stillAvailable.length === 0) {
+      logger.warn(
+        "Startup validation marked ALL endpoints unavailable — resetting to assume all available",
+        { validated: raw, poolSize: pool.length },
+      );
+      for (const ep of pool) ep.available = true;
+    } else {
+      logger.info(
+        `Startup validation: ${markedCount} endpoint(s) marked unavailable, ${stillAvailable.length} active`,
+        {
+          unavailable: pool.filter((ep) => !ep.available).map((ep) => ep.name),
+          available: stillAvailable.map((ep) => ep.name),
+        },
+      );
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -234,10 +290,10 @@ export function getModelPool(): readonly ModelEndpoint[] {
   return _pool;
 }
 
-/** Returns all endpoints in the pool that support a given tier, sorted by priority. */
+/** Returns all available endpoints in the pool that support a given tier, sorted by priority. */
 export function getEndpointsForTier(tier: TaskTier): readonly ModelEndpoint[] {
   return getModelPool()
-    .filter((ep) => ep.tiers.includes(tier))
+    .filter((ep) => ep.available && ep.tiers.includes(tier))
     .sort((a, b) => a.priority - b.priority);
 }
 
@@ -249,6 +305,53 @@ export function isMultiEndpointPool(): boolean {
 /** Sum of all per-endpoint maxConcurrent caps. */
 export function getPoolMaxConcurrent(): number {
   return getModelPool().reduce((sum, ep) => sum + ep.maxConcurrent, 0);
+}
+
+/**
+ * Mark a specific endpoint as permanently unavailable for the lifetime of
+ * this process. Called by model-serving.ts when a 404 or
+ * RESOURCE_DOES_NOT_EXIST response is received.
+ */
+export function markEndpointUnavailable(endpoint: string): void {
+  const pool = getModelPool() as ModelEndpoint[];
+  const ep = pool.find((e) => e.name.toLowerCase() === endpoint.toLowerCase());
+  if (!ep || !ep.available) return;
+
+  ep.available = false;
+
+  const remaining = pool.filter((e) => e.available);
+  logger.warn("Endpoint marked unavailable at runtime (404 / RESOURCE_DOES_NOT_EXIST)", {
+    endpoint,
+    remainingAvailable: remaining.length,
+    remainingNames: remaining.map((e) => e.name),
+  });
+
+  if (remaining.length === 0) {
+    logger.error(
+      "All endpoints are now unavailable — LLM calls will fail until an endpoint becomes reachable",
+    );
+  }
+}
+
+/** Check whether a specific endpoint is currently marked as available. */
+export function isEndpointAvailable(endpoint: string): boolean {
+  const pool = getModelPool();
+  const ep = pool.find((e) => e.name.toLowerCase() === endpoint.toLowerCase());
+  return ep ? ep.available : true;
+}
+
+/** Returns a snapshot of pool availability for health checks and diagnostics. */
+export function getPoolAvailability(): {
+  available: string[];
+  unavailable: string[];
+  total: number;
+} {
+  const pool = getModelPool();
+  return {
+    available: pool.filter((ep) => ep.available).map((ep) => ep.name),
+    unavailable: pool.filter((ep) => !ep.available).map((ep) => ep.name),
+    total: pool.length,
+  };
 }
 
 /** Reset the pool (for testing). */
@@ -287,10 +390,14 @@ export function getModelCapabilities(endpoint: string): {
 
 function logPoolSummary(pool: ModelEndpoint[]): void {
   const restricted = !!process.env.DATABRICKS_ALLOWED_MODELS;
-  const totalConcurrent = pool.reduce((s, ep) => s + ep.maxConcurrent, 0);
+  const availablePool = pool.filter((ep) => ep.available);
+  const totalConcurrent = availablePool.reduce((s, ep) => s + ep.maxConcurrent, 0);
+  const unavailableCount = pool.length - availablePool.length;
 
   logger.info(
-    `Model pool initialised: ${pool.length} endpoint${pool.length !== 1 ? "s" : ""} active${restricted ? " (restricted by DATABRICKS_ALLOWED_MODELS)" : ""}`,
+    `Model pool initialised: ${availablePool.length} endpoint${availablePool.length !== 1 ? "s" : ""} available` +
+      (unavailableCount > 0 ? `, ${unavailableCount} unavailable` : "") +
+      (restricted ? " (restricted by DATABRICKS_ALLOWED_MODELS)" : ""),
     {
       endpoints: pool.map((ep) => ({
         name: ep.name,
@@ -298,6 +405,7 @@ function logPoolSummary(pool: ModelEndpoint[]): void {
         maxConcurrent: ep.maxConcurrent,
         jsonMode: ep.supportsJsonMode,
         maxOutput: ep.maxOutputTokens,
+        available: ep.available,
       })),
       effectiveMaxConcurrent: totalConcurrent,
     },

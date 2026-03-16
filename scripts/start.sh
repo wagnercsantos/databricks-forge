@@ -417,6 +417,19 @@ if [ -x "$PRISMA_BIN" ] && [ -n "$SCHEMA_URL" ]; then
     echo "[startup] Benchmark seed disabled."
   fi
 
+  # -- Step H: Validate model serving endpoints (non-fatal) ----------------
+  # validate-endpoints.mjs writes diagnostic progress to stderr (shows in
+  # logs) and a comma-separated list of available endpoints to stdout.
+  echo "[startup] Validating model serving endpoints..."
+  VALIDATED_ENDPOINTS=$(node scripts/validate-endpoints.mjs) || true
+
+  if [ -n "$VALIDATED_ENDPOINTS" ]; then
+    export FORGE_VALIDATED_ENDPOINTS="$VALIDATED_ENDPOINTS"
+    echo "[startup] Validated endpoints: $VALIDATED_ENDPOINTS"
+  else
+    echo "[startup] Endpoint validation returned no results; all configured endpoints assumed available."
+  fi
+
 else
   echo "[startup] FATAL: Prisma CLI not found or no DB URL — cannot sync schema."
   exit 1

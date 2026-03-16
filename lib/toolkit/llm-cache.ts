@@ -26,7 +26,7 @@ import {
 } from "@/lib/dbx/model-serving";
 import { addJitter, DEFAULT_429_BACKOFF_MS } from "@/lib/dbx/rate-limiter";
 import { getFallbackEndpoint } from "@/lib/dbx/client";
-import { getModelPool, type TaskTier } from "@/lib/dbx/model-registry";
+import { getModelPool, isEndpointAvailable, type TaskTier } from "@/lib/dbx/model-registry";
 import { getFallbacksForTier } from "@/lib/dbx/task-router";
 import { createScopedLogger } from "@/lib/logger";
 
@@ -132,6 +132,22 @@ function getRetryAfterMs(error: unknown): number {
   return DEFAULT_429_BACKOFF_MS;
 }
 
+/**
+ * Detect errors that indicate the endpoint does not exist in this
+ * workspace/region. These should trigger immediate endpoint rotation
+ * with no retries against the same endpoint.
+ */
+function isEndpointUnavailableError(error: unknown): boolean {
+  if (error instanceof ModelServingError) {
+    return error.endpointUnavailable;
+  }
+  const msg = error instanceof Error ? error.message : String(error);
+  return (
+    msg.includes("RESOURCE_DOES_NOT_EXIST") ||
+    (msg.includes("(404)") && msg.includes("Model Serving"))
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Model Pool (pool-aware fallback)
 // ---------------------------------------------------------------------------
@@ -147,7 +163,7 @@ function buildEndpointPool(currentEndpoint: string, tier?: TaskTier): string[] {
   const seen = new Set<string>([currentEndpoint]);
 
   const addIfDistinct = (ep: string | null | undefined) => {
-    if (ep && !seen.has(ep)) {
+    if (ep && !seen.has(ep) && isEndpointAvailable(ep)) {
       seen.add(ep);
       pool.push(ep);
     }
@@ -192,6 +208,7 @@ async function chatCompletionWithRetry(
   let lastError: Error | null = null;
   let rateLimitHits = 0;
   let exhausted429 = false;
+  let needsRotation = false;
 
   const maxAttempts = MAX_429_RETRIES + 1;
 
@@ -235,6 +252,16 @@ async function chatCompletionWithRetry(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
+      if (isEndpointUnavailableError(error)) {
+        log.warn("Endpoint unavailable (404/RESOURCE_DOES_NOT_EXIST), rotating immediately", {
+          endpoint: options.endpoint,
+          error: lastError.message,
+          errorCategory: "endpoint_unavailable",
+        });
+        needsRotation = true;
+        break;
+      }
+
       if (isRateLimitError(error)) {
         rateLimitHits++;
         if (rateLimitHits > MAX_429_RETRIES) {
@@ -263,13 +290,14 @@ async function chatCompletionWithRetry(
     }
   }
 
-  if (exhausted429) {
+  if (exhausted429 || needsRotation) {
+    const rotationReason = needsRotation ? "endpoint_unavailable" : "rate_limit";
     const pool = buildEndpointPool(options.endpoint, tier);
     for (const alt of pool) {
       log.warn("LLM rotating to alternate endpoint", {
         from: options.endpoint,
         to: alt,
-        errorCategory: "rate_limit",
+        errorCategory: rotationReason,
       });
       const fallbackOptions = { ...options, endpoint: alt };
       for (let fa = 0; fa < FALLBACK_MAX_ATTEMPTS; fa++) {
@@ -289,6 +317,14 @@ async function chatCompletionWithRetry(
           return fbResult;
         } catch (fbError) {
           lastError = fbError instanceof Error ? fbError : new Error(String(fbError));
+          if (isEndpointUnavailableError(fbError)) {
+            log.warn("LLM fallback endpoint also unavailable, trying next", {
+              endpoint: alt,
+              error: lastError.message,
+              errorCategory: "endpoint_unavailable",
+            });
+            break;
+          }
           if (isRateLimitError(fbError)) {
             log.warn("LLM fallback also rate-limited, trying next", {
               endpoint: alt,
