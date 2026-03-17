@@ -922,8 +922,15 @@ print(json.dumps({
 ")
     local create_err
     if ! create_err=$(databricks apps create --json "$create_json" --no-compute --no-wait 2>&1); then
-      printf "FAILED\n"
-      die "Failed to create app.\n  $create_err"
+      if echo "$create_err" | grep -q "unknown flag.*--no-compute"; then
+        if ! create_err=$(databricks apps create --json "$create_json" --no-wait 2>&1); then
+          printf "FAILED\n"
+          die "Failed to create app.\n  $create_err"
+        fi
+      else
+        printf "FAILED\n"
+        die "Failed to create app.\n  $create_err"
+      fi
     fi
     ok "created with scopes"
   else
