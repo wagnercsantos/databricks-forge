@@ -90,8 +90,7 @@ export async function GET(request: NextRequest) {
     const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
 
     await ensureMigrated();
-    const userEmail = await getCurrentUserEmail();
-    const runs = await listRuns(limit, offset, userEmail);
+    const runs = await listRuns(limit, offset);
 
     return NextResponse.json(
       { runs },

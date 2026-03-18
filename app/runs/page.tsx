@@ -5,7 +5,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/page-header";
 import { RunsContent } from "@/components/runs/runs-content";
 import { listRuns } from "@/lib/lakebase/runs";
-import { getCurrentUserEmail } from "@/lib/dbx/client";
 import { logger } from "@/lib/logger";
 import { Plus } from "lucide-react";
 import type { PipelineRun } from "@/lib/domain/types";
@@ -17,8 +16,7 @@ async function fetchInitialRuns(): Promise<{
   error: string | null;
 }> {
   try {
-    const userEmail = await getCurrentUserEmail();
-    const runs = await listRuns(200, 0, userEmail);
+    const runs = await listRuns(200, 0);
     return { runs, error: null };
   } catch (err) {
     logger.error("[runs] Failed to fetch initial runs", {
