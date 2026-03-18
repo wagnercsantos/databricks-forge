@@ -650,8 +650,9 @@ function buildActions(
     intent,
   );
 
-  if (dashboardProposal && dashboardProposal.tables.length > 0 && !genieAction) {
-    const dSchemas = dashboardProposal.tables.map((t) => t.split(".")[1]).filter(Boolean);
+  if (dashboardProposal && (dashboardProposal.tables.length > 0 || tables.length > 0)) {
+    const dashTables = dashboardProposal.tables.length > 0 ? dashboardProposal.tables : tables;
+    const dSchemas = dashTables.map((t) => t.split(".")[1]).filter(Boolean);
     const dSchemaCounts = new Map<string, number>();
     for (const s of dSchemas) dSchemaCounts.set(s, (dSchemaCounts.get(s) || 0) + 1);
     let dashDomainHint = "";
@@ -671,7 +672,7 @@ function buildActions(
         sqlBlocks: sqlBlocks.slice(0, 3),
         conversationSummary: conversationSummary || undefined,
         domainHint: dashDomainHint || undefined,
-        tableEnrichments: dashboardProposal.tables.map((t) => enrichmentMap.get(t)).filter(Boolean),
+        tableEnrichments: dashTables.map((t) => enrichmentMap.get(t)).filter(Boolean),
       },
     });
   }
@@ -710,7 +711,7 @@ function buildActions(
 
   // Persona-specific reordering: promote dashboard actions for analyst,
   // ensure deploy actions are prominent for business
-  if (persona === "analyst") {
+  if (persona === "analyst" || intent === "dashboard") {
     const dashIdx = actions.findIndex((a) => a.type === "deploy_dashboard");
     if (dashIdx > 0) {
       const [dashAction] = actions.splice(dashIdx, 1);
