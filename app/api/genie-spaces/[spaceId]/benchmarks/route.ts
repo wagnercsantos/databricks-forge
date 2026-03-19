@@ -31,6 +31,7 @@ export async function GET(
     const questions = (space.benchmarks?.questions ?? []).map(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (q: any) => ({
+        id: q.id ?? undefined,
         question: Array.isArray(q.question) ? q.question[0] : String(q.question ?? ""),
         expectedSql: Array.isArray(q.answer?.[0]?.content)
           ? q.answer[0].content.join("\n")

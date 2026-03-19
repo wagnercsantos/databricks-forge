@@ -229,10 +229,16 @@ export default function BenchmarkPage() {
   const [cloning, setCloning] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  const selectableQuestions = useMemo(
+    () => questions.filter((q) => !q.id.startsWith("_local-")),
+    [questions],
+  );
   const selectedCount = useMemo(() => selectedIds.size, [selectedIds]);
-  const allSelected = selectedCount === questions.length && questions.length > 0;
+  const allSelected =
+    selectableQuestions.length > 0 && selectedCount === selectableQuestions.length;
 
   const toggleSelection = (id: string) => {
+    if (id.startsWith("_local-")) return;
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -245,7 +251,7 @@ export default function BenchmarkPage() {
     if (allSelected) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(questions.map((q) => q.id)));
+      setSelectedIds(new Set(selectableQuestions.map((q) => q.id)));
     }
   };
 
@@ -256,13 +262,13 @@ export default function BenchmarkPage() {
       const data = await res.json();
       const qs: BenchmarkQuestion[] = (data.questions ?? []).map(
         (q: { id?: string; question: string; expectedSql?: string | null }, i: number) => ({
-          id: q.id ?? `q-${i}`,
+          id: q.id ?? `_local-${i}`,
           question: q.question,
           expectedSql: q.expectedSql ?? null,
         }),
       );
       setQuestions(qs);
-      setSelectedIds(new Set(qs.map((q) => q.id)));
+      setSelectedIds(new Set(qs.filter((q) => !q.id.startsWith("_local-")).map((q) => q.id)));
     } catch {
       toast.error("Failed to load benchmark questions");
     } finally {
@@ -295,11 +301,13 @@ export default function BenchmarkPage() {
   // ---------------------------------------------------------------------------
 
   const runBenchmarks = async (questionIds?: string[]) => {
-    const ids = questionIds ?? [...selectedIds];
-    if (ids.length === 0) return;
+    const rawIds = questionIds ?? [...selectedIds];
+    const realIds = rawIds.filter((id) => !id.startsWith("_local-"));
+    const totalQuestions = questions.length;
+    const runAllQuestions = realIds.length === 0 || realIds.length >= totalQuestions;
     setRunning(true);
     setResults([]);
-    setRunProgress({ done: 0, total: ids.length });
+    setRunProgress({ done: 0, total: runAllQuestions ? totalQuestions : realIds.length });
     setCurrentRunId(null);
     setCurrentEvalRunId(null);
 
@@ -307,7 +315,7 @@ export default function BenchmarkPage() {
       const res = await fetch(`/api/genie-spaces/${spaceId}/benchmarks/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ questionIds: ids }),
+        body: JSON.stringify(runAllQuestions ? {} : { questionIds: realIds }),
       });
 
       if (!res.ok) {
@@ -332,7 +340,7 @@ export default function BenchmarkPage() {
 
           setRunProgress({
             done: pollData.numDone ?? 0,
-            total: pollData.numQuestions ?? ids.length,
+            total: pollData.numQuestions ?? totalQuestions,
           });
 
           if (pollData.results && pollData.results.length > 0) {
@@ -635,7 +643,10 @@ export default function BenchmarkPage() {
             <>
               {/* Controls */}
               <div className="flex items-center gap-3">
-                <Button onClick={() => runBenchmarks()} disabled={running || selectedCount === 0}>
+                <Button
+                  onClick={() => runBenchmarks()}
+                  disabled={running || (selectedCount === 0 && questions.length === 0)}
+                >
                   {running ? (
                     <Loader2 className="mr-2 size-4 animate-spin" />
                   ) : (
@@ -643,9 +654,9 @@ export default function BenchmarkPage() {
                   )}
                   {running
                     ? `Running ${runProgress.done}/${runProgress.total}...`
-                    : selectedCount === questions.length
+                    : selectedCount === 0 || selectedCount >= selectableQuestions.length
                       ? `Run All (${questions.length})`
-                      : `Run Selected (${selectedCount}/${questions.length})`}
+                      : `Run Selected (${selectedCount}/${selectableQuestions.length})`}
                 </Button>
                 {results.length > 0 && !running && hasFailures && (
                   <Button variant="outline" onClick={rerunFailed} disabled={running}>
@@ -692,7 +703,9 @@ export default function BenchmarkPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-1 p-4 pt-0">
-                    {questions.map((q) => (
+                    {questions.map((q) => {
+                      const isLocal = q.id.startsWith("_local-");
+                      return (
                       <div
                         key={q.id}
                         className="flex items-start gap-3 rounded-md px-2 py-2 hover:bg-muted/50"
@@ -701,6 +714,7 @@ export default function BenchmarkPage() {
                           <Checkbox
                             checked={selectedIds.has(q.id)}
                             onCheckedChange={() => toggleSelection(q.id)}
+                            disabled={isLocal}
                             className="mt-0.5"
                           />
                           <div className="min-w-0 flex-1">
@@ -716,14 +730,15 @@ export default function BenchmarkPage() {
                           variant="ghost"
                           size="sm"
                           className="h-7 shrink-0 px-2"
-                          disabled={running}
+                          disabled={running || isLocal}
                           onClick={() => runBenchmarks([q.id])}
                           title={`Run "${q.question}"`}
                         >
                           <Play className="size-3" />
                         </Button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </CardContent>
                 </Card>
               )}

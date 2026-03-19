@@ -1,6 +1,6 @@
 # Release Notes -- 2026-03-19
 
-**Databricks Forge v0.39.0**
+**Databricks Forge v0.39.0 → v0.39.1**
 
 ---
 
@@ -31,8 +31,17 @@ The auto-improve loop now uses `runEval()` instead of the old `runBenchmarks()`,
 
 ---
 
+## v0.39.1 -- Fix synthetic question IDs sent to Genie Eval API
+
+### Bug Fixes
+- **Benchmark eval run fails with "Curated question with ID 'q-0' not found"** -- The benchmarks API route was not returning the real `id` field from serialized space questions. The UI generated synthetic fallback IDs (`q-0`, `q-1`, ...) which the Genie Eval API rejected. Now the API passes through real question IDs, and the UI disables individual selection for questions without IDs while still allowing "Run All" (which omits `questionIds`, letting the API evaluate every benchmark question).
+
+---
+
+
 ## All Commits
 
 | Hash | Summary |
 |---|---|
+| `853b4ce` | fix: pass real benchmark question IDs to Genie Eval API instead of synthetic fallbacks |
 | `d671224` | feat: migrate Genie benchmarks to official Databricks Eval API |
