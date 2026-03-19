@@ -12,7 +12,9 @@ import { parseLLMJson } from "@/lib/toolkit/parse-llm-json";
 import { resolveEndpoint } from "@/lib/dbx/client";
 import { mapWithConcurrency } from "@/lib/toolkit/concurrency";
 import { logger } from "@/lib/logger";
-import type { BenchmarkResult, FailureCategory } from "./benchmark-runner";
+import type { EvalResultDetail } from "./benchmark-runner";
+import type { ScoreReason } from "./eval-types";
+import { SCORE_REASON_LABELS } from "./eval-types";
 import type { SpaceJson } from "./types";
 import type { FixStrategy } from "./health-checks/types";
 
@@ -118,9 +120,9 @@ export interface CategoryAnalysis {
  * Build the benchmark context block shared across all category analyses.
  * Includes both passing and failing questions so the LLM can learn patterns.
  */
-function buildBenchmarkContext(results: BenchmarkResult[]): string {
-  const passing = results.filter((r) => r.passed);
-  const failing = results.filter((r) => !r.passed);
+function buildBenchmarkContext(results: EvalResultDetail[]): string {
+  const passing = results.filter((r) => r.assessment === "GOOD");
+  const failing = results.filter((r) => r.assessment !== "GOOD");
 
   const lines: string[] = [];
   lines.push(`## Benchmark Results: ${passing.length} passed, ${failing.length} failed\n`);
@@ -138,8 +140,11 @@ function buildBenchmarkContext(results: BenchmarkResult[]): string {
   if (failing.length > 0) {
     lines.push("### Failing Questions (what's broken):");
     for (const r of failing) {
-      lines.push(`- Q: "${r.question}" [${r.failureCategory ?? "unknown"}]`);
-      if (r.failureReason) lines.push(`  Reason: ${r.failureReason}`);
+      const reasonLabels = r.assessmentReasons
+        .map((reason) => SCORE_REASON_LABELS[reason])
+        .join(", ");
+      lines.push(`- Q: "${r.question}" [${r.assessment}]`);
+      if (reasonLabels) lines.push(`  Reasons: ${reasonLabels}`);
       if (r.expectedSql) lines.push(`  Expected: ${r.expectedSql.slice(0, 200)}`);
       if (r.actualSql) lines.push(`  Actual: ${r.actualSql.slice(0, 200)}`);
     }
@@ -168,10 +173,14 @@ async function analyzeCategory(
   category: ConfigCategory,
   configSlice: string,
   benchmarkContext: string,
-  failingCategories: FailureCategory[],
+  scoreReasons: ScoreReason[],
 ): Promise<CategoryAnalysis> {
   const endpoint = resolveEndpoint("classification");
   const categoryPrompt = CATEGORY_PROMPTS[category];
+
+  const reasonLabels = [...new Set(scoreReasons)]
+    .map((r) => SCORE_REASON_LABELS[r])
+    .join(", ");
 
   const messages = [
     {
@@ -194,7 +203,7 @@ Return JSON: {
       role: "user" as const,
       content: `${benchmarkContext}
 
-### Failure Categories Present: ${[...new Set(failingCategories)].join(", ")}
+### Assessment Reasons Present: ${reasonLabels}
 
 ### Current Configuration (${category}):
 ${configSlice}
@@ -264,45 +273,57 @@ function mapCategoryToStrategies(category: ConfigCategory): FixStrategy[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Determine which config categories are relevant based on failure categories.
+ * Determine which config categories are relevant based on score reasons.
  */
-function relevantCategories(failureCategories: FailureCategory[]): ConfigCategory[] {
+function relevantCategories(scoreReasons: ScoreReason[]): ConfigCategory[] {
   const cats = new Set<ConfigCategory>();
 
-  for (const fc of failureCategories) {
-    switch (fc) {
-      case "wrong_join":
+  for (const reason of scoreReasons) {
+    switch (reason) {
+      case "LLM_JUDGE_MISSING_JOIN":
+      case "LLM_JUDGE_MISSING_OR_INCORRECT_JOIN":
         cats.add("joins");
         break;
-      case "wrong_filter":
+      case "LLM_JUDGE_MISSING_OR_INCORRECT_FILTER":
+      case "LLM_JUDGE_WRONG_FILTER":
+      case "LLM_JUDGE_MISSING_OR_INCORRECT_AGGREGATION":
+      case "LLM_JUDGE_WRONG_AGGREGATION":
+      case "LLM_JUDGE_INCORRECT_METRIC_CALCULATION":
+      case "SINGLE_CELL_DIFFERENCE":
         cats.add("measures_filters");
-        cats.add("instructions");
         break;
-      case "wrong_aggregation":
-        cats.add("measures_filters");
-        break;
-      case "wrong_column":
+      case "LLM_JUDGE_WRONG_COLUMNS":
+      case "LLM_JUDGE_INCORRECT_TABLE_OR_FIELD_USAGE":
+      case "RESULT_MISSING_COLUMNS":
+      case "RESULT_EXTRA_COLUMNS":
+      case "COLUMN_TYPE_DIFFERENCE":
         cats.add("synonyms");
         cats.add("instructions");
         break;
-      case "missing_data":
-        cats.add("measures_filters");
-        cats.add("examples");
-        break;
-      case "wrong_sort":
+      case "LLM_JUDGE_INSTRUCTION_COMPLIANCE_OR_MISSING_BUSINESS_LOGIC":
+      case "LLM_JUDGE_MISINTERPRETATION_OF_USER_REQUEST":
+      case "LLM_JUDGE_SEMANTIC_ERROR":
+      case "LLM_JUDGE_FORMATTING_ERROR":
+      case "LLM_JUDGE_INCOMPLETE_OR_PARTIAL_OUTPUT":
         cats.add("instructions");
         break;
-      case "extra_data":
-        cats.add("measures_filters");
-        break;
-      case "timeout":
-      case "execution_error":
+      case "LLM_JUDGE_INCORRECT_FUNCTION_USAGE":
+      case "LLM_JUDGE_SYNTAX_ERROR":
         cats.add("examples");
         break;
-      case "unknown":
+      case "RESULT_MISSING_ROWS":
+      case "RESULT_EXTRA_ROWS":
+      case "EMPTY_RESULT":
         cats.add("measures_filters");
         cats.add("examples");
+        break;
+      case "EMPTY_GOOD_SQL":
+        cats.add("benchmarks");
+        break;
+      case "LLM_JUDGE_OTHER":
         cats.add("instructions");
+        cats.add("measures_filters");
+        cats.add("examples");
         break;
     }
   }
@@ -318,34 +339,29 @@ function relevantCategories(failureCategories: FailureCategory[]): ConfigCategor
 
 /**
  * Run two-step category analysis for all relevant categories based on
- * benchmark results. Returns per-category diagnoses and recommendations.
- *
- * This replaces the simple failure-category-to-check-ID mapping with
- * LLM-driven analysis that understands what specifically went wrong.
+ * eval results. Returns per-category diagnoses and recommendations.
  */
 export async function runCategoryAnalysis(
   space: SpaceJson,
-  benchmarkResults: BenchmarkResult[],
+  evalResults: EvalResultDetail[],
 ): Promise<CategoryAnalysis[]> {
-  const failing = benchmarkResults.filter((r) => !r.passed);
+  const failing = evalResults.filter((r) => r.assessment !== "GOOD");
   if (failing.length === 0) return [];
 
-  const failureCategories = failing
-    .map((r) => r.failureCategory)
-    .filter((c): c is FailureCategory => !!c);
+  const scoreReasons = failing.flatMap((r) => r.assessmentReasons);
 
-  const categories = relevantCategories(failureCategories);
-  const benchmarkContext = buildBenchmarkContext(benchmarkResults);
+  const categories = relevantCategories(scoreReasons);
+  const benchmarkContext = buildBenchmarkContext(evalResults);
 
   logger.info("Running category analysis", {
     categories,
     failureCount: failing.length,
-    failureCategories: [...new Set(failureCategories)],
+    scoreReasons: [...new Set(scoreReasons)],
   });
 
   const tasks = categories.map((cat) => () => {
     const configSlice = sliceConfigForCategory(space, cat);
-    return analyzeCategory(cat, configSlice, benchmarkContext, failureCategories);
+    return analyzeCategory(cat, configSlice, benchmarkContext, scoreReasons);
   });
 
   const analyses = await mapWithConcurrency(tasks, 3);

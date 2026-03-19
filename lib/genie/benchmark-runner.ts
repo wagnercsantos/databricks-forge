@@ -1,88 +1,73 @@
 /**
- * Benchmark Runner -- executes benchmark questions against a deployed
- * Genie Space via the Conversation API, optionally executes both expected
- * and actual SQL to compare results, and uses an LLM judge for semantic
- * equivalence when result sets differ.
+ * Benchmark Runner -- creates evaluation runs against a deployed Genie Space
+ * via the official Genie Eval API (Beta), polls for completion, and fetches
+ * detailed results with assessments and score reasons.
  */
 
-import { startConversation, type GenieConversationMessage } from "@/lib/dbx/genie";
+import {
+  createEvalRun,
+  pollEvalRunUntilDone,
+  listEvalResults,
+  getEvalResultDetails,
+} from "@/lib/dbx/genie";
 import { reviewBatch, type BatchReviewItem, type BatchReviewResult } from "@/lib/ai/sql-reviewer";
-import { isReviewEnabled, resolveEndpoint } from "@/lib/dbx/client";
-import { executeSQL, type SqlResult } from "@/lib/dbx/sql";
-import { cachedChatCompletion } from "@/lib/toolkit/llm-cache";
+import { isReviewEnabled } from "@/lib/dbx/client";
 import { createConcurrencyLimiter } from "@/lib/toolkit/concurrency";
-import { parseLLMJson } from "@/lib/genie/passes/parse-llm-json";
 import { logger } from "@/lib/logger";
+import type {
+  GenieEvalRunResponse,
+  GenieEvalAssessment,
+  ScoreReason,
+  EvaluationStatusType,
+  GenieEvalResponse,
+} from "./eval-types";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type FailureCategory =
-  | "wrong_join"
-  | "wrong_filter"
-  | "wrong_aggregation"
-  | "wrong_column"
-  | "missing_data"
-  | "wrong_sort"
-  | "extra_data"
-  | "timeout"
-  | "execution_error"
-  | "unknown";
-
-export interface SqlResultPreview {
-  columns: Array<{ name: string; type: string }>;
-  rows: string[][];
-  rowCount: number;
-  truncated: boolean;
-  error?: string;
-}
-
-export interface BenchmarkResult {
-  question: string;
-  expectedSql: string | null;
-  actualSql: string | null;
-  status: GenieConversationMessage["status"];
-  passed: boolean;
-  error?: string;
-  actualSqlResult?: SqlResultPreview;
-  expectedSqlResult?: SqlResultPreview;
-  failureCategory?: FailureCategory;
-  failureReason?: string;
-  comparisonMethod?: "result" | "sql_similarity" | "completion_only";
-  sqlSimilarity?: number;
-}
-
-export interface BenchmarkRunSummary {
+export interface EvalRunResult {
+  evalRunId: string;
   spaceId: string;
-  total: number;
-  passed: number;
-  failed: number;
-  errorCount: number;
-  results: BenchmarkResult[];
+  status: EvaluationStatusType;
+  numQuestions: number;
+  numDone: number;
+  numCorrect: number;
+  numNeedsReview: number;
+  accuracy: number;
+  results: EvalResultDetail[];
   expectedSqlReview?: BatchReviewResult[];
-  failureCategoryCounts?: Record<FailureCategory, number>;
 }
 
-export interface BenchmarkRunOptions {
-  timeoutPerQuestion?: number;
-  executeResults?: boolean;
-  maxResultRows?: number;
-  questionDelayMs?: number;
-  /** Max concurrent Genie conversations (default 1 = sequential). Set >1 for concurrent execution. */
-  concurrency?: number;
-  /** OBO token for Genie Conversation API calls (user identity). */
+export interface EvalResultDetail {
+  resultId: string;
+  benchmarkQuestionId: string;
+  question: string;
+  assessment: GenieEvalAssessment;
+  assessmentReasons: ScoreReason[];
+  manualAssessment: boolean;
+  expectedSql?: string;
+  actualSql?: string;
+  expectedText?: string;
+  actualText?: string;
+  actualExecutionResult?: Record<string, unknown>;
+  expectedExecutionResult?: Record<string, unknown>;
+}
+
+export interface RunEvalOptions {
   oboToken?: string;
+  questionIds?: string[];
+  timeoutMs?: number;
+  onProgress?: (run: GenieEvalRunResponse) => void;
 }
 
 // ---------------------------------------------------------------------------
-// Pre-run SQL review
+// Pre-run SQL review (kept from previous implementation)
 // ---------------------------------------------------------------------------
 
 /**
  * Pre-run review of benchmark expectedSql to ensure the benchmark suite
- * itself is high quality. Returns review results per benchmark.
- * Only runs when the review endpoint is configured.
+ * itself is high quality. Only runs when the review endpoint is configured.
  */
 export async function reviewBenchmarkExpectedSql(
   benchmarks: Array<{ question: string; expectedSql?: string }>,
@@ -112,424 +97,148 @@ export async function reviewBenchmarkExpectedSql(
 }
 
 // ---------------------------------------------------------------------------
-// SQL text similarity (fast pre-check)
+// Response extraction helpers
 // ---------------------------------------------------------------------------
 
-function normalizeSql(sql: string): string {
-  return sql
-    .replace(/--[^\n]*/g, "")
-    .replace(/\s+/g, " ")
-    .replace(/\s*([(),])\s*/g, "$1")
-    .trim()
-    .toLowerCase();
+function extractSql(responses?: GenieEvalResponse[]): string | undefined {
+  if (!responses) return undefined;
+  const sqlResponse = responses.find((r) => r.response_type === "SQL");
+  return sqlResponse?.response ?? undefined;
 }
 
-function sqlSimilarity(a: string, b: string): number {
-  const na = normalizeSql(a);
-  const nb = normalizeSql(b);
-  if (na === nb) return 1.0;
-
-  const tokensA = new Set(na.split(/\s+/));
-  const tokensB = new Set(nb.split(/\s+/));
-  const intersection = [...tokensA].filter((t) => tokensB.has(t));
-  const union = new Set([...tokensA, ...tokensB]);
-
-  return union.size > 0 ? intersection.length / union.size : 0;
+function extractText(responses?: GenieEvalResponse[]): string | undefined {
+  if (!responses) return undefined;
+  const textResponse = responses.find((r) => r.response_type === "TEXT");
+  return textResponse?.response ?? undefined;
 }
 
-const HIGH_SIMILARITY_THRESHOLD = 0.95;
-const _LOW_SIMILARITY_THRESHOLD = 0.3;
-
-// ---------------------------------------------------------------------------
-// SQL execution for result comparison
-// ---------------------------------------------------------------------------
-
-const RESULT_PREVIEW_LIMIT = 50;
-
-async function executeSqlForPreview(sql: string, maxRows: number): Promise<SqlResultPreview> {
-  try {
-    const wrappedSql = `SELECT * FROM (${sql.replace(/;\s*$/, "")}) __bench LIMIT ${maxRows + 1}`;
-    const result: SqlResult = await executeSQL(wrappedSql, undefined, undefined, {
-      waitTimeout: "30s",
-      submitTimeoutMs: 35_000,
-    });
-
-    const truncated = result.rows.length > maxRows;
-    const rows = truncated ? result.rows.slice(0, maxRows) : result.rows;
-
-    return {
-      columns: result.columns.map((c) => ({ name: c.name, type: c.typeName })),
-      rows,
-      rowCount: truncated ? result.totalRowCount : rows.length,
-      truncated,
-    };
-  } catch (err) {
-    return {
-      columns: [],
-      rows: [],
-      rowCount: 0,
-      truncated: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
-function resultSetsMatch(expected: SqlResultPreview, actual: SqlResultPreview): boolean {
-  if (expected.error || actual.error) return false;
-
-  const eCols = expected.columns.map((c) => c.name.toLowerCase()).sort();
-  const aCols = actual.columns.map((c) => c.name.toLowerCase()).sort();
-  if (eCols.length !== aCols.length || !eCols.every((c, i) => c === aCols[i])) return false;
-
-  if (expected.rowCount !== actual.rowCount) return false;
-
-  const eColOrder = expected.columns.map((c) => c.name.toLowerCase());
-  const aColMap = new Map(actual.columns.map((c, i) => [c.name.toLowerCase(), i]));
-
-  const normalizeCell = (v: string | null): string =>
-    (v ?? "").trim().toLowerCase().replace(/\.0+$/, "");
-
-  const eRows = expected.rows.map((r) => eColOrder.map((_, ci) => normalizeCell(r[ci])).join("|"));
-  const aRows = actual.rows.map((r) =>
-    eColOrder.map((col) => normalizeCell(r[aColMap.get(col) ?? 0])).join("|"),
-  );
-
-  eRows.sort();
-  aRows.sort();
-  return eRows.every((row, i) => row === aRows[i]);
+function extractExecutionResult(
+  responses?: GenieEvalResponse[],
+): Record<string, unknown> | undefined {
+  if (!responses) return undefined;
+  const sqlResponse = responses.find((r) => r.response_type === "SQL");
+  return sqlResponse?.sql_execution_result ?? undefined;
 }
 
 // ---------------------------------------------------------------------------
-// LLM judge for semantic equivalence
-// ---------------------------------------------------------------------------
-
-interface JudgeVerdict {
-  equivalent: boolean;
-  failureCategory: FailureCategory;
-  reason: string;
-}
-
-async function llmJudgeResults(
-  question: string,
-  expectedSql: string,
-  actualSql: string,
-  expectedResult: SqlResultPreview,
-  actualResult: SqlResultPreview,
-): Promise<JudgeVerdict> {
-  const formatPreview = (p: SqlResultPreview): string => {
-    if (p.error) return `Execution error: ${p.error}`;
-    const cols = p.columns.map((c) => c.name).join(", ");
-    const sampleRows = p.rows
-      .slice(0, 10)
-      .map((r) => r.join(", "))
-      .join("\n");
-    return `Columns: ${cols}\nRow count: ${p.rowCount}\nSample rows:\n${sampleRows}`;
-  };
-
-  const messages = [
-    {
-      role: "system" as const,
-      content: `You are an expert SQL benchmark judge. Compare the expected and actual query results for a business question. Determine if the actual result is semantically equivalent to the expected result (same data, possibly in different order or with minor formatting differences).
-
-If NOT equivalent, categorize the failure as exactly one of:
-- wrong_join: Incorrect table relationships causing wrong rows
-- wrong_filter: Missing or incorrect WHERE conditions
-- wrong_aggregation: Wrong aggregate function or GROUP BY
-- wrong_column: Wrong columns selected or calculated
-- missing_data: Actual result is missing rows present in expected
-- wrong_sort: Data is correct but wrong ordering (only if order matters for the question)
-- extra_data: Actual result has additional unexpected rows
-
-Return JSON: { "equivalent": boolean, "failureCategory": string, "reason": string }`,
-    },
-    {
-      role: "user" as const,
-      content: `Question: ${question}
-
-Expected SQL: ${expectedSql}
-Expected Result:
-${formatPreview(expectedResult)}
-
-Actual SQL: ${actualSql}
-Actual Result:
-${formatPreview(actualResult)}
-
-Are these results semantically equivalent?`,
-    },
-  ];
-
-  try {
-    const result = await cachedChatCompletion({
-      endpoint: resolveEndpoint("lightweight"),
-      messages,
-      temperature: 0,
-      maxTokens: 512,
-      responseFormat: "json_object",
-    });
-
-    const parsed = parseLLMJson(result.content ?? "", "benchmark-judge") as Record<string, unknown>;
-    return {
-      equivalent: parsed.equivalent === true,
-      failureCategory: (parsed.failureCategory as FailureCategory) || "unknown",
-      reason: String(parsed.reason ?? ""),
-    };
-  } catch (err) {
-    logger.warn("LLM judge failed, falling back to result comparison", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return { equivalent: false, failureCategory: "unknown", reason: "LLM judge unavailable" };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Failure category inference from text patterns (when no result execution)
-// ---------------------------------------------------------------------------
-
-function inferFailureCategory(
-  question: string,
-  expectedSql: string | null,
-  actualSql: string | null,
-  feedbackText?: string,
-): FailureCategory {
-  const context = [question, expectedSql, actualSql, feedbackText]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  if (/join|relationship|foreign\s*key|cross/.test(context)) return "wrong_join";
-  if (
-    /where|filter|condition|between|like|in\s*\(/.test(context) &&
-    /wrong|missing|incorrect/.test(context)
-  )
-    return "wrong_filter";
-  if (
-    /sum|count|avg|average|aggregate|group\s*by|total/.test(context) &&
-    /wrong|incorrect/.test(context)
-  )
-    return "wrong_aggregation";
-  if (/column|field|select/.test(context) && /wrong|missing|incorrect/.test(context))
-    return "wrong_column";
-  return "unknown";
-}
-
-// ---------------------------------------------------------------------------
-// Main benchmark runner
+// Main eval runner
 // ---------------------------------------------------------------------------
 
 /**
- * Run benchmark questions against a deployed Genie Space.
+ * Run an evaluation against a Genie Space using the official Eval API.
  *
- * Three-tier comparison strategy:
- * 1. If SQL similarity > 0.95, pass immediately (identical queries).
- * 2. If `executeResults` is true and expected SQL exists, execute both
- *    queries and compare result sets. If results differ, invoke an LLM
- *    judge for semantic equivalence and failure categorization.
- * 3. Fall back to SQL text similarity with a threshold of 0.6.
+ * 1. Creates an eval run via the API
+ * 2. Polls until the run reaches a terminal status
+ * 3. Fetches all results with full details (paginated)
+ * 4. Returns structured results with assessment and score reasons
  */
-export async function runBenchmarks(
+export async function runEval(
   spaceId: string,
-  benchmarks: Array<{ question: string; expectedSql?: string }>,
-  options: BenchmarkRunOptions | number = {},
-): Promise<BenchmarkRunSummary> {
-  const opts: BenchmarkRunOptions =
-    typeof options === "number" ? { timeoutPerQuestion: options } : options;
-  const timeoutPerQuestion = opts.timeoutPerQuestion ?? 90_000;
-  const executeResults = opts.executeResults ?? true;
-  const maxResultRows = opts.maxResultRows ?? RESULT_PREVIEW_LIMIT;
-  const questionDelayMs = opts.questionDelayMs ?? 1_000;
-  const concurrency = opts.concurrency ?? 1;
-  const oboToken = opts.oboToken;
+  options?: RunEvalOptions,
+): Promise<EvalRunResult> {
+  const oboToken = options?.oboToken;
+  const questionIds = options?.questionIds;
+  const timeoutMs = options?.timeoutMs;
 
-  /**
-   * Evaluate a single benchmark question and return the result.
-   */
-  async function evaluateOne(bench: {
-    question: string;
-    expectedSql?: string;
-  }): Promise<BenchmarkResult> {
-    try {
-      const msg = await startConversation(spaceId, bench.question, timeoutPerQuestion, oboToken);
-      const completed = msg.status === "COMPLETED";
-
-      if (!completed) {
-        return {
-          question: bench.question,
-          expectedSql: bench.expectedSql ?? null,
-          actualSql: msg.sql ?? null,
-          status: msg.status,
-          passed: false,
-          error: msg.error,
-          failureCategory: msg.status === "FAILED" ? "execution_error" : "timeout",
-          failureReason: msg.error ?? `Genie returned status: ${msg.status}`,
-          comparisonMethod: "completion_only",
-        };
-      }
-
-      if (!bench.expectedSql || !msg.sql) {
-        return {
-          question: bench.question,
-          expectedSql: bench.expectedSql ?? null,
-          actualSql: msg.sql ?? null,
-          status: msg.status,
-          passed: true,
-          comparisonMethod: "completion_only",
-        };
-      }
-
-      const sim = sqlSimilarity(bench.expectedSql, msg.sql);
-
-      if (sim >= HIGH_SIMILARITY_THRESHOLD) {
-        return {
-          question: bench.question,
-          expectedSql: bench.expectedSql,
-          actualSql: msg.sql,
-          status: msg.status,
-          passed: true,
-          sqlSimilarity: sim,
-          comparisonMethod: "sql_similarity",
-        };
-      }
-
-      if (executeResults) {
-        const [expectedResult, actualResult] = await Promise.all([
-          executeSqlForPreview(bench.expectedSql, maxResultRows),
-          executeSqlForPreview(msg.sql, maxResultRows),
-        ]);
-
-        if (!expectedResult.error && !actualResult.error) {
-          if (resultSetsMatch(expectedResult, actualResult)) {
-            return {
-              question: bench.question,
-              expectedSql: bench.expectedSql,
-              actualSql: msg.sql,
-              status: msg.status,
-              passed: true,
-              actualSqlResult: actualResult,
-              expectedSqlResult: expectedResult,
-              sqlSimilarity: sim,
-              comparisonMethod: "result",
-            };
-          }
-
-          const verdict = await llmJudgeResults(
-            bench.question,
-            bench.expectedSql,
-            msg.sql,
-            expectedResult,
-            actualResult,
-          );
-
-          return {
-            question: bench.question,
-            expectedSql: bench.expectedSql,
-            actualSql: msg.sql,
-            status: msg.status,
-            passed: verdict.equivalent,
-            actualSqlResult: actualResult,
-            expectedSqlResult: expectedResult,
-            failureCategory: verdict.equivalent ? undefined : verdict.failureCategory,
-            failureReason: verdict.equivalent ? undefined : verdict.reason,
-            sqlSimilarity: sim,
-            comparisonMethod: "result",
-          };
-        }
-
-        return {
-          question: bench.question,
-          expectedSql: bench.expectedSql,
-          actualSql: msg.sql,
-          status: msg.status,
-          passed: sim >= 0.6,
-          actualSqlResult: actualResult,
-          expectedSqlResult: expectedResult,
-          failureCategory:
-            sim < 0.6
-              ? inferFailureCategory(bench.question, bench.expectedSql, msg.sql)
-              : undefined,
-          failureReason:
-            sim < 0.6
-              ? `Result execution failed; SQL similarity ${Math.round(sim * 100)}%`
-              : undefined,
-          sqlSimilarity: sim,
-          comparisonMethod: "sql_similarity",
-        };
-      }
-
-      const passed = sim >= 0.6;
-      return {
-        question: bench.question,
-        expectedSql: bench.expectedSql,
-        actualSql: msg.sql,
-        status: msg.status,
-        passed,
-        failureCategory: !passed
-          ? inferFailureCategory(bench.question, bench.expectedSql, msg.sql)
-          : undefined,
-        sqlSimilarity: sim,
-        comparisonMethod: "sql_similarity",
-      };
-    } catch (err) {
-      return {
-        question: bench.question,
-        expectedSql: bench.expectedSql ?? null,
-        actualSql: null,
-        status: "FAILED",
-        passed: false,
-        error: err instanceof Error ? err.message : String(err),
-        failureCategory: "execution_error",
-        comparisonMethod: "completion_only",
-      };
-    }
-  }
-
-  // Run benchmarks either sequentially (legacy) or concurrently
-  let results: BenchmarkResult[];
-
-  if (concurrency > 1) {
-    const limit = createConcurrencyLimiter(concurrency);
-    results = await Promise.all(benchmarks.map((bench) => limit(() => evaluateOne(bench))));
-  } else {
-    results = [];
-    for (let i = 0; i < benchmarks.length; i++) {
-      if (i > 0 && questionDelayMs > 0) {
-        await new Promise((r) => setTimeout(r, questionDelayMs));
-      }
-      results.push(await evaluateOne(benchmarks[i]));
-    }
-  }
-
-  const passed = results.filter((r) => r.passed).length;
-  const errorCount = results.filter((r) => r.error).length;
-
-  const failureCategoryCounts = {} as Record<FailureCategory, number>;
-  for (const r of results) {
-    if (r.failureCategory) {
-      failureCategoryCounts[r.failureCategory] =
-        (failureCategoryCounts[r.failureCategory] ?? 0) + 1;
-    }
-  }
-
-  logger.info("Benchmark run complete", {
+  logger.info("Starting eval run", {
     spaceId,
-    total: results.length,
-    passed,
-    failed: results.length - passed,
-    errorCount,
-    failureCategoryCounts,
-    comparisonMethods: {
-      result: results.filter((r) => r.comparisonMethod === "result").length,
-      sql_similarity: results.filter((r) => r.comparisonMethod === "sql_similarity").length,
-      completion_only: results.filter((r) => r.comparisonMethod === "completion_only").length,
-    },
+    questionCount: questionIds?.length ?? "all",
   });
 
-  return {
+  const evalRun = await createEvalRun(spaceId, questionIds, oboToken);
+  const evalRunId = evalRun.eval_run_id;
+
+  logger.info("Eval run created", { evalRunId, spaceId });
+
+  const finalRun = await pollEvalRunUntilDone(spaceId, evalRunId, oboToken, {
+    timeoutMs,
+    onProgress: options?.onProgress,
+  });
+
+  logger.info("Eval run finished", {
+    evalRunId,
+    status: finalRun.eval_run_status,
+    numQuestions: finalRun.num_questions,
+    numCorrect: finalRun.num_correct,
+    numNeedsReview: finalRun.num_needs_review,
+  });
+
+  const allResults = await fetchAllEvalResults(spaceId, evalRunId, oboToken);
+
+  const limit = createConcurrencyLimiter(5);
+  const details = await Promise.all(
+    allResults.map((r) =>
+      limit(async () => {
+        const detail = await getEvalResultDetails(spaceId, evalRunId, r.result_id, oboToken);
+        return {
+          resultId: detail.result_id,
+          benchmarkQuestionId: detail.benchmark_question_id,
+          question: r.question ?? "",
+          assessment: detail.assessment ?? "NEEDS_REVIEW",
+          assessmentReasons: detail.assessment_reasons ?? [],
+          manualAssessment: detail.manual_assessment ?? false,
+          expectedSql: extractSql(detail.expected_response),
+          actualSql: extractSql(detail.actual_response),
+          expectedText: extractText(detail.expected_response),
+          actualText: extractText(detail.actual_response),
+          actualExecutionResult: extractExecutionResult(detail.actual_response),
+          expectedExecutionResult: extractExecutionResult(detail.expected_response),
+        } satisfies EvalResultDetail;
+      }),
+    ),
+  );
+
+  const numQuestions = finalRun.num_questions ?? details.length;
+  const numCorrect = finalRun.num_correct ?? details.filter((d) => d.assessment === "GOOD").length;
+
+  const result: EvalRunResult = {
+    evalRunId,
     spaceId,
-    total: results.length,
-    passed,
-    failed: results.length - passed,
-    errorCount,
-    results,
-    failureCategoryCounts,
+    status: finalRun.eval_run_status ?? "DONE",
+    numQuestions,
+    numDone: finalRun.num_done ?? numQuestions,
+    numCorrect,
+    numNeedsReview:
+      finalRun.num_needs_review ??
+      details.filter((d) => d.assessment === "NEEDS_REVIEW").length,
+    accuracy: numQuestions > 0 ? Math.round((numCorrect / numQuestions) * 100) : 0,
+    results: details,
   };
+
+  logger.info("Eval run complete", {
+    evalRunId,
+    spaceId,
+    accuracy: result.accuracy,
+    numQuestions: result.numQuestions,
+    numCorrect: result.numCorrect,
+    numNeedsReview: result.numNeedsReview,
+  });
+
+  return result;
+}
+
+/**
+ * Paginate through all eval results for a run.
+ */
+async function fetchAllEvalResults(
+  spaceId: string,
+  evalRunId: string,
+  oboToken?: string,
+) {
+  const allResults: Array<{
+    result_id: string;
+    question?: string;
+    benchmark_question_id: string;
+  }> = [];
+  let pageToken: string | undefined;
+
+  do {
+    const page = await listEvalResults(spaceId, evalRunId, 100, pageToken, oboToken);
+    if (page.eval_results) {
+      allResults.push(...page.eval_results);
+    }
+    pageToken = page.next_page_token ?? undefined;
+  } while (pageToken);
+
+  return allResults;
 }

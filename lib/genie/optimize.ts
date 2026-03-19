@@ -114,20 +114,21 @@ export async function generateOptimizations(
 ): Promise<OptimizationResult> {
   const endpoint = resolveEndpoint("classification");
 
-  const incorrect = feedback.filter((f) => !f.isCorrect);
-  const correct = feedback.filter((f) => f.isCorrect);
+  const incorrect = feedback.filter((f) => f.assessment !== "GOOD");
+  const correct = feedback.filter((f) => f.assessment === "GOOD");
 
   const feedbackLines = feedback.map((f, i) => {
-    const status = f.isCorrect ? "CORRECT" : "INCORRECT";
+    const status = f.assessment === "GOOD" ? "GOOD" : f.assessment;
     let line = `${i + 1}. [${status}] ${f.question}`;
     if (f.feedbackText) line += `\n   Feedback: ${f.feedbackText}`;
+    if (f.assessmentReasons.length > 0) line += `\n   Reasons: ${f.assessmentReasons.join(", ")}`;
     return line;
   });
 
   const feedbackText = [
     `The user labeled ${feedback.length} benchmark questions:`,
-    `- ${correct.length} answered correctly by Genie`,
-    `- ${incorrect.length} answered incorrectly by Genie`,
+    `- ${correct.length} answered correctly by Genie (GOOD)`,
+    `- ${incorrect.length} answered incorrectly or needing review by Genie`,
     "",
     ...feedbackLines,
   ].join("\n");

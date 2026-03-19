@@ -1018,17 +1018,20 @@ model ForgeFabricMigration {
 model ForgeSpaceBenchmarkRun {
   id                  String   @id @default(uuid())
   spaceId             String   @map("space_id")
+  evalRunId           String   @map("eval_run_id")
   runAt               DateTime @default(now()) @map("run_at")
-  totalQuestions      Int      @map("total_questions")
-  passedCount         Int      @map("passed_count")
-  failedCount         Int      @map("failed_count")
-  errorCount          Int      @default(0) @map("error_count")
+  status              String   @default("RUNNING") @map("status")
+  numQuestions        Int      @map("num_questions")
+  numCorrect          Int      @default(0) @map("num_correct")
+  numNeedsReview      Int      @default(0) @map("num_needs_review")
+  accuracy            Float    @default(0) @map("accuracy")
   resultsJson         String   @map("results_json")
   feedbackJson        String?  @map("feedback_json")
   improvementsApplied Boolean  @default(false) @map("improvements_applied")
   improvementSummary  String?  @map("improvement_summary")
 
   @@index([spaceId])
+  @@index([evalRunId])
   @@map("forge_space_benchmark_runs")
 }
 

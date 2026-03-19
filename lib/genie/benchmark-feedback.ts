@@ -1,139 +1,112 @@
 /**
- * Benchmark Feedback Analysis -- maps labeled benchmark failures
- * and result-based failure categories to health check IDs for
- * targeted improvement via the fix router.
+ * Benchmark Feedback Analysis -- maps ScoreReason values from the Genie Eval
+ * API to health check IDs for targeted improvement via the fix router.
  */
 
-import type { FailureCategory } from "./benchmark-runner";
+import type { ScoreReason, GenieEvalAssessment } from "./eval-types";
+import { SCORE_REASON_LABELS } from "./eval-types";
 
 export interface FeedbackEntry {
   question: string;
-  isCorrect: boolean;
+  assessment: GenieEvalAssessment;
+  assessmentReasons: ScoreReason[];
   feedbackText?: string;
-  expectedSql?: string;
-  failureCategory?: FailureCategory;
 }
 
 /**
- * Maps result-based failure categories to the health check IDs that
- * trigger the relevant Genie Engine fix strategies.
+ * Maps each ScoreReason to the health check IDs that trigger the relevant
+ * Genie Engine fix strategies.
  */
-const FAILURE_CATEGORY_TO_CHECK_IDS: Record<FailureCategory, string[]> = {
-  wrong_join: ["join-specs-for-multi-table"],
-  wrong_filter: ["filters-defined", "text-instruction-exists"],
-  wrong_aggregation: ["measures-defined"],
-  wrong_column: ["columns-have-descriptions", "text-instruction-exists"],
-  missing_data: ["filters-defined", "example-sqls-minimum"],
-  wrong_sort: ["text-instruction-exists"],
-  extra_data: ["filters-defined"],
-  timeout: ["example-sqls-minimum"],
-  execution_error: ["example-sqls-minimum"],
-  unknown: ["measures-defined", "filters-defined", "example-sqls-minimum"],
+const SCORE_REASON_TO_CHECK_IDS: Record<ScoreReason, string[]> = {
+  LLM_JUDGE_MISSING_JOIN: ["join-specs-for-multi-table"],
+  LLM_JUDGE_MISSING_OR_INCORRECT_JOIN: ["join-specs-for-multi-table"],
+  LLM_JUDGE_MISSING_OR_INCORRECT_FILTER: ["filters-defined", "text-instruction-exists"],
+  LLM_JUDGE_WRONG_FILTER: ["filters-defined", "text-instruction-exists"],
+  LLM_JUDGE_MISSING_OR_INCORRECT_AGGREGATION: ["measures-defined"],
+  LLM_JUDGE_WRONG_AGGREGATION: ["measures-defined"],
+  LLM_JUDGE_WRONG_COLUMNS: ["columns-have-descriptions", "text-instruction-exists"],
+  LLM_JUDGE_INCORRECT_TABLE_OR_FIELD_USAGE: ["columns-have-descriptions"],
+  LLM_JUDGE_INCORRECT_METRIC_CALCULATION: ["measures-defined"],
+  LLM_JUDGE_INCORRECT_FUNCTION_USAGE: ["example-sqls-minimum"],
+  LLM_JUDGE_INSTRUCTION_COMPLIANCE_OR_MISSING_BUSINESS_LOGIC: ["text-instruction-exists"],
+  LLM_JUDGE_MISINTERPRETATION_OF_USER_REQUEST: [
+    "text-instruction-exists",
+    "example-sqls-minimum",
+  ],
+  LLM_JUDGE_SYNTAX_ERROR: ["example-sqls-minimum"],
+  LLM_JUDGE_SEMANTIC_ERROR: ["text-instruction-exists"],
+  LLM_JUDGE_FORMATTING_ERROR: ["text-instruction-exists"],
+  LLM_JUDGE_INCOMPLETE_OR_PARTIAL_OUTPUT: ["text-instruction-exists"],
+  LLM_JUDGE_OTHER: ["text-instruction-exists", "example-sqls-minimum"],
+  RESULT_MISSING_ROWS: ["filters-defined", "example-sqls-minimum"],
+  RESULT_EXTRA_ROWS: ["filters-defined"],
+  RESULT_MISSING_COLUMNS: ["columns-have-descriptions"],
+  RESULT_EXTRA_COLUMNS: ["columns-have-descriptions"],
+  COLUMN_TYPE_DIFFERENCE: ["columns-have-descriptions"],
+  SINGLE_CELL_DIFFERENCE: ["measures-defined"],
+  EMPTY_RESULT: ["filters-defined", "example-sqls-minimum"],
+  EMPTY_GOOD_SQL: ["benchmarks-exist"],
 };
 
 /**
  * Analyze benchmark feedback to determine which fix strategies to run.
  *
- * Two-tier analysis:
- * 1. If feedback entries have `failureCategory` from result-based benchmark
- *    scoring, map categories directly to fix strategies (precise).
- * 2. Fall back to text-pattern matching on feedback text and expected SQL
- *    (heuristic, used when result comparison is unavailable).
+ * Iterates the `assessmentReasons` from each BAD or NEEDS_REVIEW result
+ * and maps them directly to fix check IDs.
  */
 export function analyzeFeedbackForFixes(feedback: FeedbackEntry[]): string[] {
-  const failures = feedback.filter((f) => !f.isCorrect);
+  const failures = feedback.filter((f) => f.assessment !== "GOOD");
   if (failures.length === 0) return [];
 
   const checkIds = new Set<string>();
 
-  // Tier 1: Use failure categories from result-based scoring
-  const categorizedFailures = failures.filter((f) => f.failureCategory);
-  if (categorizedFailures.length > 0) {
-    for (const f of categorizedFailures) {
-      const ids = FAILURE_CATEGORY_TO_CHECK_IDS[f.failureCategory!] ?? [];
-      for (const id of ids) checkIds.add(id);
+  for (const f of failures) {
+    if (f.assessmentReasons.length > 0) {
+      for (const reason of f.assessmentReasons) {
+        const ids = SCORE_REASON_TO_CHECK_IDS[reason] ?? [];
+        for (const id of ids) checkIds.add(id);
+      }
+    } else {
+      checkIds.add("text-instruction-exists");
+      checkIds.add("example-sqls-minimum");
     }
-
-    if (failures.length >= 3) checkIds.add("text-instruction-exists");
-    if (failures.length >= 5) checkIds.add("benchmarks-exist");
-
-    if (checkIds.size > 0) return [...checkIds];
   }
-
-  // Tier 2: Text-pattern heuristic fallback
-  const hasJoinIssues = failures.some(
-    (f) =>
-      f.feedbackText?.toLowerCase().includes("join") ||
-      f.expectedSql?.toLowerCase().includes("join"),
-  );
-  if (hasJoinIssues) checkIds.add("join-specs-for-multi-table");
-
-  const hasTimeIssues = failures.some(
-    (f) =>
-      f.feedbackText?.toLowerCase().includes("time") ||
-      f.feedbackText?.toLowerCase().includes("date") ||
-      f.feedbackText?.toLowerCase().includes("period"),
-  );
-  if (hasTimeIssues) checkIds.add("filters-defined");
-
-  const hasMeasureIssues = failures.some(
-    (f) =>
-      f.feedbackText?.toLowerCase().includes("sum") ||
-      f.feedbackText?.toLowerCase().includes("count") ||
-      f.feedbackText?.toLowerCase().includes("average") ||
-      f.feedbackText?.toLowerCase().includes("aggregate"),
-  );
-  if (hasMeasureIssues) checkIds.add("measures-defined");
-
-  const hasExpectedSql = failures.some((f) => f.expectedSql);
-  if (hasExpectedSql) checkIds.add("example-sqls-minimum");
 
   if (failures.length >= 3) checkIds.add("text-instruction-exists");
-
-  if (checkIds.size === 0) {
-    checkIds.add("measures-defined");
-    checkIds.add("filters-defined");
-    checkIds.add("example-sqls-minimum");
-  }
+  if (failures.length >= 5) checkIds.add("benchmarks-exist");
 
   return [...checkIds];
 }
 
 /**
- * Summarize failure categories from a benchmark run into a human-readable
- * description for display in the UI.
+ * Summarize score reasons from a set of eval results into human-readable
+ * descriptions for display in the UI.
  */
-export function summarizeFailureCategories(
-  counts: Record<FailureCategory, number> | undefined,
+export function summarizeScoreReasons(
+  reasons: ScoreReason[] | undefined,
 ): string[] {
-  if (!counts) return [];
-  const labels: Record<FailureCategory, string> = {
-    wrong_join: "Incorrect table joins",
-    wrong_filter: "Missing or wrong filters",
-    wrong_aggregation: "Wrong aggregation logic",
-    wrong_column: "Wrong columns selected",
-    missing_data: "Missing expected rows",
-    wrong_sort: "Incorrect ordering",
-    extra_data: "Unexpected extra rows",
-    timeout: "Genie timed out",
-    execution_error: "SQL execution errors",
-    unknown: "Unclassified failures",
-  };
+  if (!reasons || reasons.length === 0) return [];
 
-  return Object.entries(counts)
-    .filter(([, count]) => count > 0)
+  const counts = new Map<ScoreReason, number>();
+  for (const r of reasons) {
+    counts.set(r, (counts.get(r) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
     .sort(([, a], [, b]) => b - a)
-    .map(([cat, count]) => `${labels[cat as FailureCategory]}: ${count}`);
+    .map(([reason, count]) => `${SCORE_REASON_LABELS[reason]}: ${count}`);
 }
 
 /**
- * Compute pass rate delta between two benchmark runs.
+ * Compute pass rate delta between two eval runs.
  */
 export function computePassRateDelta(
-  current: { passed: number; total: number },
-  previous: { passed: number; total: number },
+  current: { numCorrect: number; numQuestions: number },
+  previous: { numCorrect: number; numQuestions: number },
 ): number {
-  const currentRate = current.total > 0 ? (current.passed / current.total) * 100 : 0;
-  const previousRate = previous.total > 0 ? (previous.passed / previous.total) * 100 : 0;
+  const currentRate =
+    current.numQuestions > 0 ? (current.numCorrect / current.numQuestions) * 100 : 0;
+  const previousRate =
+    previous.numQuestions > 0 ? (previous.numCorrect / previous.numQuestions) * 100 : 0;
   return Math.round(currentRate - previousRate);
 }

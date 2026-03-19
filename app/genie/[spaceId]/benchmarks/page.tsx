@@ -14,40 +14,43 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   CheckCircle2,
+  Eye,
   FlaskConical,
   Loader2,
   Play,
   RotateCcw,
-  Square,
+  Sparkles,
   ThumbsDown,
   ThumbsUp,
-  Sparkles,
   Wrench,
   XCircle,
   Clock,
 } from "lucide-react";
 import { OptimizationReview } from "@/components/genie/optimization-review";
-import type { BenchmarkResult, SqlResultPreview } from "@/lib/genie/benchmark-runner";
+import type { EvalResultDetail } from "@/lib/genie/benchmark-runner";
+import type { GenieEvalAssessment, ScoreReason } from "@/lib/genie/eval-types";
+import { SCORE_REASON_LABELS } from "@/lib/genie/eval-types";
 
 interface BenchmarkQuestion {
+  id: string;
   question: string;
   expectedSql: string | null;
 }
 
-interface LabeledResult extends BenchmarkResult {
-  isCorrect?: boolean;
+interface LabeledResult extends EvalResultDetail {
+  userAssessment?: GenieEvalAssessment;
   feedbackText?: string;
-  userExpectedSql?: string;
 }
 
 interface HistoryEntry {
+  evalRunId: string;
   id: string;
   runAt: string;
-  totalQuestions: number;
-  passedCount: number;
-  failedCount: number;
-  errorCount: number;
-  passRate: number;
+  status: string;
+  numQuestions: number;
+  numCorrect: number;
+  numNeedsReview: number;
+  accuracy: number;
   improvementsApplied: boolean;
   hasFeedback: boolean;
 }
@@ -64,41 +67,132 @@ interface ImproveResult {
   originalSerializedSpace?: string;
 }
 
-function SqlPreviewTable({ preview, label }: { preview: SqlResultPreview; label: string }) {
-  if (preview.error) {
-    return (
-      <div className="mt-1 text-xs text-red-500">
-        {label}: {preview.error}
-      </div>
-    );
+// ---------------------------------------------------------------------------
+// Assessment badges
+// ---------------------------------------------------------------------------
+
+function AssessmentBadge({ assessment }: { assessment: GenieEvalAssessment }) {
+  switch (assessment) {
+    case "GOOD":
+      return (
+        <Badge className="gap-1 bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400">
+          <CheckCircle2 className="size-3" />
+          Good
+        </Badge>
+      );
+    case "BAD":
+      return (
+        <Badge className="gap-1 bg-red-100 text-red-800 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400">
+          <XCircle className="size-3" />
+          Bad
+        </Badge>
+      );
+    case "NEEDS_REVIEW":
+      return (
+        <Badge className="gap-1 bg-amber-100 text-amber-800 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400">
+          <Eye className="size-3" />
+          Needs Review
+        </Badge>
+      );
   }
-  if (preview.columns.length === 0 || preview.rows.length === 0) return null;
+}
+
+function ScoreReasonChips({ reasons }: { reasons: ScoreReason[] }) {
+  if (reasons.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {reasons.map((reason) => (
+        <Badge
+          key={reason}
+          variant="outline"
+          className="text-[10px] font-normal"
+          title={reason}
+        >
+          {SCORE_REASON_LABELS[reason] ?? reason}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SQL comparison
+// ---------------------------------------------------------------------------
+
+function SqlComparison({
+  expected,
+  actual,
+}: {
+  expected?: string;
+  actual?: string;
+}) {
+  if (!expected && !actual) return null;
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-3">
+      {expected && (
+        <div>
+          <div className="mb-1 text-xs font-medium text-muted-foreground">Expected SQL</div>
+          <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 text-xs">
+            {expected}
+          </pre>
+        </div>
+      )}
+      {actual && (
+        <div>
+          <div className="mb-1 text-xs font-medium text-muted-foreground">Actual SQL</div>
+          <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 text-xs">{actual}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Execution result table
+// ---------------------------------------------------------------------------
+
+function ExecutionResultTable({
+  result,
+  label,
+}: {
+  result?: Record<string, unknown>;
+  label: string;
+}) {
+  if (!result) return null;
+
+  const schema = result.schema as Record<string, unknown> | undefined;
+  const columns = (result.columns ?? schema?.columns ?? []) as Array<{
+    name?: string;
+  }>;
+  const rows = (result.data_array ?? result.rows ?? []) as unknown[][];
+
+  if (columns.length === 0 || rows.length === 0) return null;
+
   return (
     <div className="mt-2 space-y-1">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span className="font-medium">{label}</span>
         <span>
-          {preview.rowCount} row{preview.rowCount !== 1 ? "s" : ""}
-          {preview.truncated ? " (truncated)" : ""}
+          {rows.length} row{rows.length !== 1 ? "s" : ""}
         </span>
       </div>
       <div className="max-h-40 overflow-auto rounded border">
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-muted">
             <tr>
-              {preview.columns.map((col) => (
-                <th key={col.name} className="px-2 py-1 text-left font-medium">
-                  {col.name}
+              {columns.map((col, i) => (
+                <th key={i} className="px-2 py-1 text-left font-medium">
+                  {col.name ?? `col_${i}`}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {preview.rows.slice(0, 10).map((row, ri) => (
+            {rows.slice(0, 10).map((row, ri) => (
               <tr key={ri} className="border-t">
-                {row.map((cell, ci) => (
+                {(row as unknown[]).map((cell, ci) => (
                   <td key={ci} className="max-w-[200px] truncate px-2 py-1">
-                    {cell ?? "NULL"}
+                    {cell != null ? String(cell) : "NULL"}
                   </td>
                 ))}
               </tr>
@@ -110,6 +204,10 @@ function SqlPreviewTable({ preview, label }: { preview: SqlResultPreview; label:
   );
 }
 
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
 export default function BenchmarkPage() {
   const { spaceId } = useParams<{ spaceId: string }>();
   const router = useRouter();
@@ -118,10 +216,9 @@ export default function BenchmarkPage() {
   const [results, setResults] = useState<LabeledResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
-  const [runProgress, setRunProgress] = useState(0);
-  const [runTotal, setRunTotal] = useState(0);
+  const [runProgress, setRunProgress] = useState({ done: 0, total: 0 });
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
-  const [currentBenchmarkJobId, setCurrentBenchmarkJobId] = useState<string | null>(null);
+  const [currentEvalRunId, setCurrentEvalRunId] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [improving, setImproving] = useState(false);
@@ -130,26 +227,25 @@ export default function BenchmarkPage() {
   const [improveResult, setImproveResult] = useState<ImproveResult | null>(null);
   const [applying, setApplying] = useState(false);
   const [cloning, setCloning] = useState(false);
-  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
-  const [rateLimitWarning, setRateLimitWarning] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const selectedCount = useMemo(() => selectedIndices.size, [selectedIndices]);
+  const selectedCount = useMemo(() => selectedIds.size, [selectedIds]);
   const allSelected = selectedCount === questions.length && questions.length > 0;
 
-  const toggleSelection = (index: number) => {
-    setSelectedIndices((prev) => {
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
 
   const toggleAll = () => {
     if (allSelected) {
-      setSelectedIndices(new Set());
+      setSelectedIds(new Set());
     } else {
-      setSelectedIndices(new Set(questions.map((_, i) => i)));
+      setSelectedIds(new Set(questions.map((q) => q.id)));
     }
   };
 
@@ -158,9 +254,15 @@ export default function BenchmarkPage() {
       const res = await fetch(`/api/genie-spaces/${spaceId}/benchmarks`);
       if (!res.ok) throw new Error("Failed to load benchmarks");
       const data = await res.json();
-      const qs: BenchmarkQuestion[] = data.questions ?? [];
+      const qs: BenchmarkQuestion[] = (data.questions ?? []).map(
+        (q: { id?: string; question: string; expectedSql?: string | null }, i: number) => ({
+          id: q.id ?? `q-${i}`,
+          question: q.question,
+          expectedSql: q.expectedSql ?? null,
+        }),
+      );
       setQuestions(qs);
-      setSelectedIndices(new Set(qs.map((_, i) => i)));
+      setSelectedIds(new Set(qs.map((q) => q.id)));
     } catch {
       toast.error("Failed to load benchmark questions");
     } finally {
@@ -188,101 +290,101 @@ export default function BenchmarkPage() {
     fetchHistory();
   }, [fetchQuestions, fetchHistory]);
 
-  const runBenchmarks = async (overrideQuestions?: BenchmarkQuestion[]) => {
-    const toRun = overrideQuestions ?? questions.filter((_, i) => selectedIndices.has(i));
-    if (toRun.length === 0) return;
+  // ---------------------------------------------------------------------------
+  // Run eval
+  // ---------------------------------------------------------------------------
+
+  const runBenchmarks = async (questionIds?: string[]) => {
+    const ids = questionIds ?? [...selectedIds];
+    if (ids.length === 0) return;
     setRunning(true);
     setResults([]);
-    setRunProgress(0);
-    setRunTotal(toRun.length);
+    setRunProgress({ done: 0, total: ids.length });
     setCurrentRunId(null);
-    setCurrentBenchmarkJobId(null);
-    setRateLimitWarning(false);
+    setCurrentEvalRunId(null);
 
     try {
       const res = await fetch(`/api/genie-spaces/${spaceId}/benchmarks/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ questions: toRun }),
+        body: JSON.stringify({ questionIds: ids }),
       });
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error ?? "Benchmark run failed");
+        throw new Error(errData.error ?? "Eval run creation failed");
       }
 
       const data = await res.json();
-      if (!data.jobId) throw new Error("No jobId returned");
-      setCurrentBenchmarkJobId(data.jobId);
+      if (!data.evalRunId) throw new Error("No evalRunId returned");
+      setCurrentEvalRunId(data.evalRunId);
 
-      let delay = 2000;
-      const maxAttempts = 300;
+      let delay = 3000;
+      const maxAttempts = 200;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, delay));
         try {
           const pollRes = await fetch(
-            `/api/genie-spaces/${spaceId}/benchmarks/run?jobId=${data.jobId}`,
+            `/api/genie-spaces/${spaceId}/benchmarks/run?evalRunId=${data.evalRunId}`,
           );
           if (!pollRes.ok) continue;
           const pollData = await pollRes.json();
 
-          if (pollData.results) {
+          setRunProgress({
+            done: pollData.numDone ?? 0,
+            total: pollData.numQuestions ?? ids.length,
+          });
+
+          if (pollData.results && pollData.results.length > 0) {
             setResults(pollData.results);
-            setRunProgress(pollData.completed ?? 0);
-            setRunTotal(pollData.total ?? toRun.length);
           }
 
-          if (pollData.status === "completed") {
+          const status = pollData.status;
+          if (status === "DONE") {
             setCurrentRunId(pollData.runId ?? null);
             fetchHistory();
             break;
           }
-          if (pollData.status === "failed") {
-            toast.error(pollData.error ?? "Benchmark run failed");
-            break;
-          }
-          if (pollData.status === "cancelled") {
-            toast.info("Benchmark run cancelled");
+          if (
+            status === "EVALUATION_FAILED" ||
+            status === "EVALUATION_CANCELLED" ||
+            status === "EVALUATION_TIMEOUT"
+          ) {
+            toast.error(`Eval run ${status.toLowerCase().replace(/_/g, " ")}`);
+            if (pollData.results) setResults(pollData.results);
             break;
           }
 
-          delay = Math.min(delay * 1.2, 5000);
+          delay = Math.min(delay * 1.1, 5000);
         } catch {
           /* retry */
         }
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Benchmark run failed");
+      toast.error(err instanceof Error ? err.message : "Eval run failed");
     } finally {
       setRunning(false);
-      setCurrentBenchmarkJobId(null);
+      setCurrentEvalRunId(null);
     }
   };
 
   const rerunFailed = () => {
-    const failedQuestions = results
-      .filter((r) => !r.passed)
-      .map((r) => ({
-        question: r.question,
-        expectedSql: r.expectedSql,
-      }));
-    if (failedQuestions.length === 0) return;
-    runBenchmarks(failedQuestions);
+    const failedIds = results
+      .filter((r) => r.assessment !== "GOOD")
+      .map((r) => r.benchmarkQuestionId)
+      .filter(Boolean);
+    if (failedIds.length === 0) return;
+    runBenchmarks(failedIds);
   };
 
-  const cancelBenchmark = async () => {
-    if (!currentBenchmarkJobId) return;
-    try {
-      await fetch(`/api/genie-spaces/${spaceId}/benchmarks/run?jobId=${currentBenchmarkJobId}`, {
-        method: "DELETE",
-      });
-    } catch {
-      toast.error("Failed to cancel benchmark");
-    }
-  };
+  // ---------------------------------------------------------------------------
+  // Feedback / Improve / Optimize
+  // ---------------------------------------------------------------------------
 
-  const setLabel = (index: number, isCorrect: boolean) => {
-    setResults((prev) => prev.map((r, i) => (i === index ? { ...r, isCorrect } : r)));
+  const setUserAssessment = (index: number, assessment: GenieEvalAssessment) => {
+    setResults((prev) =>
+      prev.map((r, i) => (i === index ? { ...r, userAssessment: assessment } : r)),
+    );
   };
 
   const setFeedbackText = (index: number, text: string) => {
@@ -294,12 +396,12 @@ export default function BenchmarkPage() {
     setSubmittingFeedback(true);
     try {
       const feedback = results
-        .filter((r) => r.isCorrect !== undefined)
+        .filter((r) => r.userAssessment !== undefined)
         .map((r) => ({
           question: r.question,
-          isCorrect: r.isCorrect!,
+          assessment: r.userAssessment!,
+          assessmentReasons: r.assessmentReasons,
           feedbackText: r.feedbackText,
-          expectedSql: r.userExpectedSql,
         }));
 
       const res = await fetch(`/api/genie-spaces/${spaceId}/benchmarks/feedback`, {
@@ -363,7 +465,6 @@ export default function BenchmarkPage() {
         return;
       }
 
-      // Merge all suggestions to produce a preview, then show in OptimizationReview
       const mergeRes = await fetch(`/api/genie-spaces/${spaceId}/benchmarks/merge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -379,7 +480,7 @@ export default function BenchmarkPage() {
       setImproveResult({
         updatedSerializedSpace: mergeData.mergedSerializedSpace,
         changes: data.suggestions.map(
-          (s: { category: string; rationale: string; priority: string }) => ({
+          (s: { category: string; rationale: string }) => ({
             section: s.category,
             description: s.rationale,
             added: 0,
@@ -441,12 +542,22 @@ export default function BenchmarkPage() {
     }
   };
 
-  const passedCount = results.filter((r) => r.passed).length;
-  const failedCount = results.filter((r) => !r.passed).length;
-  const labeledIncorrect = results.filter((r) => r.isCorrect === false).length;
+  // ---------------------------------------------------------------------------
+  // Computed
+  // ---------------------------------------------------------------------------
+
+  const goodCount = results.filter((r) => r.assessment === "GOOD").length;
+  const badCount = results.filter((r) => r.assessment === "BAD").length;
+  const needsReviewCount = results.filter((r) => r.assessment === "NEEDS_REVIEW").length;
+  const accuracy =
+    results.length > 0 ? Math.round((goodCount / results.length) * 100) : 0;
+  const hasFailures = badCount > 0 || needsReviewCount > 0;
   const previousRun = history.length > 0 ? history[0] : null;
 
-  // Show optimization review when improve results are ready
+  // ---------------------------------------------------------------------------
+  // Optimization review overlay
+  // ---------------------------------------------------------------------------
+
   if (improveResult) {
     return (
       <div className="mx-auto max-w-[1400px] space-y-8">
@@ -471,6 +582,10 @@ export default function BenchmarkPage() {
       </div>
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Main render
+  // ---------------------------------------------------------------------------
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-8">
@@ -499,6 +614,9 @@ export default function BenchmarkPage() {
           </TabsTrigger>
         </TabsList>
 
+        {/* ================================================================ */}
+        {/* RUN TAB                                                          */}
+        {/* ================================================================ */}
         <TabsContent value="run" className="mt-4 space-y-4">
           {loading ? (
             <Skeleton className="h-48" />
@@ -524,43 +642,33 @@ export default function BenchmarkPage() {
                     <Play className="mr-2 size-4" />
                   )}
                   {running
-                    ? `Running ${runProgress}/${runTotal}...`
+                    ? `Running ${runProgress.done}/${runProgress.total}...`
                     : selectedCount === questions.length
                       ? `Run All (${questions.length})`
                       : `Run Selected (${selectedCount}/${questions.length})`}
                 </Button>
-                {running && currentBenchmarkJobId && (
-                  <Button
-                    variant="outline"
-                    className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                    onClick={cancelBenchmark}
-                  >
-                    <Square className="mr-2 h-3.5 w-3.5" />
-                    Stop
-                  </Button>
-                )}
-                {results.length > 0 && !running && failedCount > 0 && (
+                {results.length > 0 && !running && hasFailures && (
                   <Button variant="outline" onClick={rerunFailed} disabled={running}>
                     <RotateCcw className="mr-2 size-4" />
-                    Re-run Failed ({failedCount})
+                    Re-run Failed ({badCount + needsReviewCount})
                   </Button>
                 )}
                 {results.length > 0 && !running && (
                   <>
-                    <Badge variant={passedCount === results.length ? "default" : "secondary"}>
-                      {passedCount}/{results.length} passed (
-                      {Math.round((passedCount / results.length) * 100)}%)
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={goodCount === results.length ? "default" : "secondary"}>
+                        {accuracy}% accuracy
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {goodCount} good, {badCount} bad, {needsReviewCount} review
+                      </span>
+                    </div>
                     {previousRun && (
                       <span className="text-xs text-muted-foreground">
-                        Previous: {previousRun.passRate}%
-                        {Math.round((passedCount / results.length) * 100) >
-                          previousRun.passRate && (
+                        Previous: {previousRun.accuracy}%
+                        {accuracy > previousRun.accuracy && (
                           <span className="ml-1 text-green-600">
-                            +
-                            {Math.round((passedCount / results.length) * 100) -
-                              previousRun.passRate}
-                            %
+                            +{accuracy - previousRun.accuracy}%
                           </span>
                         )}
                       </span>
@@ -568,13 +676,6 @@ export default function BenchmarkPage() {
                   </>
                 )}
               </div>
-
-              {rateLimitWarning && !running && (
-                <div className="rounded-md border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 dark:border-yellow-700 dark:bg-yellow-950 dark:text-yellow-200">
-                  Some questions hit Databricks API rate limits. Consider running fewer questions at
-                  a time or waiting between runs.
-                </div>
-              )}
 
               {/* Question selection list */}
               {results.length === 0 && !running && (
@@ -591,15 +692,15 @@ export default function BenchmarkPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-1 p-4 pt-0">
-                    {questions.map((q, idx) => (
+                    {questions.map((q) => (
                       <div
-                        key={idx}
+                        key={q.id}
                         className="flex items-start gap-3 rounded-md px-2 py-2 hover:bg-muted/50"
                       >
                         <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
                           <Checkbox
-                            checked={selectedIndices.has(idx)}
-                            onCheckedChange={() => toggleSelection(idx)}
+                            checked={selectedIds.has(q.id)}
+                            onCheckedChange={() => toggleSelection(q.id)}
                             className="mt-0.5"
                           />
                           <div className="min-w-0 flex-1">
@@ -616,9 +717,7 @@ export default function BenchmarkPage() {
                           size="sm"
                           className="h-7 shrink-0 px-2"
                           disabled={running}
-                          onClick={() =>
-                            runBenchmarks([{ question: q.question, expectedSql: q.expectedSql }])
-                          }
+                          onClick={() => runBenchmarks([q.id])}
                           title={`Run "${q.question}"`}
                         >
                           <Play className="size-3" />
@@ -629,99 +728,62 @@ export default function BenchmarkPage() {
                 </Card>
               )}
 
-              {/* Results table */}
+              {/* Results */}
               {results.length > 0 && (
                 <div className="space-y-3">
                   {results.map((result, idx) => (
-                    <Card key={idx}>
+                    <Card key={result.resultId ?? idx}>
                       <CardContent className="space-y-3 p-4">
                         <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-start gap-2">
-                            {result.passed ? (
-                              <CheckCircle2 className="mt-0.5 size-5 text-green-500" />
-                            ) : (
-                              <XCircle className="mt-0.5 size-5 text-red-500" />
-                            )}
-                            <div>
-                              <div className="text-sm font-medium">{result.question}</div>
-                              {result.actualSql && (
-                                <pre className="mt-1 max-h-24 overflow-auto rounded bg-muted/50 p-2 text-xs">
-                                  {result.actualSql}
-                                </pre>
-                              )}
-                              {result.error && (
-                                <div className="mt-1 text-xs text-red-500">{result.error}</div>
-                              )}
-                              {!result.passed &&
-                                (result.failureCategory ||
-                                  result.failureReason ||
-                                  result.sqlSimilarity != null) && (
-                                  <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 dark:border-red-900/50 dark:bg-red-950/30">
-                                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                                      {result.failureCategory && (
-                                        <Badge variant="destructive" className="text-[10px]">
-                                          {result.failureCategory.replace(/_/g, " ")}
-                                        </Badge>
-                                      )}
-                                      {result.comparisonMethod && (
-                                        <Badge variant="outline" className="text-[10px]">
-                                          {result.comparisonMethod === "result"
-                                            ? "Result comparison"
-                                            : result.comparisonMethod === "sql_similarity"
-                                              ? "SQL similarity"
-                                              : "Completion only"}
-                                        </Badge>
-                                      )}
-                                      {result.sqlSimilarity != null && (
-                                        <span className="text-muted-foreground">
-                                          Similarity: {Math.round(result.sqlSimilarity * 100)}%
-                                        </span>
-                                      )}
-                                    </div>
-                                    {result.failureReason && (
-                                      <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-                                        {result.failureReason}
-                                      </p>
-                                    )}
-                                  </div>
-                                )}
-                              {result.actualSqlResult && (
-                                <SqlPreviewTable
-                                  preview={result.actualSqlResult}
-                                  label="Genie Result"
-                                />
-                              )}
-                              {result.expectedSqlResult && (
-                                <SqlPreviewTable
-                                  preview={result.expectedSqlResult}
-                                  label="Expected Result"
-                                />
-                              )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <AssessmentBadge assessment={result.assessment} />
+                              <span className="text-sm font-medium">{result.question}</span>
                             </div>
+
+                            <ScoreReasonChips reasons={result.assessmentReasons} />
+
+                            <SqlComparison
+                              expected={result.expectedSql}
+                              actual={result.actualSql}
+                            />
+
+                            <ExecutionResultTable
+                              result={result.actualExecutionResult}
+                              label="Actual Result"
+                            />
+                            <ExecutionResultTable
+                              result={result.expectedExecutionResult}
+                              label="Expected Result"
+                            />
                           </div>
 
-                          {/* Label buttons */}
+                          {/* Manual assessment buttons */}
                           <div className="flex shrink-0 gap-1">
                             <Button
                               size="sm"
-                              variant={result.isCorrect === true ? "default" : "outline"}
+                              variant={result.userAssessment === "GOOD" ? "default" : "outline"}
                               className="h-7 px-2"
-                              onClick={() => setLabel(idx, true)}
+                              onClick={() => setUserAssessment(idx, "GOOD")}
+                              title="Mark as Good"
                             >
                               <ThumbsUp className="size-3" />
                             </Button>
                             <Button
                               size="sm"
-                              variant={result.isCorrect === false ? "destructive" : "outline"}
+                              variant={
+                                result.userAssessment === "BAD" ? "destructive" : "outline"
+                              }
                               className="h-7 px-2"
-                              onClick={() => setLabel(idx, false)}
+                              onClick={() => setUserAssessment(idx, "BAD")}
+                              title="Mark as Bad"
                             >
                               <ThumbsDown className="size-3" />
                             </Button>
                           </div>
                         </div>
 
-                        {result.isCorrect === false && (
+                        {result.userAssessment === "BAD" && (
                           <Textarea
                             placeholder="What was wrong? (optional)"
                             value={result.feedbackText ?? ""}
@@ -734,21 +796,23 @@ export default function BenchmarkPage() {
                     </Card>
                   ))}
 
-                  {/* Action buttons */}
+                  {/* Action bar */}
                   <div className="flex gap-3 pt-2">
                     <Button
                       onClick={submitFeedback}
                       disabled={
                         submittingFeedback ||
                         !currentRunId ||
-                        results.every((r) => r.isCorrect === undefined)
+                        results.every((r) => r.userAssessment === undefined)
                       }
                       variant="outline"
                     >
-                      {submittingFeedback ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                      {submittingFeedback ? (
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                      ) : null}
                       Save Feedback
                     </Button>
-                    {labeledIncorrect > 0 && currentRunId && (
+                    {hasFailures && currentRunId && (
                       <>
                         <Button onClick={runImprove} disabled={improving || optimizing}>
                           {improving ? (
@@ -756,7 +820,7 @@ export default function BenchmarkPage() {
                           ) : (
                             <Wrench className="mr-2 size-4" />
                           )}
-                          Improve ({labeledIncorrect} issues)
+                          Improve ({badCount + needsReviewCount} issues)
                         </Button>
                         <Button
                           variant="outline"
@@ -779,19 +843,22 @@ export default function BenchmarkPage() {
           )}
         </TabsContent>
 
+        {/* ================================================================ */}
+        {/* HISTORY TAB                                                      */}
+        {/* ================================================================ */}
         <TabsContent value="history" className="mt-4">
           {historyLoading ? (
             <Skeleton className="h-48" />
           ) : history.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
-                <p className="text-sm text-muted-foreground">No benchmark runs yet.</p>
+                <p className="text-sm text-muted-foreground">No eval runs yet.</p>
               </CardContent>
             </Card>
           ) : (
             <div className="space-y-2">
               {history.map((run) => (
-                <Card key={run.id}>
+                <Card key={run.evalRunId}>
                   <CardHeader className="p-4 pb-2">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-sm">
@@ -800,25 +867,36 @@ export default function BenchmarkPage() {
                       <div className="flex gap-2">
                         <Badge
                           variant={
-                            run.passRate >= 80
+                            run.accuracy >= 80
                               ? "default"
-                              : run.passRate >= 50
+                              : run.accuracy >= 50
                                 ? "secondary"
                                 : "destructive"
                           }
                         >
-                          {run.passRate}% pass rate
+                          {run.accuracy}% accuracy
                         </Badge>
+                        {run.numNeedsReview > 0 && (
+                          <Badge variant="outline" className="gap-1 text-xs">
+                            <Eye className="size-3" />
+                            {run.numNeedsReview} review
+                          </Badge>
+                        )}
                         {run.improvementsApplied && (
                           <Badge variant="outline" className="text-xs">
                             Improved
                           </Badge>
                         )}
+                        {run.status !== "DONE" && (
+                          <Badge variant="secondary" className="text-xs">
+                            {run.status}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                     <CardDescription>
-                      {run.passedCount}/{run.totalQuestions} passed
-                      {run.errorCount > 0 && `, ${run.errorCount} errors`}
+                      {run.numCorrect}/{run.numQuestions} correct
+                      {run.numNeedsReview > 0 && `, ${run.numNeedsReview} needs review`}
                     </CardDescription>
                   </CardHeader>
                 </Card>

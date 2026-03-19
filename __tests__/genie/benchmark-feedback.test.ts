@@ -2,249 +2,361 @@ import { describe, it, expect } from "vitest";
 import {
   analyzeFeedbackForFixes,
   computePassRateDelta,
-  summarizeFailureCategories,
+  summarizeScoreReasons,
   type FeedbackEntry,
 } from "@/lib/genie/benchmark-feedback";
-import type { FailureCategory } from "@/lib/genie/benchmark-runner";
+import type { ScoreReason } from "@/lib/genie/eval-types";
 
 describe("analyzeFeedbackForFixes", () => {
-  it("returns empty for all-correct feedback", () => {
+  it("returns empty for all-GOOD feedback", () => {
     const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: true },
-      { question: "Q2", isCorrect: true },
+      { question: "Q1", assessment: "GOOD", assessmentReasons: [] },
+      { question: "Q2", assessment: "GOOD", assessmentReasons: [] },
     ];
     expect(analyzeFeedbackForFixes(feedback)).toHaveLength(0);
   });
 
-  it("detects join issues from feedback text", () => {
+  it("maps LLM_JUDGE_MISSING_JOIN to join-specs-for-multi-table", () => {
     const feedback: FeedbackEntry[] = [
       {
         question: "Q1",
-        isCorrect: false,
-        feedbackText: "Missing join between orders and customers",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_MISSING_JOIN"],
       },
     ];
     const fixes = analyzeFeedbackForFixes(feedback);
     expect(fixes).toContain("join-specs-for-multi-table");
   });
 
-  it("detects join issues from expected SQL", () => {
+  it("maps LLM_JUDGE_MISSING_OR_INCORRECT_JOIN to join-specs-for-multi-table", () => {
     const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, expectedSql: "SELECT * FROM a JOIN b ON a.id = b.id" },
-    ];
-    const fixes = analyzeFeedbackForFixes(feedback);
-    expect(fixes).toContain("join-specs-for-multi-table");
-    expect(fixes).toContain("example-sqls-minimum");
-  });
-
-  it("detects time-based issues", () => {
-    const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, feedbackText: "Wrong date period" },
-    ];
-    const fixes = analyzeFeedbackForFixes(feedback);
-    expect(fixes).toContain("filters-defined");
-  });
-
-  it("detects measure/aggregation issues", () => {
-    const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, feedbackText: "Should use SUM not COUNT" },
-    ];
-    const fixes = analyzeFeedbackForFixes(feedback);
-    expect(fixes).toContain("measures-defined");
-  });
-
-  it("adds instruction improvement when 3+ failures", () => {
-    const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false },
-      { question: "Q2", isCorrect: false },
-      { question: "Q3", isCorrect: false },
-    ];
-    const fixes = analyzeFeedbackForFixes(feedback);
-    expect(fixes).toContain("text-instruction-exists");
-  });
-
-  it("falls back to general improvement for unspecified failures", () => {
-    const feedback: FeedbackEntry[] = [{ question: "Q1", isCorrect: false }];
-    const fixes = analyzeFeedbackForFixes(feedback);
-    expect(fixes.length).toBeGreaterThan(0);
-    expect(fixes).toContain("measures-defined");
-    expect(fixes).toContain("filters-defined");
-    expect(fixes).toContain("example-sqls-minimum");
-  });
-
-  it("deduplicates check IDs", () => {
-    const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, feedbackText: "join and date issue" },
-      { question: "Q2", isCorrect: false, feedbackText: "wrong join" },
-      { question: "Q3", isCorrect: false, feedbackText: "wrong time period" },
-    ];
-    const fixes = analyzeFeedbackForFixes(feedback);
-    const unique = new Set(fixes);
-    expect(fixes.length).toBe(unique.size);
-  });
-
-  it("detects multiple pattern types simultaneously", () => {
-    const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, feedbackText: "join is wrong" },
-      { question: "Q2", isCorrect: false, feedbackText: "date filter missing" },
-      { question: "Q3", isCorrect: false, feedbackText: "sum calculation incorrect" },
-      { question: "Q4", isCorrect: true },
-    ];
-    const fixes = analyzeFeedbackForFixes(feedback);
-    expect(fixes).toContain("join-specs-for-multi-table");
-    expect(fixes).toContain("filters-defined");
-    expect(fixes).toContain("measures-defined");
-    expect(fixes).toContain("text-instruction-exists");
-  });
-});
-
-describe("computePassRateDelta", () => {
-  it("computes positive improvement", () => {
-    const delta = computePassRateDelta({ passed: 8, total: 10 }, { passed: 5, total: 10 });
-    expect(delta).toBe(30);
-  });
-
-  it("computes negative decline", () => {
-    const delta = computePassRateDelta({ passed: 3, total: 10 }, { passed: 7, total: 10 });
-    expect(delta).toBe(-40);
-  });
-
-  it("handles zero total", () => {
-    const delta = computePassRateDelta({ passed: 0, total: 0 }, { passed: 5, total: 10 });
-    expect(delta).toBe(-50);
-  });
-
-  it("returns 0 for identical runs", () => {
-    const delta = computePassRateDelta({ passed: 5, total: 10 }, { passed: 5, total: 10 });
-    expect(delta).toBe(0);
-  });
-});
-
-describe("analyzeFeedbackForFixes -- failure category path (Tier 1)", () => {
-  it("maps wrong_join to join-specs-for-multi-table", () => {
-    const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, failureCategory: "wrong_join" },
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_MISSING_OR_INCORRECT_JOIN"],
+      },
     ];
     const fixes = analyzeFeedbackForFixes(feedback);
     expect(fixes).toContain("join-specs-for-multi-table");
   });
 
-  it("maps wrong_filter to filters-defined and text-instruction-exists", () => {
+  it("maps LLM_JUDGE_MISSING_OR_INCORRECT_FILTER to filters-defined and text-instruction-exists", () => {
     const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, failureCategory: "wrong_filter" },
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_MISSING_OR_INCORRECT_FILTER"],
+      },
     ];
     const fixes = analyzeFeedbackForFixes(feedback);
     expect(fixes).toContain("filters-defined");
     expect(fixes).toContain("text-instruction-exists");
   });
 
-  it("maps wrong_aggregation to measures-defined", () => {
+  it("maps LLM_JUDGE_WRONG_AGGREGATION to measures-defined", () => {
     const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, failureCategory: "wrong_aggregation" },
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_WRONG_AGGREGATION"],
+      },
     ];
     const fixes = analyzeFeedbackForFixes(feedback);
     expect(fixes).toContain("measures-defined");
   });
 
-  it("maps wrong_column to descriptions and instructions", () => {
+  it("maps LLM_JUDGE_WRONG_COLUMNS to columns-have-descriptions and text-instruction-exists", () => {
     const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, failureCategory: "wrong_column" },
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_WRONG_COLUMNS"],
+      },
     ];
     const fixes = analyzeFeedbackForFixes(feedback);
     expect(fixes).toContain("columns-have-descriptions");
     expect(fixes).toContain("text-instruction-exists");
   });
 
-  it("maps missing_data to filters and example-sqls", () => {
+  it("maps LLM_JUDGE_INCORRECT_TABLE_OR_FIELD_USAGE to columns-have-descriptions", () => {
     const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, failureCategory: "missing_data" },
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_INCORRECT_TABLE_OR_FIELD_USAGE"],
+      },
+    ];
+    const fixes = analyzeFeedbackForFixes(feedback);
+    expect(fixes).toContain("columns-have-descriptions");
+  });
+
+  it("maps LLM_JUDGE_INCORRECT_METRIC_CALCULATION to measures-defined", () => {
+    const feedback: FeedbackEntry[] = [
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_INCORRECT_METRIC_CALCULATION"],
+      },
+    ];
+    const fixes = analyzeFeedbackForFixes(feedback);
+    expect(fixes).toContain("measures-defined");
+  });
+
+  it("maps LLM_JUDGE_INCORRECT_FUNCTION_USAGE to example-sqls-minimum", () => {
+    const feedback: FeedbackEntry[] = [
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_INCORRECT_FUNCTION_USAGE"],
+      },
+    ];
+    const fixes = analyzeFeedbackForFixes(feedback);
+    expect(fixes).toContain("example-sqls-minimum");
+  });
+
+  it("maps LLM_JUDGE_INSTRUCTION_COMPLIANCE_OR_MISSING_BUSINESS_LOGIC to text-instruction-exists", () => {
+    const feedback: FeedbackEntry[] = [
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_INSTRUCTION_COMPLIANCE_OR_MISSING_BUSINESS_LOGIC"],
+      },
+    ];
+    const fixes = analyzeFeedbackForFixes(feedback);
+    expect(fixes).toContain("text-instruction-exists");
+  });
+
+  it("maps LLM_JUDGE_MISINTERPRETATION_OF_USER_REQUEST to text-instruction-exists and example-sqls-minimum", () => {
+    const feedback: FeedbackEntry[] = [
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_MISINTERPRETATION_OF_USER_REQUEST"],
+      },
+    ];
+    const fixes = analyzeFeedbackForFixes(feedback);
+    expect(fixes).toContain("text-instruction-exists");
+    expect(fixes).toContain("example-sqls-minimum");
+  });
+
+  it("maps LLM_JUDGE_SYNTAX_ERROR to example-sqls-minimum", () => {
+    const feedback: FeedbackEntry[] = [
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_SYNTAX_ERROR"],
+      },
+    ];
+    const fixes = analyzeFeedbackForFixes(feedback);
+    expect(fixes).toContain("example-sqls-minimum");
+  });
+
+  it("maps RESULT_MISSING_ROWS to filters-defined and example-sqls-minimum", () => {
+    const feedback: FeedbackEntry[] = [
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["RESULT_MISSING_ROWS"],
+      },
     ];
     const fixes = analyzeFeedbackForFixes(feedback);
     expect(fixes).toContain("filters-defined");
     expect(fixes).toContain("example-sqls-minimum");
   });
 
-  it("prefers failure categories over text heuristics", () => {
+  it("maps RESULT_MISSING_COLUMNS to columns-have-descriptions", () => {
     const feedback: FeedbackEntry[] = [
       {
         question: "Q1",
-        isCorrect: false,
-        failureCategory: "wrong_join",
-        feedbackText: "sum is wrong",
+        assessment: "BAD",
+        assessmentReasons: ["RESULT_MISSING_COLUMNS"],
       },
     ];
     const fixes = analyzeFeedbackForFixes(feedback);
-    expect(fixes).toContain("join-specs-for-multi-table");
-    expect(fixes).not.toContain("measures-defined");
+    expect(fixes).toContain("columns-have-descriptions");
   });
 
-  it("adds instruction-exists when 3+ categorized failures", () => {
+  it("maps EMPTY_GOOD_SQL to benchmarks-exist", () => {
     const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, failureCategory: "wrong_join" },
-      { question: "Q2", isCorrect: false, failureCategory: "wrong_filter" },
-      { question: "Q3", isCorrect: false, failureCategory: "wrong_aggregation" },
+      {
+        question: "Q1",
+        assessment: "NEEDS_REVIEW",
+        assessmentReasons: ["EMPTY_GOOD_SQL"],
+      },
+    ];
+    const fixes = analyzeFeedbackForFixes(feedback);
+    expect(fixes).toContain("benchmarks-exist");
+  });
+
+  it("maps SINGLE_CELL_DIFFERENCE to measures-defined", () => {
+    const feedback: FeedbackEntry[] = [
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["SINGLE_CELL_DIFFERENCE"],
+      },
+    ];
+    const fixes = analyzeFeedbackForFixes(feedback);
+    expect(fixes).toContain("measures-defined");
+  });
+
+  it("falls back to general checks for BAD feedback with no reasons", () => {
+    const feedback: FeedbackEntry[] = [
+      { question: "Q1", assessment: "BAD", assessmentReasons: [] },
+    ];
+    const fixes = analyzeFeedbackForFixes(feedback);
+    expect(fixes.length).toBeGreaterThan(0);
+    expect(fixes).toContain("text-instruction-exists");
+    expect(fixes).toContain("example-sqls-minimum");
+  });
+
+  it("adds text-instruction-exists when 3+ failures", () => {
+    const feedback: FeedbackEntry[] = [
+      { question: "Q1", assessment: "BAD", assessmentReasons: ["LLM_JUDGE_MISSING_JOIN"] },
+      { question: "Q2", assessment: "BAD", assessmentReasons: ["LLM_JUDGE_WRONG_AGGREGATION"] },
+      { question: "Q3", assessment: "BAD", assessmentReasons: ["RESULT_EXTRA_ROWS"] },
     ];
     const fixes = analyzeFeedbackForFixes(feedback);
     expect(fixes).toContain("text-instruction-exists");
   });
 
-  it("adds benchmarks-exist when 5+ categorized failures", () => {
+  it("adds benchmarks-exist when 5+ failures", () => {
     const feedback: FeedbackEntry[] = Array.from({ length: 5 }, (_, i) => ({
       question: `Q${i}`,
-      isCorrect: false,
-      failureCategory: "wrong_join" as FailureCategory,
+      assessment: "BAD" as const,
+      assessmentReasons: ["LLM_JUDGE_MISSING_JOIN" as ScoreReason],
     }));
     const fixes = analyzeFeedbackForFixes(feedback);
     expect(fixes).toContain("benchmarks-exist");
   });
 
-  it("deduplicates categories that map to the same check", () => {
+  it("deduplicates check IDs", () => {
     const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, failureCategory: "wrong_filter" },
-      { question: "Q2", isCorrect: false, failureCategory: "missing_data" },
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_MISSING_OR_INCORRECT_FILTER", "LLM_JUDGE_WRONG_FILTER"],
+      },
+      {
+        question: "Q2",
+        assessment: "BAD",
+        assessmentReasons: ["LLM_JUDGE_MISSING_OR_INCORRECT_FILTER"],
+      },
+      {
+        question: "Q3",
+        assessment: "BAD",
+        assessmentReasons: ["RESULT_EXTRA_ROWS"],
+      },
     ];
     const fixes = analyzeFeedbackForFixes(feedback);
     const unique = new Set(fixes);
     expect(fixes.length).toBe(unique.size);
   });
 
-  it("falls back to heuristic when no failure categories present", () => {
+  it("handles multiple ScoreReasons per result", () => {
     const feedback: FeedbackEntry[] = [
-      { question: "Q1", isCorrect: false, feedbackText: "join is wrong" },
+      {
+        question: "Q1",
+        assessment: "BAD",
+        assessmentReasons: [
+          "LLM_JUDGE_MISSING_JOIN",
+          "LLM_JUDGE_WRONG_FILTER",
+          "RESULT_MISSING_ROWS",
+        ],
+      },
     ];
     const fixes = analyzeFeedbackForFixes(feedback);
     expect(fixes).toContain("join-specs-for-multi-table");
+    expect(fixes).toContain("filters-defined");
+    expect(fixes).toContain("example-sqls-minimum");
+  });
+
+  it("includes NEEDS_REVIEW results in failure analysis", () => {
+    const feedback: FeedbackEntry[] = [
+      {
+        question: "Q1",
+        assessment: "NEEDS_REVIEW",
+        assessmentReasons: ["LLM_JUDGE_WRONG_COLUMNS"],
+      },
+    ];
+    const fixes = analyzeFeedbackForFixes(feedback);
+    expect(fixes).toContain("columns-have-descriptions");
   });
 });
 
-describe("summarizeFailureCategories", () => {
-  it("returns empty array for undefined input", () => {
-    expect(summarizeFailureCategories(undefined)).toEqual([]);
+describe("computePassRateDelta", () => {
+  it("computes positive improvement", () => {
+    const delta = computePassRateDelta(
+      { numCorrect: 8, numQuestions: 10 },
+      { numCorrect: 5, numQuestions: 10 },
+    );
+    expect(delta).toBe(30);
   });
 
-  it("formats category counts into readable strings", () => {
-    const counts = { wrong_join: 3, wrong_filter: 1 } as Record<FailureCategory, number>;
-    const summary = summarizeFailureCategories(counts);
+  it("computes negative decline", () => {
+    const delta = computePassRateDelta(
+      { numCorrect: 3, numQuestions: 10 },
+      { numCorrect: 7, numQuestions: 10 },
+    );
+    expect(delta).toBe(-40);
+  });
+
+  it("handles zero total", () => {
+    const delta = computePassRateDelta(
+      { numCorrect: 0, numQuestions: 0 },
+      { numCorrect: 5, numQuestions: 10 },
+    );
+    expect(delta).toBe(-50);
+  });
+
+  it("returns 0 for identical runs", () => {
+    const delta = computePassRateDelta(
+      { numCorrect: 5, numQuestions: 10 },
+      { numCorrect: 5, numQuestions: 10 },
+    );
+    expect(delta).toBe(0);
+  });
+});
+
+describe("summarizeScoreReasons", () => {
+  it("returns empty array for undefined input", () => {
+    expect(summarizeScoreReasons(undefined)).toEqual([]);
+  });
+
+  it("returns empty array for empty input", () => {
+    expect(summarizeScoreReasons([])).toEqual([]);
+  });
+
+  it("formats score reasons into readable strings with counts", () => {
+    const reasons: ScoreReason[] = [
+      "LLM_JUDGE_MISSING_JOIN",
+      "LLM_JUDGE_MISSING_JOIN",
+      "LLM_JUDGE_MISSING_JOIN",
+      "LLM_JUDGE_WRONG_FILTER",
+    ];
+    const summary = summarizeScoreReasons(reasons);
     expect(summary).toHaveLength(2);
-    expect(summary[0]).toContain("Incorrect table joins");
+    expect(summary[0]).toContain("Missing join");
     expect(summary[0]).toContain("3");
+    expect(summary[1]).toContain("Wrong filter logic");
+    expect(summary[1]).toContain("1");
   });
 
   it("sorts by count descending", () => {
-    const counts = {
-      wrong_filter: 1,
-      wrong_join: 5,
-      wrong_aggregation: 3,
-    } as Record<FailureCategory, number>;
-    const summary = summarizeFailureCategories(counts);
+    const reasons: ScoreReason[] = [
+      "LLM_JUDGE_WRONG_FILTER",
+      "LLM_JUDGE_MISSING_JOIN",
+      "LLM_JUDGE_MISSING_JOIN",
+      "LLM_JUDGE_MISSING_JOIN",
+      "LLM_JUDGE_MISSING_JOIN",
+      "LLM_JUDGE_MISSING_JOIN",
+      "LLM_JUDGE_WRONG_AGGREGATION",
+      "LLM_JUDGE_WRONG_AGGREGATION",
+      "LLM_JUDGE_WRONG_AGGREGATION",
+    ];
+    const summary = summarizeScoreReasons(reasons);
     expect(summary[0]).toContain("5");
     expect(summary[1]).toContain("3");
     expect(summary[2]).toContain("1");
-  });
-
-  it("excludes zero-count categories", () => {
-    const counts = { wrong_join: 2, wrong_filter: 0 } as Record<FailureCategory, number>;
-    const summary = summarizeFailureCategories(counts);
-    expect(summary).toHaveLength(1);
   });
 });

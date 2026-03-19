@@ -655,6 +655,193 @@ export async function sendFollowUp(
 }
 
 // ---------------------------------------------------------------------------
+// Eval API -- benchmark evaluation runs (Beta)
+// https://docs.databricks.com/api/workspace/genie
+// ---------------------------------------------------------------------------
+
+import type {
+  GenieEvalRunResponse,
+  GenieEvalResultDetails,
+  GenieListEvalRunsResponse,
+  GenieListEvalResultsResponse,
+} from "@/lib/genie/eval-types";
+import { TERMINAL_EVAL_STATUSES } from "@/lib/genie/eval-types";
+
+export async function createEvalRun(
+  spaceId: string,
+  questionIds?: string[],
+  oboToken?: string,
+): Promise<GenieEvalRunResponse> {
+  const config = getConfig();
+  const url = `${config.host}/api/2.0/genie/spaces/${spaceId}/eval-runs`;
+  const headers = await resolveHeaders(undefined, oboToken);
+
+  const body: Record<string, unknown> = {};
+  if (questionIds && questionIds.length > 0) {
+    body.benchmark_question_ids = questionIds;
+  }
+
+  const response = await fetchWithGenie429Retry(
+    url,
+    { method: "POST", headers, body: JSON.stringify(body) },
+    TIMEOUTS.WORKSPACE,
+    "Genie create eval run",
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Genie create eval run failed (${response.status}): ${text}`);
+  }
+
+  return (await response.json()) as GenieEvalRunResponse;
+}
+
+export async function getEvalRun(
+  spaceId: string,
+  evalRunId: string,
+  oboToken?: string,
+): Promise<GenieEvalRunResponse> {
+  const config = getConfig();
+  const url = `${config.host}/api/2.0/genie/spaces/${spaceId}/eval-runs/${evalRunId}`;
+  const headers = await resolveHeaders(undefined, oboToken);
+
+  const response = await fetchWithGenie429Retry(
+    url,
+    { method: "GET", headers },
+    TIMEOUTS.WORKSPACE,
+    "Genie get eval run",
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Genie get eval run failed (${response.status}): ${text}`);
+  }
+
+  return (await response.json()) as GenieEvalRunResponse;
+}
+
+export async function listEvalRuns(
+  spaceId: string,
+  pageSize?: number,
+  pageToken?: string,
+  oboToken?: string,
+): Promise<GenieListEvalRunsResponse> {
+  const config = getConfig();
+  const params = new URLSearchParams();
+  if (pageSize) params.set("page_size", String(pageSize));
+  if (pageToken) params.set("page_token", pageToken);
+
+  const qs = params.toString();
+  const url = `${config.host}/api/2.0/genie/spaces/${spaceId}/eval-runs${qs ? `?${qs}` : ""}`;
+  const headers = await resolveHeaders(undefined, oboToken);
+
+  const response = await fetchWithGenie429Retry(
+    url,
+    { method: "GET", headers },
+    TIMEOUTS.WORKSPACE,
+    "Genie list eval runs",
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Genie list eval runs failed (${response.status}): ${text}`);
+  }
+
+  return (await response.json()) as GenieListEvalRunsResponse;
+}
+
+export async function listEvalResults(
+  spaceId: string,
+  evalRunId: string,
+  pageSize?: number,
+  pageToken?: string,
+  oboToken?: string,
+): Promise<GenieListEvalResultsResponse> {
+  const config = getConfig();
+  const params = new URLSearchParams();
+  if (pageSize) params.set("page_size", String(pageSize));
+  if (pageToken) params.set("page_token", pageToken);
+
+  const qs = params.toString();
+  const url = `${config.host}/api/2.0/genie/spaces/${spaceId}/eval-runs/${evalRunId}/results${qs ? `?${qs}` : ""}`;
+  const headers = await resolveHeaders(undefined, oboToken);
+
+  const response = await fetchWithGenie429Retry(
+    url,
+    { method: "GET", headers },
+    TIMEOUTS.WORKSPACE,
+    "Genie list eval results",
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Genie list eval results failed (${response.status}): ${text}`);
+  }
+
+  return (await response.json()) as GenieListEvalResultsResponse;
+}
+
+export async function getEvalResultDetails(
+  spaceId: string,
+  evalRunId: string,
+  resultId: string,
+  oboToken?: string,
+): Promise<GenieEvalResultDetails> {
+  const config = getConfig();
+  const url = `${config.host}/api/2.0/genie/spaces/${spaceId}/eval-runs/${evalRunId}/results/${resultId}`;
+  const headers = await resolveHeaders(undefined, oboToken);
+
+  const response = await fetchWithGenie429Retry(
+    url,
+    { method: "GET", headers },
+    TIMEOUTS.WORKSPACE,
+    "Genie get eval result details",
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Genie get eval result details failed (${response.status}): ${text}`);
+  }
+
+  return (await response.json()) as GenieEvalResultDetails;
+}
+
+const DEFAULT_EVAL_POLL_INTERVAL_MS = 3_000;
+const DEFAULT_EVAL_TIMEOUT_MS = 600_000; // 10 minutes
+
+/**
+ * Poll an eval run until it reaches a terminal status (DONE, EVALUATION_FAILED,
+ * EVALUATION_CANCELLED, EVALUATION_TIMEOUT) or our local timeout is exceeded.
+ */
+export async function pollEvalRunUntilDone(
+  spaceId: string,
+  evalRunId: string,
+  oboToken?: string,
+  opts?: {
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    onProgress?: (run: GenieEvalRunResponse) => void;
+  },
+): Promise<GenieEvalRunResponse> {
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_EVAL_TIMEOUT_MS;
+  const pollIntervalMs = opts?.pollIntervalMs ?? DEFAULT_EVAL_POLL_INTERVAL_MS;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const run = await getEvalRun(spaceId, evalRunId, oboToken);
+    opts?.onProgress?.(run);
+
+    if (run.eval_run_status && TERMINAL_EVAL_STATUSES.has(run.eval_run_status)) {
+      return run;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  throw new Error(`Eval run ${evalRunId} timed out after ${timeoutMs}ms`);
+}
+
+// ---------------------------------------------------------------------------
 // Trash (soft delete)
 // ---------------------------------------------------------------------------
 

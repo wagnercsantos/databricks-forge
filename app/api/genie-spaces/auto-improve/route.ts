@@ -23,41 +23,16 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as {
       spaceId: string;
-      benchmarks?: Array<{ question: string; expectedSql?: string }>;
+      questionIds?: string[];
       targetScore?: number;
       maxIterations?: number;
     };
-    const { spaceId, targetScore, maxIterations } = body;
-    let { benchmarks } = body;
+    const { spaceId, questionIds, targetScore, maxIterations } = body;
 
     if (!spaceId) {
       return NextResponse.json({ error: "spaceId is required" }, { status: 400 });
     }
 
-    if (!benchmarks || benchmarks.length === 0) {
-      const space = await getGenieSpace(spaceId);
-      if (space?.serialized_space) {
-        try {
-          const parsed = JSON.parse(space.serialized_space);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          benchmarks = (parsed.benchmarks?.questions ?? []).map((q: any) => ({
-            question: Array.isArray(q.question) ? q.question[0] : String(q.question ?? ""),
-            expectedSql: q.expectedSql ?? q.expected_sql ?? undefined,
-          }));
-        } catch {
-          // parse failure -- fall through to the guard below
-        }
-      }
-      if (!benchmarks || benchmarks.length === 0) {
-        return NextResponse.json(
-          { error: "No benchmarks found on this space. Add benchmarks before auto-improving." },
-          { status: 400 },
-        );
-      }
-    }
-
-    // Capture the user's OBO token while still in request context so background
-    // tasks can operate on behalf of the user (avoiding 403 with SP tokens).
     const oboToken = request.headers.get("x-forwarded-access-token") ?? undefined;
 
     const jobId = `auto-${spaceId}-${Date.now()}`;
@@ -66,12 +41,11 @@ export async function POST(request: NextRequest) {
 
     const config: AutoImproveConfig = {
       spaceId,
-      benchmarks,
       targetScore: targetScore ?? 80,
       maxIterations: maxIterations ?? 5,
-      benchmarkOptions: {
-        executeResults: true,
-        questionDelayMs: 2_000,
+      evalOptions: {
+        oboToken,
+        questionIds,
       },
       oboToken,
     };
@@ -79,7 +53,6 @@ export async function POST(request: NextRequest) {
     logActivity("started_auto_improve", {
       resourceId: spaceId,
       metadata: {
-        benchmarkCount: benchmarks.length,
         targetScore: config.targetScore,
         maxIterations: config.maxIterations,
       },

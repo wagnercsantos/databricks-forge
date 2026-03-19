@@ -520,17 +520,23 @@ An iterative cycle for validating and improving Genie Space quality:
 ### Components
 
 1. **Benchmark questions** -- loaded from `serialized_space.benchmarks.questions`
-2. **Run** -- each question sent to Genie Conversation API with 2s delay
-3. **Evaluation** -- 3-tier comparison determines pass/fail (see below)
+2. **Run** -- `createEvalRun()` submits questions to the Genie Eval API; polls `getEvalRun()` until DONE
+3. **Evaluation** -- Databricks server-side LLM judge + result-set comparison produces `GOOD/BAD/NEEDS_REVIEW` assessments with `ScoreReason[]`
 4. **Label** -- user marks correct/incorrect with optional feedback
 5. **Improve** -- feedback analyzed for patterns, targeted fixes generated
 6. **Review** -- `OptimizationReview` displayed with selectable suggestions and diff preview
 7. **Apply** -- user chooses "Apply to Space" or "Clone and Apply" from the review step
 8. **History** -- all runs persisted in `ForgeSpaceBenchmarkRun`
 
-### 3-Tier Evaluation
+### Eval API Assessment
 
-Each benchmark result is evaluated using three comparison tiers in order:
+Each benchmark result is evaluated server-side by the Genie Eval API, which provides:
+
+- **Assessment**: `GOOD`, `BAD`, or `NEEDS_REVIEW`
+- **ScoreReason[]**: 25+ categories (e.g. `LLM_JUDGE_MISSING_JOIN`, `RESULT_MISSING_ROWS`, `SINGLE_CELL_DIFFERENCE`)
+- **Side-by-side responses**: expected vs actual SQL + execution results
+
+Previously used a client-side 3-tier comparison; now fully delegated to the Eval API:
 
 1. **High SQL similarity** (>=90%) -- the Genie-generated SQL closely
    matches the expected SQL. Automatically marked as pass.
@@ -561,7 +567,12 @@ feedback-to-fix analysis.
 
 Located in `lib/genie/benchmark-feedback.ts`.
 
-The `analyzeFeedbackForFixes()` function maps labeled failures to check IDs:
+The `analyzeFeedbackForFixes()` function maps `ScoreReason` values from the Eval API
+directly to health check IDs for targeted fixes. Each of the 25+ `ScoreReason` values
+maps to specific check IDs (e.g. `LLM_JUDGE_MISSING_JOIN` -> `join-specs-for-multi-table`).
+Escalation rules: 3+ failures -> `text-instruction-exists`, 5+ -> `benchmarks-exist`.
+
+The function maps labeled failures to check IDs:
 
 | Failure Pattern | Detected Via | Fix Check ID |
 |---|---|---|
@@ -634,12 +645,14 @@ The `analyzeFeedbackForFixes()` function maps labeled failures to check IDs:
 |---|---|---|
 | `id` | UUID | Primary key |
 | `spaceId` | string | Genie Space ID |
+| `evalRunId` | string | Genie Eval API run ID |
 | `runAt` | datetime | When the run was executed |
-| `totalQuestions` | int | Number of benchmark questions |
-| `passedCount` | int | Questions that passed |
-| `failedCount` | int | Questions that failed |
-| `errorCount` | int | Questions with errors |
-| `resultsJson` | JSON string | `BenchmarkResult[]` |
+| `status` | string | `DONE`, `EVALUATION_FAILED`, etc. |
+| `numQuestions` | int | Number of benchmark questions |
+| `numCorrect` | int | Questions assessed as GOOD |
+| `numNeedsReview` | int | Questions needing manual review |
+| `accuracy` | float | `numCorrect / numQuestions * 100` |
+| `resultsJson` | JSON string | `EvalResultDetail[]` |
 | `feedbackJson` | JSON string | User labels + feedback text |
 | `improvementsApplied` | boolean | Whether improvements were applied from this run |
 | `improvementSummary` | string | Description of improvements made |
@@ -699,10 +712,11 @@ The `analyzeFeedbackForFixes()` function maps labeled failures to check IDs:
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/genie-spaces/[id]/benchmarks` | Load benchmark questions |
-| `POST` | `/api/genie-spaces/[id]/benchmarks/run` | Run benchmarks (SSE stream) |
+| `POST` | `/api/genie-spaces/[id]/benchmarks/run` | Create eval run (returns evalRunId) |
+| `GET` | `/api/genie-spaces/[id]/benchmarks/run?evalRunId=X` | Poll eval run status; once DONE returns full results |
 | `POST` | `/api/genie-spaces/[id]/benchmarks/feedback` | Save labeled results |
 | `POST` | `/api/genie-spaces/[id]/benchmarks/improve` | Generate improvements (returns original + updated for review) |
-| `GET` | `/api/genie-spaces/[id]/benchmarks/history` | Past benchmark runs |
+| `GET` | `/api/genie-spaces/[id]/benchmarks/history` | Past eval runs (API + Lakebase enrichments) |
 
 ### Configuration
 
@@ -774,7 +788,7 @@ Side-by-side comparison of current vs proposed `serialized_space`:
 
 ### Benchmark Page (`app/genie/[spaceId]/benchmarks/page.tsx`)
 
-- **Run tab** -- load questions, run with SSE progress, results with label UI
+- **Run tab** -- load questions, create eval run via API, poll for progress, results with GOOD/BAD/NEEDS_REVIEW badges, ScoreReason chips, side-by-side SQL, execution results, manual assessment UI
 - **History tab** -- past runs with pass rate badges
 - Thumbs up/down labeling with optional feedback textarea
 - **Improve** button generates targeted fixes and displays **Optimization Review** (no longer auto-applies)
@@ -790,7 +804,7 @@ Side-by-side comparison of current vs proposed `serialized_space`:
 | **Space caching** | In-memory 5min TTL cache in `lib/genie/space-cache.ts` |
 | **Discovery concurrency** | Bounded to 5 parallel tasks per discover call |
 | **Stale filtering** | Tracked spaces not found in workspace excluded from UI (Lakebase intact) |
-| **Rate limiting** | 2s delay between benchmark questions, in-memory lock for concurrent runs |
+| **Rate limiting** | Delegated to Genie Eval API (handles question execution server-side) |
 | **Health check cache** | Invalidated on fix apply and benchmark improve |
 | **Clone + Fix** | `/api/genie-spaces/[id]/clone` creates a copy before modifying off-platform spaces |
 | **Health trending** | `ForgeSpaceHealthScore` persisted on every check, sparkline via history API |
@@ -813,8 +827,9 @@ Side-by-side comparison of current vs proposed `serialized_space`:
 | `lib/genie/space-fixer.ts` | Fix strategy router, metadata builder, pass invocation |
 | `lib/genie/space-cache.ts` | In-memory serialized_space cache with TTL |
 | `lib/genie/space-metadata.ts` | Shared metadata extraction from serialized_space |
-| `lib/genie/benchmark-feedback.ts` | Feedback analysis and pass rate comparison |
-| `lib/genie/benchmark-runner.ts` | Existing benchmark runner (Conversation API) |
+| `lib/genie/eval-types.ts` | Genie Eval API types (1:1 with REST API) |
+| `lib/genie/benchmark-feedback.ts` | ScoreReason-to-check-ID mapping for fix targeting |
+| `lib/genie/benchmark-runner.ts` | Eval run orchestrator (Genie Eval API) |
 | `lib/dbx/genie.ts` | Databricks Genie Spaces REST API client (OBO auth for reads) |
 | `lib/lakebase/space-health.ts` | CRUD for health scores, benchmark runs, config |
 | **UI Components** | |
@@ -837,7 +852,7 @@ Side-by-side comparison of current vs proposed `serialized_space`:
 | `app/api/genie-spaces/[spaceId]/apply/route.ts` | Apply fix API |
 | `app/api/genie-spaces/[spaceId]/clone/route.ts` | Clone space API |
 | `app/api/genie-spaces/[spaceId]/benchmarks/route.ts` | Load benchmarks API |
-| `app/api/genie-spaces/[spaceId]/benchmarks/run/route.ts` | Run benchmarks (SSE) API |
+| `app/api/genie-spaces/[spaceId]/benchmarks/run/route.ts` | Create + poll eval runs API |
 | `app/api/genie-spaces/[spaceId]/benchmarks/feedback/route.ts` | Feedback API |
 | `app/api/genie-spaces/[spaceId]/benchmarks/improve/route.ts` | Improve from feedback API |
 | `app/api/genie-spaces/[spaceId]/benchmarks/history/route.ts` | Benchmark history API |

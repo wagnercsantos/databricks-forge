@@ -133,8 +133,9 @@ Key modules:
 - `lib/genie/schema-scanner.ts` -- schema scan, data profiling, LLM table selection for "Scan Schema" flow
 - `lib/genie/requirements-parser.ts` -- PDF/MD/text parsing, LLM requirements extraction for "Upload Requirements" flow
 - `lib/genie/auto-improve.ts` -- iterative benchmark -> fix -> re-benchmark loop until target score
-- `lib/genie/benchmark-runner.ts` -- 3-tier benchmark scoring: SQL similarity, result-set comparison, LLM judge
-- `lib/genie/benchmark-feedback.ts` -- failure category mapping to fix strategies (result-based + heuristic)
+- `lib/genie/eval-types.ts` -- Genie Eval API types (1:1 with Databricks REST API): `EvaluationStatusType`, `GenieEvalAssessment`, `ScoreReason`, response/result/run types
+- `lib/genie/benchmark-runner.ts` -- eval run orchestrator: `runEval()` creates runs via Genie Eval API, polls, fetches results with `GOOD/BAD/NEEDS_REVIEW` assessments and `ScoreReason[]`
+- `lib/genie/benchmark-feedback.ts` -- `ScoreReason`-to-check-ID mapping for targeted fix strategies (25 ScoreReason values)
 - `lib/genie/sync-jobs.ts` -- in-memory job store for workspace sync (fire-and-forget pattern)
 - `lib/lakebase/genie-space-cache.ts` -- CRUD for `ForgeGenieSpaceCache` (workspace listing cache)
 
@@ -216,8 +217,8 @@ Key modules:
 - `lib/genie/space-health-check.ts` -- scorer (pure function, no LLM calls)
 - `lib/genie/space-fixer.ts` -- fix strategy router, metadata builder for off-platform spaces
 - `lib/genie/space-cache.ts` -- in-memory serialized_space cache (5min TTL)
-- `lib/genie/benchmark-feedback.ts` -- failure category mapping to fix strategies (result-based + heuristic)
-- `lib/genie/auto-improve.ts` -- iterative benchmark -> analyze -> fix -> re-benchmark loop
+- `lib/genie/benchmark-feedback.ts` -- `ScoreReason`-to-check-ID mapping for targeted fix strategies
+- `lib/genie/auto-improve.ts` -- iterative eval -> analyze -> fix -> re-eval loop with three-space architecture
 - `lib/lakebase/space-health.ts` -- CRUD for health scores, benchmark runs, config
 - `components/genie/health-detail-sheet.tsx` -- health report slide-out panel
 

@@ -14,6 +14,8 @@ import { getSpaceCache, setSpaceCache } from "@/lib/genie/space-cache";
 import { isSafeId } from "@/lib/validation";
 import { logger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
+import type { GenieEvalAssessment, ScoreReason } from "@/lib/genie/eval-types";
+import type { EvalResultDetail } from "@/lib/genie/benchmark-runner";
 
 export async function POST(
   request: NextRequest,
@@ -37,10 +39,25 @@ export async function POST(
       return NextResponse.json({ error: "Benchmark run not found" }, { status: 404 });
     }
 
-    const feedback: FeedbackEntry[] = run.feedbackJson ? JSON.parse(run.feedbackJson) : [];
+    // Build feedback from stored results (eval API format)
+    let feedback: FeedbackEntry[] = [];
+
+    if (run.feedbackJson) {
+      feedback = JSON.parse(run.feedbackJson) as FeedbackEntry[];
+    } else if (run.resultsJson) {
+      const results = JSON.parse(run.resultsJson) as EvalResultDetail[];
+      feedback = results
+        .filter((r) => r.assessment !== "GOOD")
+        .map((r) => ({
+          question: r.question,
+          assessment: r.assessment as GenieEvalAssessment,
+          assessmentReasons: (r.assessmentReasons ?? []) as ScoreReason[],
+        }));
+    }
+
     if (feedback.length === 0) {
       return NextResponse.json(
-        { error: "No feedback has been submitted for this run" },
+        { error: "No failures or feedback found for this run" },
         { status: 400 },
       );
     }

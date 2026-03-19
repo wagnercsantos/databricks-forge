@@ -60,29 +60,39 @@ export async function getLatestHealthScore(spaceId: string) {
 
 export interface BenchmarkRunInput {
   spaceId: string;
-  totalQuestions: number;
-  passedCount: number;
-  failedCount: number;
-  errorCount?: number;
+  evalRunId: string;
+  status: string;
+  numQuestions: number;
+  numCorrect: number;
+  numNeedsReview: number;
+  accuracy: number;
   resultsJson: string;
 }
 
 export async function saveBenchmarkRun(input: BenchmarkRunInput): Promise<string> {
   return withPrisma(async (prisma) => {
+    const existing = await prisma.forgeSpaceBenchmarkRun.findFirst({
+      where: { evalRunId: input.evalRunId },
+    });
+    if (existing) return existing.id;
+
     const row = await prisma.forgeSpaceBenchmarkRun.create({
       data: {
         spaceId: input.spaceId,
-        totalQuestions: input.totalQuestions,
-        passedCount: input.passedCount,
-        failedCount: input.failedCount,
-        errorCount: input.errorCount ?? 0,
+        evalRunId: input.evalRunId,
+        status: input.status,
+        numQuestions: input.numQuestions,
+        numCorrect: input.numCorrect,
+        numNeedsReview: input.numNeedsReview,
+        accuracy: input.accuracy,
         resultsJson: input.resultsJson,
       },
     });
     logger.info("Benchmark run saved", {
       spaceId: input.spaceId,
-      passed: input.passedCount,
-      total: input.totalQuestions,
+      evalRunId: input.evalRunId,
+      accuracy: input.accuracy,
+      numQuestions: input.numQuestions,
     });
     return row.id;
   });
