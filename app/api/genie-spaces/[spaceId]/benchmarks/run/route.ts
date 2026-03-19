@@ -19,7 +19,7 @@ import { logger } from "@/lib/logger";
 import { createConcurrencyLimiter } from "@/lib/toolkit/concurrency";
 import { TERMINAL_EVAL_STATUSES } from "@/lib/genie/eval-types";
 import type { EvalRunResult, EvalResultDetail } from "@/lib/genie/benchmark-runner";
-import type { GenieEvalAssessment, ScoreReason } from "@/lib/genie/eval-types";
+import type { GenieEvalAssessment, ScoreReason, SqlExecutionResult } from "@/lib/genie/eval-types";
 
 // ---------------------------------------------------------------------------
 // GET handler (poll)
@@ -139,7 +139,7 @@ export async function POST(
 // ---------------------------------------------------------------------------
 
 function extractFromResponses(
-  responses: Array<{ response?: string; response_type?: string; sql_execution_result?: Record<string, unknown> }> | undefined,
+  responses: Array<{ response?: string; response_type?: string; sql_execution_result?: SqlExecutionResult }> | undefined,
   type: "SQL" | "TEXT",
 ): string | undefined {
   if (!responses) return undefined;
@@ -148,8 +148,8 @@ function extractFromResponses(
 }
 
 function extractExecutionResult(
-  responses: Array<{ response?: string; response_type?: string; sql_execution_result?: Record<string, unknown> }> | undefined,
-): Record<string, unknown> | undefined {
+  responses: Array<{ response?: string; response_type?: string; sql_execution_result?: SqlExecutionResult }> | undefined,
+): SqlExecutionResult | undefined {
   if (!responses) return undefined;
   const match = responses.find((r) => r.response_type === "SQL");
   return match?.sql_execution_result ?? undefined;

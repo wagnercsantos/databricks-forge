@@ -20,6 +20,7 @@ import type {
   ScoreReason,
   EvaluationStatusType,
   GenieEvalResponse,
+  SqlExecutionResult,
 } from "./eval-types";
 
 // ---------------------------------------------------------------------------
@@ -50,8 +51,8 @@ export interface EvalResultDetail {
   actualSql?: string;
   expectedText?: string;
   actualText?: string;
-  actualExecutionResult?: Record<string, unknown>;
-  expectedExecutionResult?: Record<string, unknown>;
+  actualExecutionResult?: SqlExecutionResult;
+  expectedExecutionResult?: SqlExecutionResult;
 }
 
 export interface RunEvalOptions {
@@ -114,7 +115,7 @@ function extractText(responses?: GenieEvalResponse[]): string | undefined {
 
 function extractExecutionResult(
   responses?: GenieEvalResponse[],
-): Record<string, unknown> | undefined {
+): SqlExecutionResult | undefined {
   if (!responses) return undefined;
   const sqlResponse = responses.find((r) => r.response_type === "SQL");
   return sqlResponse?.sql_execution_result ?? undefined;

@@ -1,6 +1,6 @@
 # Release Notes -- 2026-03-19
 
-**Databricks Forge v0.39.0 → v0.39.1**
+**Databricks Forge v0.39.0 → v0.39.2**
 
 ---
 
@@ -38,10 +38,22 @@ The auto-improve loop now uses `runEval()` instead of the old `runBenchmarks()`,
 
 ---
 
+## v0.39.2 -- Expose full eval result details (execution results, column types, error states)
+
+### Bug Fixes
+- **Benchmark execution results not rendering** -- The `sql_execution_result` from the Genie Eval API has a nested structure (`manifest.schema.columns`, `result.data_array`) but the UI was looking for flat top-level fields. Added proper typed interfaces (`SqlExecutionResult`, `SqlExecutionResultManifest`, `SqlExecutionResultColumn`, etc.) and rewrote `ExecutionResultTable` to correctly navigate the nested structure.
+
+### Improvements
+- Execution result tables now show column types, total row counts, truncation indicators, error states, and pending/running execution status.
+- Increased visible row limit from 10 to 20, with overflow indicator.
+- NULL values now render with distinct italic styling.
+
+---
 
 ## All Commits
 
 | Hash | Summary |
 |---|---|
+| `b5fb30a` | fix: expose full eval result details with proper SqlExecutionResult types |
 | `853b4ce` | fix: pass real benchmark question IDs to Genie Eval API instead of synthetic fallbacks |
 | `d671224` | feat: migrate Genie benchmarks to official Databricks Eval API |

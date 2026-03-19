@@ -42,10 +42,63 @@ export type ScoreReason =
 
 export type GenieEvalResponseType = "SQL" | "TEXT";
 
+// ---------------------------------------------------------------------------
+// SQL Execution Result (nested inside actual_response / expected_response)
+// ---------------------------------------------------------------------------
+
+export interface SqlExecutionResultColumn {
+  name: string;
+  position?: number;
+  type_interval_type?: string;
+  type_name?: string;
+  type_precision?: number;
+  type_scale?: number;
+  type_text?: string;
+}
+
+export interface SqlExecutionResultManifest {
+  format?: string;
+  schema?: {
+    column_count?: number;
+    columns?: SqlExecutionResultColumn[];
+  };
+  total_byte_count?: number;
+  total_chunk_count?: number;
+  total_row_count?: number;
+  truncated?: boolean;
+}
+
+export interface SqlExecutionResultData {
+  byte_count?: number;
+  chunk_index?: number;
+  data_array?: string[][];
+  row_count?: number;
+  row_offset?: number;
+}
+
+export interface SqlExecutionResultStatus {
+  error?: {
+    error_code?: string;
+    message?: string;
+  };
+  state?: string;
+}
+
+export interface SqlExecutionResult {
+  manifest?: SqlExecutionResultManifest;
+  result?: SqlExecutionResultData;
+  statement_id?: string;
+  status?: SqlExecutionResultStatus;
+}
+
+// ---------------------------------------------------------------------------
+// Eval response envelope
+// ---------------------------------------------------------------------------
+
 export interface GenieEvalResponse {
   response?: string;
   response_type?: GenieEvalResponseType;
-  sql_execution_result?: Record<string, unknown>;
+  sql_execution_result?: SqlExecutionResult;
 }
 
 export interface GenieEvalResult {

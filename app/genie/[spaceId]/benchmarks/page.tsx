@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { OptimizationReview } from "@/components/genie/optimization-review";
 import type { EvalResultDetail } from "@/lib/genie/benchmark-runner";
-import type { GenieEvalAssessment, ScoreReason } from "@/lib/genie/eval-types";
+import type { GenieEvalAssessment, ScoreReason, SqlExecutionResult } from "@/lib/genie/eval-types";
 import { SCORE_REASON_LABELS } from "@/lib/genie/eval-types";
 
 interface BenchmarkQuestion {
@@ -155,48 +155,85 @@ function ExecutionResultTable({
   result,
   label,
 }: {
-  result?: Record<string, unknown>;
+  result?: SqlExecutionResult;
   label: string;
 }) {
   if (!result) return null;
 
-  const schema = result.schema as Record<string, unknown> | undefined;
-  const columns = (result.columns ?? schema?.columns ?? []) as Array<{
-    name?: string;
-  }>;
-  const rows = (result.data_array ?? result.rows ?? []) as unknown[][];
+  const columns = result.manifest?.schema?.columns ?? [];
+  const rows = result.result?.data_array ?? [];
+  const totalRows = result.manifest?.total_row_count ?? rows.length;
+  const truncated = result.manifest?.truncated ?? false;
+  const errorMsg = result.status?.error?.message;
+  const execState = result.status?.state;
 
-  if (columns.length === 0 || rows.length === 0) return null;
+  if (errorMsg) {
+    return (
+      <div className="mt-2 space-y-1">
+        <div className="text-xs font-medium text-muted-foreground">{label}</div>
+        <div className="rounded border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
+          {result.status?.error?.error_code}: {errorMsg}
+        </div>
+      </div>
+    );
+  }
+
+  if (execState === "PENDING" || execState === "RUNNING") {
+    return (
+      <div className="mt-2 space-y-1">
+        <div className="text-xs font-medium text-muted-foreground">{label}</div>
+        <div className="text-xs text-muted-foreground italic">Execution {execState?.toLowerCase()}...</div>
+      </div>
+    );
+  }
+
+  if (columns.length === 0 && rows.length === 0) return null;
 
   return (
     <div className="mt-2 space-y-1">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span className="font-medium">{label}</span>
         <span>
-          {rows.length} row{rows.length !== 1 ? "s" : ""}
+          {totalRows} row{totalRows !== 1 ? "s" : ""}
+          {truncated ? " (truncated)" : ""}
         </span>
+        {columns.length > 0 && (
+          <span>&middot; {columns.length} col{columns.length !== 1 ? "s" : ""}</span>
+        )}
       </div>
-      <div className="max-h-40 overflow-auto rounded border">
+      <div className="max-h-48 overflow-auto rounded border">
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-muted">
             <tr>
               {columns.map((col, i) => (
-                <th key={i} className="px-2 py-1 text-left font-medium">
-                  {col.name ?? `col_${i}`}
+                <th key={i} className="whitespace-nowrap px-2 py-1 text-left font-medium">
+                  <span>{col.name ?? `col_${i}`}</span>
+                  {col.type_text && (
+                    <span className="ml-1 font-normal text-muted-foreground">
+                      ({col.type_text})
+                    </span>
+                  )}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.slice(0, 10).map((row, ri) => (
+            {rows.slice(0, 20).map((row, ri) => (
               <tr key={ri} className="border-t">
-                {(row as unknown[]).map((cell, ci) => (
+                {row.map((cell, ci) => (
                   <td key={ci} className="max-w-[200px] truncate px-2 py-1">
-                    {cell != null ? String(cell) : "NULL"}
+                    {cell != null ? String(cell) : <span className="text-muted-foreground italic">NULL</span>}
                   </td>
                 ))}
               </tr>
             ))}
+            {rows.length > 20 && (
+              <tr className="border-t">
+                <td colSpan={columns.length} className="px-2 py-1 text-center text-muted-foreground italic">
+                  ... {rows.length - 20} more rows
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
