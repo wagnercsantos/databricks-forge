@@ -1,6 +1,6 @@
 # Release Notes -- 2026-03-19
 
-**Databricks Forge v0.39.0 → v0.39.2**
+**Databricks Forge v0.39.0 → v0.39.3**
 
 ---
 
@@ -50,10 +50,31 @@ The auto-improve loop now uses `runEval()` instead of the old `runBenchmarks()`,
 
 ---
 
+## v0.39.3 -- Benchmark detail UI overhaul matching Databricks native eval experience
+
+### Improvements
+#### Side-by-side "Model output" / "Ground truth" panels
+Restructured benchmark result cards to use a two-column layout matching the Databricks native eval UI. Each column is a self-contained `ResponsePanel` with SQL + execution result table paired together, replacing the old vertically-stacked layout.
+
+#### SQL syntax highlighting via CodeMirror
+Replaced plain `<pre>` SQL blocks with the existing `SqlEditor` component (CodeMirror, read-only mode) providing syntax highlighting, line numbers, and proper monospace rendering.
+
+#### Collapsible SQL
+Long SQL statements (>8 lines) are collapsed by default with a "... N more lines" toggle, matching the Databricks UI pattern.
+
+#### Copy-to-clipboard buttons
+Each response panel now has a copy button for the SQL/text content with visual feedback.
+
+#### Response type badges and row numbers
+Each panel shows an "SQL" or "TEXT" badge. Execution result tables now include a `#` row number column and use Databricks-style labeling ("Model output" / "Ground truth SQL answer").
+
+---
+
 ## All Commits
 
 | Hash | Summary |
 |---|---|
+| `9db17cc` | feat: benchmark detail UI overhaul matching Databricks native eval experience |
 | `b5fb30a` | fix: expose full eval result details with proper SqlExecutionResult types |
 | `853b4ce` | fix: pass real benchmark question IDs to Genie Eval API instead of synthetic fallbacks |
 | `d671224` | feat: migrate Genie benchmarks to official Databricks Eval API |

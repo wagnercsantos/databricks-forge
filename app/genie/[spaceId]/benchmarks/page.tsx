@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +14,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Copy,
   Eye,
   FlaskConical,
   Loader2,
@@ -30,6 +35,11 @@ import { OptimizationReview } from "@/components/genie/optimization-review";
 import type { EvalResultDetail } from "@/lib/genie/benchmark-runner";
 import type { GenieEvalAssessment, ScoreReason, SqlExecutionResult } from "@/lib/genie/eval-types";
 import { SCORE_REASON_LABELS } from "@/lib/genie/eval-types";
+
+const SqlEditor = dynamic(
+  () => import("@/components/assistant/sql-editor").then((m) => m.SqlEditor),
+  { ssr: false, loading: () => <div className="h-24 w-full animate-pulse rounded-md bg-muted" /> },
+);
 
 interface BenchmarkQuestion {
   id: string;
@@ -116,32 +126,62 @@ function ScoreReasonChips({ reasons }: { reasons: ScoreReason[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// SQL comparison
+// Copy button helper
 // ---------------------------------------------------------------------------
 
-function SqlComparison({
-  expected,
-  actual,
-}: {
-  expected?: string;
-  actual?: string;
-}) {
-  if (!expected && !actual) return null;
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <div className="mt-3 grid grid-cols-2 gap-3">
-      {expected && (
-        <div>
-          <div className="mb-1 text-xs font-medium text-muted-foreground">Expected SQL</div>
-          <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 text-xs">
-            {expected}
-          </pre>
-        </div>
-      )}
-      {actual && (
-        <div>
-          <div className="mb-1 text-xs font-medium text-muted-foreground">Actual SQL</div>
-          <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 text-xs">{actual}</pre>
-        </div>
+    <Button variant="ghost" size="sm" className="h-6 gap-1 px-1.5 text-[10px]" onClick={handleCopy}>
+      {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+    </Button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Collapsible SQL panel with syntax highlighting
+// ---------------------------------------------------------------------------
+
+const SQL_COLLAPSE_LINES = 8;
+
+function SqlPanel({ sql }: { sql: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const lineCount = sql.split("\n").length;
+  const isLong = lineCount > SQL_COLLAPSE_LINES;
+
+  return (
+    <div className="relative">
+      <div
+        className="overflow-hidden rounded-md border"
+        style={!expanded && isLong ? { maxHeight: "176px" } : undefined}
+      >
+        <SqlEditor value={sql} readOnly className="text-xs [&_.cm-editor]:!bg-muted/40" />
+      </div>
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 flex items-center gap-1 text-[11px] text-primary hover:underline"
+        >
+          {expanded ? (
+            <>
+              <ChevronUp className="size-3" /> Collapse
+            </>
+          ) : (
+            <>
+              <ChevronDown className="size-3" /> ... {lineCount - SQL_COLLAPSE_LINES} more lines
+            </>
+          )}
+        </button>
       )}
     </div>
   );
@@ -151,13 +191,7 @@ function SqlComparison({
 // Execution result table
 // ---------------------------------------------------------------------------
 
-function ExecutionResultTable({
-  result,
-  label,
-}: {
-  result?: SqlExecutionResult;
-  label: string;
-}) {
+function ExecutionResultTable({ result }: { result?: SqlExecutionResult }) {
   if (!result) return null;
 
   const columns = result.manifest?.schema?.columns ?? [];
@@ -169,20 +203,16 @@ function ExecutionResultTable({
 
   if (errorMsg) {
     return (
-      <div className="mt-2 space-y-1">
-        <div className="text-xs font-medium text-muted-foreground">{label}</div>
-        <div className="rounded border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
-          {result.status?.error?.error_code}: {errorMsg}
-        </div>
+      <div className="rounded border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
+        {result.status?.error?.error_code}: {errorMsg}
       </div>
     );
   }
 
   if (execState === "PENDING" || execState === "RUNNING") {
     return (
-      <div className="mt-2 space-y-1">
-        <div className="text-xs font-medium text-muted-foreground">{label}</div>
-        <div className="text-xs text-muted-foreground italic">Execution {execState?.toLowerCase()}...</div>
+      <div className="text-xs text-muted-foreground italic">
+        Execution {execState?.toLowerCase()}...
       </div>
     );
   }
@@ -190,9 +220,8 @@ function ExecutionResultTable({
   if (columns.length === 0 && rows.length === 0) return null;
 
   return (
-    <div className="mt-2 space-y-1">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span className="font-medium">{label}</span>
+    <div className="space-y-1">
+      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         <span>
           {totalRows} row{totalRows !== 1 ? "s" : ""}
           {truncated ? " (truncated)" : ""}
@@ -201,10 +230,11 @@ function ExecutionResultTable({
           <span>&middot; {columns.length} col{columns.length !== 1 ? "s" : ""}</span>
         )}
       </div>
-      <div className="max-h-48 overflow-auto rounded border">
+      <div className="max-h-52 overflow-auto rounded border">
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-muted">
             <tr>
+              <th className="w-8 px-2 py-1 text-right font-medium text-muted-foreground">#</th>
               {columns.map((col, i) => (
                 <th key={i} className="whitespace-nowrap px-2 py-1 text-left font-medium">
                   <span>{col.name ?? `col_${i}`}</span>
@@ -220,16 +250,24 @@ function ExecutionResultTable({
           <tbody>
             {rows.slice(0, 20).map((row, ri) => (
               <tr key={ri} className="border-t">
+                <td className="w-8 px-2 py-1 text-right text-muted-foreground">{ri + 1}</td>
                 {row.map((cell, ci) => (
                   <td key={ci} className="max-w-[200px] truncate px-2 py-1">
-                    {cell != null ? String(cell) : <span className="text-muted-foreground italic">NULL</span>}
+                    {cell != null ? (
+                      String(cell)
+                    ) : (
+                      <span className="text-muted-foreground italic">NULL</span>
+                    )}
                   </td>
                 ))}
               </tr>
             ))}
             {rows.length > 20 && (
               <tr className="border-t">
-                <td colSpan={columns.length} className="px-2 py-1 text-center text-muted-foreground italic">
+                <td
+                  colSpan={columns.length + 1}
+                  className="px-2 py-1 text-center text-muted-foreground italic"
+                >
                   ... {rows.length - 20} more rows
                 </td>
               </tr>
@@ -237,6 +275,52 @@ function ExecutionResultTable({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Response panel (SQL + result table as a single column)
+// ---------------------------------------------------------------------------
+
+function ResponsePanel({
+  label,
+  sql,
+  text,
+  executionResult,
+}: {
+  label: string;
+  sql?: string;
+  text?: string;
+  executionResult?: SqlExecutionResult;
+}) {
+  const content = sql ?? text;
+  if (!content && !executionResult) return null;
+
+  const responseType = sql ? "SQL" : text ? "TEXT" : null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">{label}</span>
+          {responseType && (
+            <Badge variant="outline" className="h-4 px-1.5 text-[9px] font-normal">
+              {responseType}
+            </Badge>
+          )}
+        </div>
+        {content && <CopyButton text={content} />}
+      </div>
+
+      {sql && <SqlPanel sql={sql} />}
+      {!sql && text && (
+        <pre className="max-h-40 overflow-auto rounded-md border bg-muted/40 p-2 text-xs">
+          {text}
+        </pre>
+      )}
+
+      <ExecutionResultTable result={executionResult} />
     </div>
   );
 }
@@ -782,35 +866,19 @@ export default function BenchmarkPage() {
 
               {/* Results */}
               {results.length > 0 && (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {results.map((result, idx) => (
                     <Card key={result.resultId ?? idx}>
-                      <CardContent className="space-y-3 p-4">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
+                      <CardContent className="space-y-4 p-5">
+                        {/* Header: assessment + question + manual assessment buttons */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1 space-y-1">
                             <div className="flex items-center gap-2">
                               <AssessmentBadge assessment={result.assessment} />
                               <span className="text-sm font-medium">{result.question}</span>
                             </div>
-
                             <ScoreReasonChips reasons={result.assessmentReasons} />
-
-                            <SqlComparison
-                              expected={result.expectedSql}
-                              actual={result.actualSql}
-                            />
-
-                            <ExecutionResultTable
-                              result={result.actualExecutionResult}
-                              label="Actual Result"
-                            />
-                            <ExecutionResultTable
-                              result={result.expectedExecutionResult}
-                              label="Expected Result"
-                            />
                           </div>
-
-                          {/* Manual assessment buttons */}
                           <div className="flex shrink-0 gap-1">
                             <Button
                               size="sm"
@@ -833,6 +901,22 @@ export default function BenchmarkPage() {
                               <ThumbsDown className="size-3" />
                             </Button>
                           </div>
+                        </div>
+
+                        {/* Side-by-side response panels */}
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                          <ResponsePanel
+                            label="Model output"
+                            sql={result.actualSql}
+                            text={result.actualText}
+                            executionResult={result.actualExecutionResult}
+                          />
+                          <ResponsePanel
+                            label="Ground truth SQL answer"
+                            sql={result.expectedSql}
+                            text={result.expectedText}
+                            executionResult={result.expectedExecutionResult}
+                          />
                         </div>
 
                         {result.userAssessment === "BAD" && (
