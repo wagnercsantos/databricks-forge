@@ -23,7 +23,7 @@
     "nextjs"
   ],
   "scripts": {
-    "dev": "next dev",
+    "dev": "prisma generate && next dev",
     "build": "prisma generate && next build && sh scripts/postbuild.sh",
     "start": "prisma db push --accept-data-loss && next start",
     "lint": "eslint",

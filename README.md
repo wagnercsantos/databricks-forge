@@ -101,6 +101,32 @@ A healthy response:
 
 Pull the latest changes and re-run `./deploy.sh`. The script detects the existing app and updates it. Schema changes in `prisma/schema.prisma` are applied automatically on the next startup.
 
+---
+
+### Local Development (No Serverless Egress)
+
+For environments that restrict serverless egress, or to test locally before
+deploying, Forge can run on your machine pointing at a remote workspace.
+
+> **New to Node.js?** Install Node 20+ from https://nodejs.org first. Verify
+> with `node -v` and `npm -v`.
+
+```bash
+npm install                                                        # Install dependencies (~60s first time)
+databricks auth login --host https://your-workspace.cloud.databricks.com  # One-time OAuth login
+bash .deploy_local.sh                                              # Provisions Lakebase, selects warehouse, writes .env.local
+npm run dev                                                        # Start dev server at http://localhost:3000
+```
+
+The first page load takes 10-15 seconds while Next.js compiles. You should
+see the Forge dashboard. No PAT or long-lived credentials are stored on disk
+-- the app authenticates via the Databricks CLI's OAuth session.
+
+See [QUICKSTART.md](QUICKSTART.md) or [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+for full details and troubleshooting.
+
+---
+
 ### Environment variables at runtime
 
 | Variable | Source | How it's set |

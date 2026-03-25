@@ -141,6 +141,63 @@ Use `--skip-probe` to bypass this check.
 ./deploy.sh --app-name "forge-demo" --destroy
 ```
 
+---
+
+## Local Development (No Serverless Egress)
+
+For environments that restrict serverless egress or when you want to test
+locally before deploying, Forge can run on your machine pointing at a remote
+Databricks workspace. No PAT or long-lived credentials are stored on disk.
+
+### Prerequisites
+
+- **[Node.js 20+](https://nodejs.org)** -- download the LTS installer for your
+  OS, or use a version manager:
+  ```bash
+  # macOS (Homebrew)
+  brew install node@20
+
+  # Any OS (nvm -- recommended if you manage multiple Node versions)
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+  nvm install 20
+  ```
+  Verify with `node -v` (should print `v20.x.x` or higher) and `npm -v`.
+
+- **[Databricks CLI](https://docs.databricks.com/dev-tools/cli/install.html)** installed
+- A **SQL Warehouse** (Serverless or Pro) in the target workspace
+
+### Setup
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/althrussell/databricks-forge.git
+cd databricks-forge
+
+# 2. Install dependencies (downloads all required packages -- takes ~60s first time)
+npm install
+
+# 3. One-time: browser-based OAuth login (opens your browser)
+databricks auth login --host https://your-workspace.cloud.databricks.com
+
+# 4. Provision Lakebase, select warehouse, write .env.local
+bash .deploy_local.sh
+
+# 5. Start dev server
+npm run dev
+```
+
+Open **http://localhost:3000** in your browser. The first page load takes
+10-15 seconds while Next.js compiles. You should see the Forge dashboard.
+
+The app authenticates via the Databricks CLI's OAuth session -- tokens are
+short-lived and auto-refresh. If your session expires, run
+`databricks auth login` again.
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for full architecture details,
+manual setup, and troubleshooting.
+
+---
+
 ### Manual benchmark seeding (local dev)
 
 ```bash

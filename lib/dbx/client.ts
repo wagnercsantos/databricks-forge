@@ -1,19 +1,24 @@
 /**
  * Databricks client configuration.
  *
- * Supports three authentication modes (checked in priority order):
+ * Supports four authentication modes (checked in priority order):
  *   1. **User authorization (on-behalf-of-user)**: When deployed as a
  *      Databricks App with user-auth scopes, the platform injects the
  *      user's access token in the `x-forwarded-access-token` header.
  *      This lets UC permissions follow the logged-in user.
- *   2. **Local development**: Uses a PAT via DATABRICKS_TOKEN in .env.local.
- *   3. **App authorization (service principal)**: Falls back to OAuth M2M via
+ *   2. **PAT (local dev override)**: Uses DATABRICKS_TOKEN in .env.local.
+ *   3. **CLI OAuth U2M (local dev)**: Shells out to `databricks auth token`
+ *      to get a short-lived token from the CLI's OAuth session. No
+ *      credentials stored on disk -- developer runs `databricks auth login`
+ *      once and the app transparently picks up refreshed tokens.
+ *   4. **App authorization (service principal)**: Falls back to OAuth M2M via
  *      DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET injected at runtime.
  *
  * The SQL Warehouse ID is read from DATABRICKS_WAREHOUSE_ID, which is mapped
  * from the app's sql-warehouse resource binding via app.yaml.
  */
 
+import { execSync } from "child_process";
 import { headers as nextHeaders } from "next/headers";
 import { fetchWithTimeout, TIMEOUTS } from "./fetch-with-timeout";
 
@@ -36,6 +41,79 @@ interface OAuthToken {
 }
 
 let _oauthToken: OAuthToken | null = null;
+
+// ---------------------------------------------------------------------------
+// Databricks CLI token cache (OAuth U2M for local dev)
+// ---------------------------------------------------------------------------
+
+interface CliTokenEntry {
+  accessToken: string;
+  expiresAt: number;
+}
+
+let _cliToken: CliTokenEntry | null = null;
+const CLI_TOKEN_CACHE_MS = 5 * 60_000; // cache for 5 minutes
+
+/**
+ * Try to obtain a token from the Databricks CLI's OAuth session.
+ *
+ * Requires the developer to have run `databricks auth login` at least once.
+ * The CLI manages short-lived tokens (~1hr) with automatic refresh.
+ *
+ * When `DATABRICKS_CLI_PROFILE` is set, uses `--profile` instead of `--host`
+ * to support multi-workspace configurations. Otherwise resolves by host.
+ *
+ * Returns null if the CLI is not installed or not authenticated.
+ */
+function getCliToken(host: string): string | null {
+  if (_cliToken && Date.now() < _cliToken.expiresAt) {
+    return _cliToken.accessToken;
+  }
+  try {
+    const profile = process.env.DATABRICKS_CLI_PROFILE;
+    const selector = profile ? `--profile ${profile}` : `--host ${host}`;
+    const cmd = `databricks auth token ${selector}`;
+
+    const raw = execSync(cmd, {
+      timeout: 5_000,
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        PATH: [
+          process.env.PATH,
+          "/opt/homebrew/bin",
+          "/usr/local/bin",
+          `${process.env.HOME}/.local/bin`,
+          `${process.env.HOME}/.databricks/bin`,
+        ]
+          .filter(Boolean)
+          .join(":"),
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const data = JSON.parse(raw.trim());
+    if (data.access_token) {
+      _cliToken = {
+        accessToken: data.access_token,
+        expiresAt: Date.now() + CLI_TOKEN_CACHE_MS,
+      };
+      return data.access_token;
+    }
+    console.warn("[forge:auth] CLI returned no access_token:", raw.trim().slice(0, 200));
+  } catch (err) {
+    if (!_cliTokenWarned) {
+      _cliTokenWarned = true;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[forge:auth] Databricks CLI token failed. Ensure \`databricks auth login\` ` +
+          `has been run and the CLI is on PATH.\n  Error: ${msg.split("\n")[0]}`,
+      );
+    }
+  }
+  return null;
+}
+
+let _cliTokenWarned = false;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -214,8 +292,11 @@ async function getUserToken(): Promise<string | null> {
  * Priority order:
  *   1. User authorization – `x-forwarded-access-token` header from the
  *      Databricks Apps proxy (runs queries as the logged-in user).
- *   2. PAT – `DATABRICKS_TOKEN` env var (local development).
- *   3. OAuth M2M – `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET`
+ *   2. PAT – `DATABRICKS_TOKEN` env var (explicit override for local dev).
+ *   3. CLI OAuth U2M – `databricks auth token` from the CLI's OAuth
+ *      session. No credentials on disk; developer runs
+ *      `databricks auth login` once and tokens auto-refresh.
+ *   4. OAuth M2M – `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET`
  *      (service principal, for background tasks or when user auth is off).
  */
 async function getBearerToken(): Promise<string> {
@@ -223,19 +304,30 @@ async function getBearerToken(): Promise<string> {
   const userToken = await getUserToken();
   if (userToken) return userToken;
 
-  // 2. PAT token (local dev)
+  // 2. PAT token (explicit override)
   const pat = process.env.DATABRICKS_TOKEN ?? process.env.DATABRICKS_API_TOKEN;
   if (pat) return pat;
 
-  // 3. OAuth M2M (Databricks Apps — service principal fallback)
+  // 3. Databricks CLI OAuth U2M (local dev — no credentials on disk)
+  const cliHost = process.env.DATABRICKS_HOST;
+  if (cliHost) {
+    const cliToken = getCliToken(normaliseHost(cliHost));
+    if (cliToken) return cliToken;
+  }
+
+  // 4. OAuth M2M (Databricks Apps — service principal fallback)
   const clientId = process.env.DATABRICKS_CLIENT_ID;
   const clientSecret = process.env.DATABRICKS_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
+    const profile = process.env.DATABRICKS_CLI_PROFILE;
+    const loginCmd = profile
+      ? `databricks auth login --profile ${profile}`
+      : `databricks auth login --host ${process.env.DATABRICKS_HOST ?? "<workspace-url>"}`;
     throw new Error(
       "No authentication credentials found. " +
-        "Set DATABRICKS_TOKEN for local dev, or deploy as a Databricks App " +
-        "(which injects DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET).",
+        `For local dev, run: ${loginCmd}\n` +
+        "If the CLI is installed but not on PATH, add it or set DATABRICKS_TOKEN in .env.local.",
     );
   }
 
@@ -279,16 +371,23 @@ async function getBearerToken(): Promise<string> {
 }
 
 /**
- * Get the current user's email from the Databricks Apps proxy headers.
- * Returns null when outside a request context or when user auth is off.
+ * Get the current user's email.
+ *
+ * Resolution order:
+ *   1. Databricks Apps proxy headers (`x-forwarded-email` /
+ *      `x-forwarded-preferred-username`) -- set when deployed.
+ *   2. `FORGE_LOCAL_USER_EMAIL` env var -- set by `.deploy_local.sh`
+ *      for local development where proxy headers are absent.
  */
 export async function getCurrentUserEmail(): Promise<string | null> {
   try {
     const hdrs = await nextHeaders();
-    return hdrs.get("x-forwarded-email") ?? hdrs.get("x-forwarded-preferred-username") ?? null;
+    const email = hdrs.get("x-forwarded-email") ?? hdrs.get("x-forwarded-preferred-username");
+    if (email) return email;
   } catch {
-    return null;
+    // Outside request context or headers unavailable
   }
+  return process.env.FORGE_LOCAL_USER_EMAIL ?? null;
 }
 
 /**
@@ -320,23 +419,34 @@ export async function getAppHeaders(): Promise<Record<string, string>> {
 }
 
 /**
- * Obtain a Bearer token using only app-level credentials (PAT or SP).
+ * Obtain a Bearer token using only app-level credentials (PAT, CLI, or SP).
  * Deliberately skips the user's forwarded token.
  */
 async function getAppBearerToken(): Promise<string> {
-  // 1. PAT token (local dev)
+  // 1. PAT token (explicit override)
   const pat = process.env.DATABRICKS_TOKEN ?? process.env.DATABRICKS_API_TOKEN;
   if (pat) return pat;
 
-  // 2. OAuth M2M (Databricks Apps — service principal)
+  // 2. Databricks CLI OAuth U2M (local dev — no credentials on disk)
+  const cliHost = process.env.DATABRICKS_HOST;
+  if (cliHost) {
+    const cliToken = getCliToken(normaliseHost(cliHost));
+    if (cliToken) return cliToken;
+  }
+
+  // 3. OAuth M2M (Databricks Apps — service principal)
   const clientId = process.env.DATABRICKS_CLIENT_ID;
   const clientSecret = process.env.DATABRICKS_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
+    const profile = process.env.DATABRICKS_CLI_PROFILE;
+    const loginCmd = profile
+      ? `databricks auth login --profile ${profile}`
+      : `databricks auth login --host ${process.env.DATABRICKS_HOST ?? "<workspace-url>"}`;
     throw new Error(
       "No app-level credentials found. " +
-        "Set DATABRICKS_TOKEN for local dev, or deploy as a Databricks App " +
-        "(which injects DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET).",
+        `For local dev, run: ${loginCmd}\n` +
+        "If the CLI is installed but not on PATH, add it or set DATABRICKS_TOKEN in .env.local.",
     );
   }
 

@@ -10,8 +10,8 @@ Databricks Field Engineering team and welcomes community contributions.
 
 ### Prerequisites
 
-- Node.js 18+
-- npm
+- [Node.js 20+](https://nodejs.org) and npm
+- [Databricks CLI](https://docs.databricks.com/dev-tools/cli/install.html) installed and authenticated
 - A Databricks workspace with Unity Catalog, a SQL Warehouse, and a Model Serving endpoint
 
 ### Development Setup
@@ -21,12 +21,14 @@ Databricks Field Engineering team and welcomes community contributions.
    ```bash
    npm install
    ```
-3. Create a `.env` file (see [README.md](README.md#quick-start-local-development) for required variables)
-4. Generate the Prisma client:
+3. Authenticate with the Databricks CLI and provision local config:
    ```bash
-   npx prisma generate
+   databricks auth login --host https://your-workspace.cloud.databricks.com
+   bash .deploy_local.sh
    ```
-5. Start the dev server:
+   This creates `.env.local` with your workspace URL, warehouse, and Lakebase
+   credentials. See [QUICKSTART.md](QUICKSTART.md#local-development-no-serverless-egress) for details.
+4. Start the dev server (`prisma generate` runs automatically):
    ```bash
    npm run dev
    ```

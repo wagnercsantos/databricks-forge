@@ -39,7 +39,7 @@ This app runs as a **Databricks App**. Authentication is automatic:
 - Model availability failover: `deploy.sh` probes endpoints and selects the best available per role; `scripts/validate-endpoints.mjs` re-validates at startup; runtime 404s trigger automatic endpoint rotation. Use `--skip-probe` to bypass deploy-time probing.
 - Lakebase scale-to-zero is enforced at every startup (default: 300s timeout). Override with `LAKEBASE_SCALE_TO_ZERO_TIMEOUT` or `--lakebase-no-scale-to-zero`.
 - `FORGE_DEMO_MODE_ENABLED` activates Demo Mode for Field Engineering/Sales (deploy with `--enable-demo-mode`).
-- Local dev uses `DATABRICKS_TOKEN` (PAT) in `.env.local`.
+- **Local dev** uses `.deploy_local.sh` which provisions Lakebase via `databricks postgres` CLI commands and writes `.env.local`. Auth uses the Databricks CLI OAuth U2M session (`databricks auth login`) -- no PAT or credentials stored on disk. The auth chain in `lib/dbx/client.ts` `getBearerToken()` checks: OBO header → `DATABRICKS_TOKEN` → CLI OAuth U2M (`databricks auth token`, cached 5min) → SP OAuth M2M. `getCurrentUserEmail()` falls back to `FORGE_LOCAL_USER_EMAIL` env var when OBO proxy headers are absent. Lakebase uses `getStaticPrisma()` with a `DATABASE_URL` pointing to a native password role (`forge_local_dev`).
 
 ## Folder Contract
 

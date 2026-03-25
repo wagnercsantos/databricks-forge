@@ -65,6 +65,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
     setPbiResult,
     openPbiDialog,
     enrichWithPbi,
+    fetchRun,
   } = useRunDetail(runId);
 
   const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "overview");
@@ -83,10 +84,11 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
         throw new Error(d.error || "Cancel failed");
       }
       toast.success("Pipeline cancellation requested");
+      await fetchRun();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to cancel pipeline");
     }
-  }, [runId]);
+  }, [runId, fetchRun]);
 
   const handleResume = useCallback(async () => {
     try {
@@ -96,10 +98,11 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
         throw new Error(d.error || "Resume failed");
       }
       toast.success("Pipeline resuming from last successful step");
+      await fetchRun();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Resume failed");
     }
-  }, [runId]);
+  }, [runId, fetchRun]);
 
   if (loading) {
     return (

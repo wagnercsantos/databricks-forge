@@ -75,7 +75,8 @@ export async function GET(request: Request) {
   const isAuthenticated =
     !!hdrs.get("x-forwarded-email") ||
     !!hdrs.get("x-forwarded-access-token") ||
-    !!hdrs.get("x-forwarded-preferred-username");
+    !!hdrs.get("x-forwarded-preferred-username") ||
+    !!process.env.DATABRICKS_HOST;
 
   const base = {
     status: overallStatus as HealthCheck["status"],

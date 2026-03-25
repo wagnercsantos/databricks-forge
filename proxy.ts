@@ -2,8 +2,8 @@
  * Next.js middleware -- authentication guard + rate limiting for API routes.
  *
  * In a Databricks Apps deployment the proxy injects `x-forwarded-access-token`
- * for every authenticated user. In local dev, `DATABRICKS_TOKEN` acts as
- * a substitute. If neither is available, the request is rejected.
+ * for every authenticated user. In local dev, CLI OAuth U2M or a PAT
+ * are used. If no auth method is available, the request is rejected.
  *
  * Rate limiting uses an in-memory sliding window. LLM-calling routes
  * (assistant, pipeline, genie, scans) have a tighter limit.
@@ -27,8 +27,9 @@ export function proxy(req: NextRequest) {
   const userToken = req.headers.get("x-forwarded-access-token");
   const hasPat = !!process.env.DATABRICKS_TOKEN || !!process.env.DATABRICKS_API_TOKEN;
   const hasOAuth = !!process.env.DATABRICKS_CLIENT_ID && !!process.env.DATABRICKS_CLIENT_SECRET;
+  const hasCliAuth = !!process.env.DATABRICKS_HOST;
 
-  if (!userToken && !hasPat && !hasOAuth) {
+  if (!userToken && !hasPat && !hasOAuth && !hasCliAuth) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
 

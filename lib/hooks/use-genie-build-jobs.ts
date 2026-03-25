@@ -69,8 +69,24 @@ const POLL_INTERVAL = 3000;
 
 export function useGenieBuildJobs() {
   const [jobs, setJobs] = useState<GenieBuildJob[]>([]);
+  const pollingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+
+  const startPolling = useCallback((fetchFn: () => Promise<void>) => {
+    if (pollingRef.current) return;
+    pollingRef.current = true;
+    timerRef.current = setInterval(fetchFn, POLL_INTERVAL);
+  }, []);
+
+  const stopPolling = useCallback(() => {
+    if (!pollingRef.current) return;
+    pollingRef.current = false;
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -85,20 +101,22 @@ export function useGenieBuildJobs() {
     }
   }, []);
 
-  // Start polling (initial fetch fires on first interval tick)
+  // On mount: single fetch; resume polling if localStorage has active jobs
   useEffect(() => {
     mountedRef.current = true;
-    // Fire first poll after a micro-delay to avoid synchronous setState in effect
+    const stored = readActiveJobIds();
+    if (stored.length > 0) {
+      startPolling(fetchJobs);
+    }
     const initial = setTimeout(fetchJobs, 0);
-    timerRef.current = setInterval(fetchJobs, POLL_INTERVAL);
     return () => {
       mountedRef.current = false;
       clearTimeout(initial);
-      if (timerRef.current) clearInterval(timerRef.current);
+      stopPolling();
     };
-  }, [fetchJobs]);
+  }, [fetchJobs, startPolling, stopPolling]);
 
-  // Sync localStorage when jobs change
+  // Sync localStorage and polling when jobs change
   useEffect(() => {
     const active = jobs.filter((j) => j.status === "generating").map((j) => j.jobId);
     const stored = readActiveJobIds();
@@ -110,7 +128,13 @@ export function useGenieBuildJobs() {
     for (const id of active) {
       if (!stored.includes(id)) addJobId(id);
     }
-  }, [jobs]);
+
+    if (active.length > 0) {
+      startPolling(fetchJobs);
+    } else {
+      stopPolling();
+    }
+  }, [jobs, fetchJobs, startPolling, stopPolling]);
 
   const activeJobs = jobs.filter((j) => j.status === "generating");
   const isAnyActive = activeJobs.length > 0;
@@ -137,6 +161,7 @@ export function useGenieBuildJobs() {
         const jobId = data.jobId as string;
         if (jobId) {
           addJobId(jobId);
+          startPolling(fetchJobs);
           fetchJobs();
         }
         return jobId ?? null;
@@ -144,7 +169,7 @@ export function useGenieBuildJobs() {
         return null;
       }
     },
-    [fetchJobs],
+    [fetchJobs, startPolling],
   );
 
   const cancelBuild = useCallback(async (jobId: string): Promise<boolean> => {

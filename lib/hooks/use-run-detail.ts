@@ -20,6 +20,7 @@ export function useRunDetail(runId: string) {
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fetchingRef = useRef(false);
+  const runLoadedRef = useRef(false);
 
   const [genieGenerating, setGenieGenerating] = useState(false);
   const geniePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -53,18 +54,19 @@ export function useRunDetail(runId: string) {
       if (!res.ok) throw new Error("Run not found");
       const data = await res.json();
       setRun(data.run);
+      runLoadedRef.current = true;
       if (data.useCases) setUseCases(data.useCases);
       if (data.lineageDiscoveredFqns) setLineageDiscoveredFqns(data.lineageDiscoveredFqns);
       if (data.scanId) setScanId(data.scanId);
       setError(null);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      if (!run) setError(err instanceof Error ? err.message : "Failed to load run");
+      if (!runLoadedRef.current) setError(err instanceof Error ? err.message : "Failed to load run");
     } finally {
       setLoading(false);
       fetchingRef.current = false;
     }
-  }, [runId, run, useCases.length]);
+  }, [runId, useCases.length]);
 
   const fetchPromptLogs = useCallback(async () => {
     if (logsLoaded || logsLoading) return;
@@ -205,20 +207,31 @@ export function useRunDetail(runId: string) {
 
   useEffect(() => {
     fetchRun();
-    return () => abortRef.current?.abort();
+    return () => {
+      abortRef.current?.abort();
+      fetchingRef.current = false;
+    };
   }, [fetchRun]);
+
+  const runStatusRef = useRef(run?.status);
+  runStatusRef.current = run?.status;
+  const fetchRunRef = useRef(fetchRun);
+  fetchRunRef.current = fetchRun;
 
   useEffect(() => {
     const isActive = run?.status === "running" || run?.status === "pending";
     if (!isActive) return;
     let delay = 2000;
-    let lastStatus = run?.status;
+    let lastStatus: string | undefined = run?.status;
+    let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = () => {
-      fetchRun().then(() => {
-        if (run?.status !== lastStatus) {
+      fetchRunRef.current().then(() => {
+        if (cancelled) return;
+        const currentStatus = runStatusRef.current;
+        if (currentStatus !== lastStatus) {
           delay = 2000;
-          lastStatus = run?.status;
+          lastStatus = currentStatus;
         } else {
           delay = Math.min(delay * 1.3, 8000);
         }
@@ -226,8 +239,11 @@ export function useRunDetail(runId: string) {
       });
     };
     timer = setTimeout(poll, delay);
-    return () => clearTimeout(timer);
-  }, [run?.status, fetchRun]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [run?.status]);
 
   useEffect(() => {
     if (run?.status !== "completed" || useCases.length === 0) return;
