@@ -5,7 +5,7 @@
 # Usage:
 #   ./deploy.sh                          Interactive (pick a warehouse)
 #   ./deploy.sh --warehouse "Name"       Non-interactive
-#   ./deploy.sh --prebuilt               Build locally, deploy pre-compiled bundle (fastest)
+#   ./deploy.sh --zero-egress             Build locally, package as split archive (no npm install on target)
 #   ./deploy.sh --full                   Full sync (default: diff sync — only changed files)
 #   ./deploy.sh --profile "my-profile"   Use a specific CLI profile
 #   ./deploy.sh --app-name "forge-demo"  Deploy as a separate named instance
@@ -99,7 +99,7 @@ ARG_ENABLE_METRIC_VIEWS=false
 ARG_ENABLE_FABRIC=false
 ARG_ENABLE_DEMO_MODE=false
 ARG_SKIP_PROBE=false
-ARG_PREBUILT=false
+ARG_ZERO_EGRESS=false
 ARG_FULL_SYNC=false
 ARG_DESTROY=false
 
@@ -166,8 +166,9 @@ Options:
   --enable-demo-mode         Enable Demo Mode for FE/Sales (off by default)
   --skip-probe                Skip model availability probing (use defaults without checking).
                              Useful for air-gapped workspaces or when probing is slow.
-  --prebuilt                  Build locally and deploy pre-compiled standalone bundle.
-                             Eliminates remote npm install + npm run build (~3x faster).
+  --zero-egress               Build locally and package as a split archive.
+                             Zero npm install required on the platform -- ideal for
+                             workspaces that block serverless egress.
   --full                      Full sync: upload all files (slower, but guarantees clean state).
                              Default is diff sync: only upload changed files since last deploy.
   --destroy                   Remove the app and clean up workspace files
@@ -211,7 +212,7 @@ while [[ $# -gt 0 ]]; do
     --enable-fabric)       ARG_ENABLE_FABRIC=true; shift ;;
     --enable-demo-mode)    ARG_ENABLE_DEMO_MODE=true; shift ;;
     --skip-probe)          ARG_SKIP_PROBE=true; shift ;;
-    --prebuilt)            ARG_PREBUILT=true; shift ;;
+    --zero-egress)         ARG_ZERO_EGRESS=true; shift ;;
     --full)                ARG_FULL_SYNC=true; shift ;;
     --destroy)             ARG_DESTROY=true; shift ;;
     -h|--help)        print_usage; exit 0 ;;
@@ -634,25 +635,32 @@ restore_app_yaml() {
 }
 
 # -------------------------------------------------------------------------
-# Pre-built package assembly
+# Zero-egress package assembly
 #
-# Builds the Next.js standalone bundle locally, then assembles a minimal
-# deploy directory that the Databricks Apps platform can run without
-# npm install (full) or npm run build.
+# Builds the Next.js standalone bundle locally, then packages it as a
+# split tar.gz archive that requires ZERO npm install on the platform.
+# Designed for workspaces that block serverless egress.
 #
-# The deploy package includes:
-#   - Standalone server (server.js + bundled node_modules + .next/)
-#   - Runtime scripts (start.sh, provision-lakebase.mjs, seed-benchmarks.mjs)
-#   - Prisma schema (for prisma db push at startup)
-#   - Benchmark data (for optional seed)
-#   - app.yaml
-#   - A minimal package.json with only prisma + pg (no build script)
-#   - A .prebuilt marker file for start.sh detection
+# The deploy wrapper contains only:
+#   - app.yaml (command: sh bootstrap.sh)
+#   - bootstrap.sh (reassembles archive, extracts, delegates to start.sh)
+#   - bundle.tar.gz.part-* (split archive chunks, each <10MB)
+#   - .prebuilt marker file
+#
+# Inside the archive:
+#   - server.js + .next/ (Next.js standalone app)
+#   - node_modules/ (pruned runtime deps + prisma CLI with linux engine)
+#   - public/ + .next/static/ (static assets)
+#   - scripts/ (start.sh, provision-lakebase.mjs, etc.)
+#   - prisma/ + prisma.config.ts
+#   - data/benchmark/*.json (optional)
 # -------------------------------------------------------------------------
 DEPLOY_PKG=".deploy-pkg"
+DEPLOY_WRAPPER=".deploy-pkg-ze"
+CHUNK_SIZE_MB=9
 
-assemble_prebuilt() {
-  printf "\n  Assembling pre-built deploy package...\n"
+assemble_zero_egress() {
+  printf "\n  Assembling zero-egress deploy package...\n"
 
   # -- Install Linux sharp binaries for cross-platform build ---------------
   info "Installing Linux sharp binaries..."
@@ -682,34 +690,104 @@ assemble_prebuilt() {
 
   # -- Clean and create deploy package directory ---------------------------
   info "Assembling $DEPLOY_PKG/..."
-  rm -rf "$DEPLOY_PKG"
+  rm -rf "$DEPLOY_PKG" "$DEPLOY_WRAPPER"
   mkdir -p "$DEPLOY_PKG"
 
-  # Copy the standalone app (server.js, node_modules, .next/, package.json)
   cp -a "$standalone_app_dir/." "$DEPLOY_PKG/"
 
-  # Replace public/ with the postbuild copy (has fonts, all static assets)
   rm -rf "$DEPLOY_PKG/public"
   if [ -d "$standalone_root/public" ]; then
     cp -a "$standalone_root/public" "$DEPLOY_PKG/public"
   fi
 
-  # Copy .next/static/ (postbuild.sh puts it in standalone root)
   if [ -d "$standalone_root/.next/static" ]; then
     mkdir -p "$DEPLOY_PKG/.next"
     cp -a "$standalone_root/.next/static" "$DEPLOY_PKG/.next/static"
   fi
 
-  # -- Strip macOS-only sharp binaries (saves ~16MB) -----------------------
+  # -- Resolve Turbopack hashed external modules ----------------------------
+  # Turbopack creates .next/node_modules/ with symlinks like:
+  #   pg-61d4919a4f0d7081 -> ../../node_modules/pg
+  # These are hashed package names used in server chunks. We must:
+  # 1. Copy the hashed entries as real directories (dereference symlinks)
+  # 2. Copy their transitive deps into the root node_modules/
+  if [ -d ".next/node_modules" ]; then
+    info "Resolving Turbopack externals..."
+    # Remove the standalone's copy (contains broken symlinks to dev machine)
+    rm -rf "$DEPLOY_PKG/.next/node_modules"
+    # Re-copy with -L to dereference symlinks into real directories
+    cp -aL ".next/node_modules" "$DEPLOY_PKG/.next/node_modules"
+    # Trace real package names from symlinks and collect their transitive deps
+    local turbo_real_pkgs=""
+    while IFS= read -r link; do
+      local target
+      target=$(readlink "$link" 2>/dev/null) || continue
+      local real_pkg
+      real_pkg=$(echo "$target" | sed -E 's|.*/node_modules/||; s|/$||')
+      turbo_real_pkgs="${turbo_real_pkgs}${real_pkg}\n"
+    done < <(find ".next/node_modules" -maxdepth 3 -type l)
+    # Use node to trace transitive deps of all external packages
+    if [ -n "$turbo_real_pkgs" ]; then
+      local ext_deps
+      ext_deps=$(echo -e "$turbo_real_pkgs" | sort -u | node -e "
+const fs=require('fs'),path=require('path'),rl=require('readline');
+const nm=path.join(process.cwd(),'node_modules');
+const seen=new Set();
+function trace(pkg){
+  if(seen.has(pkg))return;
+  seen.add(pkg);
+  try{
+    const p=JSON.parse(fs.readFileSync(path.join(nm,pkg,'package.json'),'utf8'));
+    for(const d of Object.keys(p.dependencies||{}))trace(d);
+  }catch{}
+}
+const lines=[];
+const r=rl.createInterface({input:process.stdin});
+r.on('line',l=>{if(l.trim())trace(l.trim())});
+r.on('close',()=>console.log([...seen].join('\n')));
+")
+      local ext_count=0
+      while IFS= read -r dep; do
+        [ -z "$dep" ] && continue
+        [ -d "$DEPLOY_PKG/node_modules/$dep" ] && continue
+        [ ! -d "node_modules/$dep" ] && continue
+        mkdir -p "$(dirname "$DEPLOY_PKG/node_modules/$dep")"
+        cp -a "node_modules/$dep" "$DEPLOY_PKG/node_modules/$dep"
+        ext_count=$((ext_count + 1))
+      done <<< "$ext_deps"
+      ok "${ext_count} deps"
+    else
+      ok "none"
+    fi
+  fi
+
+  # -- Strip macOS-only sharp binaries -------------------------------------
   rm -rf "$DEPLOY_PKG/node_modules/@img/sharp-darwin-arm64" \
          "$DEPLOY_PKG/node_modules/@img/sharp-libvips-darwin-arm64" \
          "$DEPLOY_PKG/node_modules/@img/sharp-darwin-x64" \
          "$DEPLOY_PKG/node_modules/@img/sharp-libvips-darwin-x64" \
          2>/dev/null || true
 
-  # -- Strip typescript (saves ~20MB; only needed by prisma config which
-  #    the platform's lean npm install of prisma handles separately) --------
+  # -- Strip typescript (bundled prisma handles its own TS needs) ----------
   rm -rf "$DEPLOY_PKG/node_modules/typescript" 2>/dev/null || true
+
+  # -- Strip non-PostgreSQL Prisma WASM compilers (saves ~35M) -------------
+  find "$DEPLOY_PKG" -path "*/@prisma/client*/runtime/*" \
+    \( -name "*mysql*" -o -name "*sqlite*" -o -name "*sqlserver*" -o -name "*cockroachdb*" \) \
+    -type f -delete 2>/dev/null || true
+  # Also strip .d.ts and .d.mts files from @prisma/client runtime
+  find "$DEPLOY_PKG" -path "*/@prisma/client*/runtime/*" \
+    \( -name "*.d.ts" -o -name "*.d.mts" \) -type f -delete 2>/dev/null || true
+
+  # -- Aggressive pruning: remove non-runtime files from node_modules ------
+  info "Pruning non-runtime files..."
+  find "$DEPLOY_PKG" -name "*.map" -type f -delete 2>/dev/null || true
+  find "$DEPLOY_PKG" -name "*.nft.json" -type f -delete 2>/dev/null || true
+  find "$DEPLOY_PKG/node_modules" \( \
+    -name "README*" -o -name "LICENSE*" -o -name "CHANGELOG*" \
+    -o -name "HISTORY*" -o -name "*.md" \
+  \) -type f -delete 2>/dev/null || true
+  ok
 
   # -- Copy runtime scripts ------------------------------------------------
   mkdir -p "$DEPLOY_PKG/scripts"
@@ -718,10 +796,87 @@ assemble_prebuilt() {
   cp scripts/seed-benchmarks.mjs "$DEPLOY_PKG/scripts/"
   cp scripts/validate-endpoints.mjs "$DEPLOY_PKG/scripts/"
 
-  # -- Copy prisma schema + config -----------------------------------------
+  # -- Copy prisma schema + write production config -------------------------
   mkdir -p "$DEPLOY_PKG/prisma"
   cp prisma/schema.prisma "$DEPLOY_PKG/prisma/"
-  cp prisma.config.ts "$DEPLOY_PKG/"
+  # Production config without dotenv dependency (env vars set by start.sh)
+  cat > "$DEPLOY_PKG/prisma.config.ts" <<'PRISMACONF'
+import { defineConfig } from "prisma/config";
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  datasource: { url: process.env["DATABASE_URL"] },
+});
+PRISMACONF
+
+  # -- Bundle prisma CLI + all transitive deps ------------------------------
+  info "Bundling Prisma CLI..."
+  if [ ! -d "node_modules/prisma" ]; then
+    die "node_modules/prisma not found. Run npm install first."
+  fi
+  # Trace the full transitive dependency tree from local node_modules.
+  # This avoids npm registry calls and uses the exact installed versions.
+  local prisma_deps
+  prisma_deps=$(node -e "
+const fs=require('fs'),path=require('path');
+const nm=path.join(process.cwd(),'node_modules');
+const seen=new Set();
+function trace(pkg){
+  if(seen.has(pkg))return;
+  seen.add(pkg);
+  try{
+    const p=JSON.parse(fs.readFileSync(path.join(nm,pkg,'package.json'),'utf8'));
+    for(const d of Object.keys(p.dependencies||{}))trace(d);
+  }catch{}
+}
+trace('prisma');
+console.log([...seen].join('\n'));
+")
+  if [ -z "$prisma_deps" ]; then
+    die "Could not resolve prisma dependency tree."
+  fi
+  local dep_count=0
+  while IFS= read -r dep; do
+    [ -z "$dep" ] && continue
+    [ ! -d "node_modules/$dep" ] && continue
+    local dest_dir="$DEPLOY_PKG/node_modules/$dep"
+    mkdir -p "$(dirname "$dest_dir")"
+    cp -a "node_modules/$dep" "$dest_dir"
+    dep_count=$((dep_count + 1))
+  done <<< "$prisma_deps"
+  # Prune non-runtime files from prisma deps
+  find "$DEPLOY_PKG/node_modules/prisma" "$DEPLOY_PKG/node_modules/@prisma" \
+    \( -name "*.map" -o -name "*.nft.json" -o -name "README*" -o -name "LICENSE*" \
+    -o -name "CHANGELOG*" -o -name "HISTORY*" -o -name "*.md" \) \
+    -type f -delete 2>/dev/null || true
+  mkdir -p "$DEPLOY_PKG/node_modules/.bin"
+  cat > "$DEPLOY_PKG/node_modules/.bin/prisma" <<'PRISMABIN'
+#!/bin/sh
+exec node "$(dirname "$0")/../prisma/build/index.js" "$@"
+PRISMABIN
+  chmod +x "$DEPLOY_PKG/node_modules/.bin/prisma"
+  ok "${dep_count} packages"
+
+  info "Downloading Linux schema engine..."
+  local engine_hash
+  engine_hash=$(npx prisma version 2>/dev/null | grep "Engines Hash" | awk '{print $NF}')
+  if [ -z "$engine_hash" ]; then
+    engine_hash=$(npx prisma version 2>/dev/null | grep "Default Engines Hash" | awk '{print $NF}')
+  fi
+
+  if [ -n "$engine_hash" ]; then
+    local engine_url="https://binaries.prisma.sh/all_commits/${engine_hash}/debian-openssl-3.0.x/schema-engine.gz"
+    local engine_dest="$DEPLOY_PKG/node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x"
+    if curl -sSfL "$engine_url" | gunzip > "$engine_dest" 2>/dev/null; then
+      chmod +x "$engine_dest"
+      ok "$(du -h "$engine_dest" | cut -f1 | tr -d ' ')"
+    else
+      warn "Could not download Linux schema engine. prisma db push may fail on the target."
+      ok "skipped"
+    fi
+  else
+    warn "Could not determine Prisma engine hash. Linux engine not bundled."
+    ok "skipped"
+  fi
 
   # -- Copy benchmark data (for optional seed) -----------------------------
   if [ -d "data/benchmark" ]; then
@@ -729,35 +884,50 @@ assemble_prebuilt() {
     cp data/benchmark/*.json "$DEPLOY_PKG/data/benchmark/" 2>/dev/null || true
   fi
 
-  # -- Write minimal package.json (no build script, runtime deps only) -----
-  # The platform detects package.json → runs npm install (fast, 2 deps)
-  # → skips npm run build (no build script defined).
-  local prisma_ver pg_ver
-  prisma_ver=$(node -e "console.log(require('./package.json').devDependencies?.prisma || require('./package.json').dependencies?.prisma || '7')")
-  pg_ver=$(node -e "console.log(require('./package.json').dependencies?.pg || '8')")
-
-  cat > "$DEPLOY_PKG/package.json" <<PKGJSON
-{
-  "name": "databricks-forge-prebuilt",
-  "private": true,
-  "dependencies": {
-    "prisma": "${prisma_ver}",
-    "pg": "${pg_ver}",
-    "dotenv": "^16.0.0",
-    "typescript": "^5.0.0"
-  }
-}
-PKGJSON
+  # -- NO package.json -- prevents platform from running npm install -------
 
   # -- Write .prebuilt marker file -----------------------------------------
   echo "assembled=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DEPLOY_PKG/.prebuilt"
+  echo "zero-egress=true" >> "$DEPLOY_PKG/.prebuilt"
 
-  # -- Report package size -------------------------------------------------
-  local pkg_size
+  # -- Report pre-compression size -----------------------------------------
+  local pkg_size pkg_files
   pkg_size=$(du -sh "$DEPLOY_PKG" | cut -f1)
-  local pkg_files
   pkg_files=$(find "$DEPLOY_PKG" -type f | wc -l | tr -d ' ')
-  ok "${pkg_size} / ${pkg_files} files"
+  printf "  %-48s" "Pre-compression:"
+  printf "%s / %s files\n" "$pkg_size" "$pkg_files"
+
+  # -- Compress into tar.gz ------------------------------------------------
+  info "Compressing bundle..."
+  local bundle_path="$DEPLOY_WRAPPER/bundle.tar.gz"
+  mkdir -p "$DEPLOY_WRAPPER"
+  COPYFILE_DISABLE=1 tar czf "$bundle_path" -C "$DEPLOY_PKG" .
+  local bundle_size
+  bundle_size=$(du -h "$bundle_path" | cut -f1 | tr -d ' ')
+  ok "$bundle_size"
+
+  # -- Split into <10MB chunks (Databricks Apps per-file limit) ------------
+  info "Splitting into ${CHUNK_SIZE_MB}MB chunks..."
+  split -b "${CHUNK_SIZE_MB}m" "$bundle_path" "${bundle_path}.part-"
+  rm -f "$bundle_path"
+  local chunk_count
+  chunk_count=$(find "$DEPLOY_WRAPPER" -name "bundle.tar.gz.part-*" | wc -l | tr -d ' ')
+  ok "${chunk_count} chunks"
+
+  # -- Copy bootstrap.sh and app.yaml into wrapper -------------------------
+  cp scripts/bootstrap.sh "$DEPLOY_WRAPPER/bootstrap.sh"
+  # app.yaml is copied later by the caller after prepare_app_yaml
+
+  # -- Write .prebuilt marker in wrapper -----------------------------------
+  echo "assembled=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DEPLOY_WRAPPER/.prebuilt"
+  echo "zero-egress=true" >> "$DEPLOY_WRAPPER/.prebuilt"
+
+  # -- Report final wrapper size -------------------------------------------
+  local wrapper_size wrapper_files
+  wrapper_size=$(du -sh "$DEPLOY_WRAPPER" | cut -f1)
+  wrapper_files=$(find "$DEPLOY_WRAPPER" -type f | wc -l | tr -d ' ')
+  printf "\n  %-48s" "Zero-egress package:"
+  printf "%s / %s files\n" "$wrapper_size" "$wrapper_files"
 }
 
 # -------------------------------------------------------------------------
@@ -996,7 +1166,7 @@ print(json.dumps({'resources': resources, 'user_api_scopes': ['sql','catalog.tab
 }
 
 # -------------------------------------------------------------------------
-# Step 5: Upload source code (or pre-built package)
+# Step 5: Upload source code (or zero-egress package)
 # -------------------------------------------------------------------------
 upload_code() {
   WORKSPACE_PATH="/Workspace/Users/${USER_EMAIL}/${APP_NAME}"
@@ -1005,13 +1175,28 @@ upload_code() {
   local sync_flags=""
   local sync_label="diff"
 
-  if [ "$ARG_PREBUILT" = "true" ]; then
-    sync_source="$DEPLOY_PKG"
-    # Prebuilt always does full sync (no prior snapshot to diff against)
-    sync_flags="--full"
-    sync_label="full"
-    rm -rf "$DEPLOY_PKG/.databricks/sync-snapshots" 2>/dev/null || true
-    info "Uploading pre-built package (full sync)..."
+  if [ "$ARG_ZERO_EGRESS" = "true" ]; then
+    info "Uploading zero-egress package..."
+    # Upload each file individually via workspace import (RAW format).
+    # databricks sync respects .gitignore/.databricksignore from the CWD
+    # which excludes .deploy-pkg-ze/ and silently uploads nothing.
+    # workspace import --format RAW bypasses all ignore-file logic and
+    # treats every file as a raw binary, avoiding notebook interpretation.
+    databricks workspace mkdirs "$WORKSPACE_PATH" 2>/dev/null || true
+    local ze_count=0
+    for f in "$DEPLOY_WRAPPER"/* "$DEPLOY_WRAPPER"/.*; do
+      [ -f "$f" ] || continue
+      local fname
+      fname=$(basename "$f")
+      case "$fname" in .|..) continue ;; esac
+      if ! databricks workspace import "$WORKSPACE_PATH/$fname" \
+             --file "$f" --format RAW --overwrite 2>/dev/null; then
+        die "Failed to upload $fname"
+      fi
+      ze_count=$((ze_count + 1))
+    done
+    ok "${ze_count} files"
+    return
   elif [ "$ARG_FULL_SYNC" = "true" ]; then
     # Explicit --full: clear snapshots and do a complete upload
     rm -rf .databricks/sync-snapshots 2>/dev/null || true
@@ -1111,7 +1296,7 @@ print_success() {
   printf "    URL: %s\n" "$app_url"
   printf "\n"
   printf "    App name:     %s\n" "$APP_NAME"
-  printf "    Deploy mode:  %s\n" "$( [ "$ARG_PREBUILT" = "true" ] && echo "pre-built (local build)" || echo "source (remote build)" )"
+  printf "    Deploy mode:  %s\n" "$( [ "$ARG_ZERO_EGRESS" = "true" ] && echo "zero-egress (split archive)" || echo "source (remote build)" )"
   printf "\n"
   printf "    Resources:\n"
   printf "      SQL Warehouse:    %s\n" "$WAREHOUSE_NAME"
@@ -1241,10 +1426,16 @@ main() {
   configure_app
   prepare_app_yaml
 
-  if [ "$ARG_PREBUILT" = "true" ]; then
-    assemble_prebuilt
-    # Copy the (possibly patched) app.yaml into the deploy package
-    cp app.yaml "$DEPLOY_PKG/app.yaml"
+  if [ "$ARG_ZERO_EGRESS" = "true" ]; then
+    assemble_zero_egress
+    # Patch app.yaml command from scripts/start.sh to bootstrap.sh
+    python3 -c "
+from pathlib import Path
+text = Path('app.yaml').read_text()
+text = text.replace('scripts/start.sh', 'bootstrap.sh')
+Path('app.yaml').write_text(text)
+"
+    cp app.yaml "$DEPLOY_WRAPPER/app.yaml"
   fi
 
   upload_code

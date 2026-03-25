@@ -52,7 +52,7 @@ All flags are optional. Combine as needed.
 | `--app-name "name"` | Custom app name for multi-instance deployments. Isolates the Databricks App and Lakebase database. Default: `databricks-forge` |
 | `--warehouse "Name"` | Skip the interactive warehouse prompt |
 | `--profile "name"` | Use a specific Databricks CLI profile |
-| `--prebuilt` | Build locally and deploy a pre-compiled bundle (~3x faster) |
+| `--zero-egress` | Build locally, package as split archive (no npm install on target) |
 | `--full` | Full sync: upload all files. Default is diff sync (only changed files since last deploy) |
 | `--destroy` | Remove the app and clean up workspace files |
 

@@ -15,4 +15,5 @@ AGENTS.md
 .env.local.example
 .env
 .deploy-pkg/
+.deploy-pkg-ze/
 *.md

@@ -1,8 +1,9 @@
 #!/bin/sh
 # Databricks Forge — Production startup script for Databricks Apps
 #
-# The platform runs `npm install` + `npm run build` before this script.
-# After build, .next/standalone/ contains the self-contained server.
+# Source mode: the platform runs `npm install` + `npm run build` first.
+# Zero-egress mode: bootstrap.sh extracts the pre-built archive first.
+# In both cases .prebuilt marker determines server.js location.
 #
 # 1. Auto-provisions Lakebase Autoscale (if running as a Databricks App).
 # 2. Syncs the Prisma schema to Lakebase (retries for cold-start wake-up).
@@ -442,15 +443,15 @@ fi
 # runtime connections should use short-lived credentials + pooler endpoint,
 # not the startup direct URL used for DDL.
 #
-# Pre-built mode: server.js is at the project root (already there).
-# Source mode:    server.js is inside .next/standalone/.
+# Zero-egress / pre-built mode: server.js is at the project root.
+# Source mode:                   server.js is inside .next/standalone/.
 # ---------------------------------------------------------------------------
 
 export PORT="${DATABRICKS_APP_PORT:-8000}"
 echo "[startup] Starting server on port $PORT..."
 
 if [ -f ".prebuilt" ]; then
-  echo "[startup] Pre-built deployment detected."
+  echo "[startup] Pre-built / zero-egress deployment detected."
 else
   cd .next/standalone
 fi

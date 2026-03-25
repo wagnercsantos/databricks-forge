@@ -116,7 +116,43 @@ These are set automatically by the Databricks Apps platform at runtime:
 
 ---
 
-## Build and Start Sequence
+## Zero-Egress Deployment
+
+For workspaces that **block serverless egress** (no `npm install` capability),
+use the `--zero-egress` flag. This builds the app locally, compresses it into
+a split archive, and uploads only ~6 files to the workspace.
+
+```bash
+./deploy.sh --zero-egress --warehouse "My Warehouse"
+```
+
+### How it works
+
+1. `npm run build` runs locally (prisma generate + next build)
+2. The Next.js standalone output is assembled with the Prisma CLI and Linux
+   schema engine binary (downloaded from Prisma CDN)
+3. Non-runtime files are aggressively pruned (.map, .nft.json, docs, macOS
+   binaries)
+4. No `package.json` is included -- prevents the platform from running
+   `npm install`
+5. The bundle is compressed (`tar.gz`) and split into <10MB chunks (Databricks
+   Apps per-file limit)
+6. A minimal wrapper is uploaded: `app.yaml`, `bootstrap.sh`, archive chunks,
+   and a `.prebuilt` marker
+
+At startup, `bootstrap.sh` reassembles the archive, extracts it, and hands
+off to the normal `scripts/start.sh` flow.
+
+| Metric | Source mode | Zero-egress mode |
+|--------|-----------|-----------------|
+| Files uploaded | ~4,400 | ~6 |
+| Upload size | ~100 MB (uncompressed) | ~26 MB (compressed) |
+| Requires egress | Yes (`npm install`) | No |
+| Build location | Platform | Local machine |
+
+---
+
+## Build and Start Sequence (Source Mode)
 
 Databricks Apps builds the application from `package.json`. No Dockerfile is
 needed -- the platform handles containerisation.
