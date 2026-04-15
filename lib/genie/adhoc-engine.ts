@@ -161,27 +161,6 @@ function inferDomain(tables: string[]): string {
   return inferNormalizedDomainFromTables(tables, "Analytics");
 }
 
-function buildSchemaMarkdown(
-  tables: { fqn: string; comment?: string | null }[],
-  columns: { tableFqn: string; columnName: string; dataType: string; comment?: string | null }[],
-): string {
-  const colsByTable = new Map<string, typeof columns>();
-  for (const c of columns) {
-    const list = colsByTable.get(c.tableFqn) ?? [];
-    list.push(c);
-    colsByTable.set(c.tableFqn, list);
-  }
-  const parts: string[] = [];
-  for (const t of tables) {
-    const cols = colsByTable.get(t.fqn) ?? [];
-    const colLines = cols.map(
-      (c) => `  - ${c.columnName} (${c.dataType})${c.comment ? ` -- ${c.comment}` : ""}`,
-    );
-    parts.push(`### ${t.fqn}${t.comment ? `\n${t.comment}` : ""}\n${colLines.join("\n")}`);
-  }
-  return parts.join("\n\n");
-}
-
 async function scrapeMetadata(tables: string[]): Promise<MetadataSnapshot> {
   const [tableInfos, columns, foreignKeys] = await Promise.all([
     fetchTableInfoBatch(tables),
@@ -203,7 +182,6 @@ async function scrapeMetadata(tables: string[]): Promise<MetadataSnapshot> {
     columns,
     foreignKeys,
     metricViews: [],
-    schemaMarkdown: buildSchemaMarkdown(tableInfos, columns),
     tableCount: tableInfos.length,
     columnCount: columns.length,
     cachedAt: new Date().toISOString(),

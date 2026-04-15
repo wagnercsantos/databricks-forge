@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       columns: columnInfos,
       foreignKeys: fks,
       metricViews: [],
-      schemaMarkdown: "",
+
       tableCount: tableInfos.length,
       columnCount: columnInfos.length,
       cachedAt: new Date().toISOString(),

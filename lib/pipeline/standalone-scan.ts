@@ -347,6 +347,85 @@ export async function runStandaloneEnrichment(
     }
     const healthScores = computeAllTableHealth(details, histories);
 
+    // ---- Incremental save: persist deterministic results (Phases 1-5) ----
+    // This ensures partial results survive even if the LLM intelligence layer
+    // (Phase 6b) throws due to token budget or OOM errors.
+    const historiesWithHealth: Array<TableHistorySummary & TableHealthInsight> = [];
+    for (const [fqn, history] of histories) {
+      const health = healthScores.get(fqn) ?? {
+        tableFqn: fqn,
+        healthScore: 100,
+        issues: [],
+        recommendations: [],
+      };
+      historiesWithHealth.push({ ...history, ...health });
+    }
+
+    // Build the base scan record without intelligence results
+    const buildScanRecord = (overrides: Partial<EnvironmentScan> = {}): EnvironmentScan => ({
+      scanId,
+      runId: null,
+      ucPath: ucMetadata,
+      scannedAt: new Date().toISOString(),
+      tableCount: expandedTables.length,
+      totalSizeBytes: details.reduce((sum, d) => sum + (d.sizeInBytes ?? 0), 0),
+      totalFiles: details.reduce((sum, d) => sum + (d.numFiles ?? 0), 0),
+      totalRows: details.reduce((sum, d) => sum + (d.numRows ?? 0), 0),
+      tablesWithStreaming: Array.from(histories.values()).filter((h) => h.hasStreamingWrites)
+        .length,
+      tablesWithCDF: details.filter(
+        (d) => d.tableProperties["delta.enableChangeDataFeed"] === "true",
+      ).length,
+      tablesNeedingOptimize: Array.from(healthScores.values()).filter((h) =>
+        h.issues.some((i) => i.includes("OPTIMIZE")),
+      ).length,
+      tablesNeedingVacuum: Array.from(healthScores.values()).filter((h) =>
+        h.issues.some((i) => i.includes("VACUUM")),
+      ).length,
+      lineageDiscoveredCount: lineageGraph.discoveredTables.length,
+      domainCount: 0,
+      piiTablesCount: 0,
+      redundancyPairsCount: 0,
+      dataProductCount: 0,
+      avgGovernanceScore: 0,
+      genieSpaceCount: 0,
+      dashboardCount: 0,
+      metricViewCount: 0,
+      analyticsCoveragePercent: 0,
+      scanDurationMs: Date.now() - startTime,
+      passResults: {},
+      ...overrides,
+    });
+
+    // FK insight records (deterministic, always available)
+    const fkInsightRecords: InsightRecord[] = allFKs.map((fk) => ({
+      insightType: "foreign_key",
+      tableFqn: fk.tableFqn,
+      payloadJson: JSON.stringify(fk),
+      severity: "info",
+    }));
+
+    // Checkpoint: persist only the scan record header, lineage edges, and FK
+    // insights.  Table details are intentionally omitted because Phase 6b
+    // mutates them (dataDomain, dataTier, generatedDescription, etc.) and
+    // saveEnvironmentScan uses createMany(..., skipDuplicates) for child rows
+    // -- a second save cannot overwrite details already written here.
+    updateScanProgress(scanId, {
+      phase: "saving",
+      message: "Saving deterministic scan results...",
+    });
+    await saveEnvironmentScan(
+      buildScanRecord(),
+      [],
+      [],
+      lineageGraph.edges,
+      fkInsightRecords,
+      [],
+      allTableTags,
+      allColumnTags,
+    );
+    log.info("Deterministic scan checkpoint saved (header + lineage + tags)", { scanId });
+
     // Phase 6a: Asset discovery (if enabled -- runs before LLM intelligence so results feed into analytics maturity pass)
     let assetCoveragePercent = 0;
     let genieSpaceCount = 0;
@@ -464,43 +543,76 @@ export async function runStandaloneEnrichment(
       });
     }
 
-    // Phase 7: Save
+    // Phase 7: Update scan with intelligence + asset discovery results
     updateScanProgress(scanId, {
       phase: "saving",
-      message: "Saving scan results to database...",
+      message: "Saving intelligence results to database...",
     });
-    const historiesWithHealth: Array<TableHistorySummary & TableHealthInsight> = [];
-    for (const [fqn, history] of histories) {
-      const health = healthScores.get(fqn) ?? {
-        tableFqn: fqn,
-        healthScore: 100,
-        issues: [],
-        recommendations: [],
-      };
-      historiesWithHealth.push({ ...history, ...health });
+
+    const llmInsightRecords: InsightRecord[] = [];
+
+    if (intelligenceResult) {
+      for (const s of intelligenceResult.sensitivities) {
+        llmInsightRecords.push({
+          insightType: "pii_detection",
+          tableFqn: s.tableFqn,
+          payloadJson: JSON.stringify(s),
+          severity:
+            s.classification === "PII" || s.classification === "Health" ? "critical" : "high",
+        });
+      }
+      for (const r of intelligenceResult.redundancies) {
+        llmInsightRecords.push({
+          insightType: "redundancy",
+          tableFqn: r.tableA,
+          payloadJson: JSON.stringify(r),
+          severity: r.similarityPercent > 90 ? "high" : "medium",
+        });
+      }
+      for (const rel of intelligenceResult.implicitRelationships) {
+        llmInsightRecords.push({
+          insightType: "implicit_relationship",
+          tableFqn: rel.sourceTableFqn,
+          payloadJson: JSON.stringify(rel),
+          severity: "info",
+        });
+      }
+      for (const dp of intelligenceResult.dataProducts) {
+        llmInsightRecords.push({
+          insightType: "data_product",
+          tableFqn: null,
+          payloadJson: JSON.stringify(dp),
+          severity: "info",
+        });
+      }
+      for (const gap of intelligenceResult.governanceGaps) {
+        llmInsightRecords.push({
+          insightType: "governance_gap",
+          tableFqn: gap.tableFqn,
+          payloadJson: JSON.stringify(gap),
+          severity: gap.overallScore < 30 ? "critical" : gap.overallScore < 50 ? "high" : "medium",
+        });
+      }
+      if (intelligenceResult.analyticsMaturity) {
+        llmInsightRecords.push({
+          insightType: "analytics_maturity",
+          tableFqn: null,
+          payloadJson: JSON.stringify(intelligenceResult.analyticsMaturity),
+          severity:
+            intelligenceResult.analyticsMaturity.overallScore < 25
+              ? "critical"
+              : intelligenceResult.analyticsMaturity.overallScore < 50
+                ? "high"
+                : "info",
+        });
+      }
     }
 
-    const scan: EnvironmentScan = {
-      scanId,
-      runId: null,
-      ucPath: ucMetadata,
-      scannedAt: new Date().toISOString(),
-      tableCount: expandedTables.length,
-      totalSizeBytes: details.reduce((sum, d) => sum + (d.sizeInBytes ?? 0), 0),
-      totalFiles: details.reduce((sum, d) => sum + (d.numFiles ?? 0), 0),
-      totalRows: details.reduce((sum, d) => sum + (d.numRows ?? 0), 0),
-      tablesWithStreaming: Array.from(histories.values()).filter((h) => h.hasStreamingWrites)
-        .length,
-      tablesWithCDF: details.filter(
-        (d) => d.tableProperties["delta.enableChangeDataFeed"] === "true",
-      ).length,
-      tablesNeedingOptimize: Array.from(healthScores.values()).filter((h) =>
-        h.issues.some((i) => i.includes("OPTIMIZE")),
-      ).length,
-      tablesNeedingVacuum: Array.from(healthScores.values()).filter((h) =>
-        h.issues.some((i) => i.includes("VACUUM")),
-      ).length,
-      lineageDiscoveredCount: lineageGraph.discoveredTables.length,
+    // Full save: upsert scan header and write all child rows (details,
+    // histories, columns, insights).  Details were omitted from the Phase 5
+    // checkpoint so this is the single insert for ForgeTableDetail rows,
+    // including any LLM-enriched fields applied above.
+    const finalScan = buildScanRecord({
       domainCount: intelligenceResult?.domains.length ?? 0,
       piiTablesCount: intelligenceResult
         ? new Set(intelligenceResult.sensitivities.map((s) => s.tableFqn)).size
@@ -517,83 +629,14 @@ export async function runStandaloneEnrichment(
       analyticsCoveragePercent: assetCoveragePercent,
       scanDurationMs: Date.now() - startTime,
       passResults: intelligenceResult?.passResults ?? {},
-    };
-
-    const insightRecords: InsightRecord[] = [];
-
-    // Persist explicit FKs as insights so the ERD viewer can render them
-    for (const fk of allFKs) {
-      insightRecords.push({
-        insightType: "foreign_key",
-        tableFqn: fk.tableFqn,
-        payloadJson: JSON.stringify(fk),
-        severity: "info",
-      });
-    }
-
-    if (intelligenceResult) {
-      for (const s of intelligenceResult.sensitivities) {
-        insightRecords.push({
-          insightType: "pii_detection",
-          tableFqn: s.tableFqn,
-          payloadJson: JSON.stringify(s),
-          severity:
-            s.classification === "PII" || s.classification === "Health" ? "critical" : "high",
-        });
-      }
-      for (const r of intelligenceResult.redundancies) {
-        insightRecords.push({
-          insightType: "redundancy",
-          tableFqn: r.tableA,
-          payloadJson: JSON.stringify(r),
-          severity: r.similarityPercent > 90 ? "high" : "medium",
-        });
-      }
-      for (const rel of intelligenceResult.implicitRelationships) {
-        insightRecords.push({
-          insightType: "implicit_relationship",
-          tableFqn: rel.sourceTableFqn,
-          payloadJson: JSON.stringify(rel),
-          severity: "info",
-        });
-      }
-      for (const dp of intelligenceResult.dataProducts) {
-        insightRecords.push({
-          insightType: "data_product",
-          tableFqn: null,
-          payloadJson: JSON.stringify(dp),
-          severity: "info",
-        });
-      }
-      for (const gap of intelligenceResult.governanceGaps) {
-        insightRecords.push({
-          insightType: "governance_gap",
-          tableFqn: gap.tableFqn,
-          payloadJson: JSON.stringify(gap),
-          severity: gap.overallScore < 30 ? "critical" : gap.overallScore < 50 ? "high" : "medium",
-        });
-      }
-      if (intelligenceResult.analyticsMaturity) {
-        insightRecords.push({
-          insightType: "analytics_maturity",
-          tableFqn: null,
-          payloadJson: JSON.stringify(intelligenceResult.analyticsMaturity),
-          severity:
-            intelligenceResult.analyticsMaturity.overallScore < 25
-              ? "critical"
-              : intelligenceResult.analyticsMaturity.overallScore < 50
-                ? "high"
-                : "info",
-        });
-      }
-    }
+    });
 
     await saveEnvironmentScan(
-      scan,
+      finalScan,
       details,
       historiesWithHealth,
       lineageGraph.edges,
-      insightRecords,
+      [...fkInsightRecords, ...llmInsightRecords],
       allColumns,
       allTableTags,
       allColumnTags,
@@ -607,7 +650,7 @@ export async function runStandaloneEnrichment(
         details,
         historiesWithHealth,
         lineageGraph.edges,
-        insightRecords,
+        [...fkInsightRecords, ...llmInsightRecords],
         allColumns,
       );
     } catch (embedErr) {

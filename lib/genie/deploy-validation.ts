@@ -54,7 +54,7 @@ export async function revalidateSerializedSpace(
     columns,
     foreignKeys: [],
     metricViews: [],
-    schemaMarkdown: "",
+
     tableCount: tables.length,
     columnCount: columns.length,
     cachedAt: new Date().toISOString(),

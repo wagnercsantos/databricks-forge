@@ -19,6 +19,7 @@ import {
   generateLambdaFunctionsSummary,
 } from "@/lib/ai/functions";
 import { buildSchemaMarkdown, buildForeignKeyMarkdown } from "@/lib/queries/metadata";
+import { resolveColumnBudget, type ColumnBudgetConfig } from "@/lib/toolkit/column-budget";
 import { updateRunMessage } from "@/lib/lakebase/runs";
 import { logger as fallbackLogger } from "@/lib/logger";
 import type { Logger } from "@/lib/ports/logger";
@@ -58,6 +59,7 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
 
   const bc = run.businessContext;
   const useCases = ctx.useCases;
+  const colBudget = resolveColumnBudget(run.config.largeSchemaMode ?? false);
 
   if (useCases.length === 0) return useCases;
 
@@ -177,6 +179,7 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
             resolveEndpoint("sql"),
             sampleRows,
             sampleDataCache,
+            colBudget,
             runId,
             run.createdBy,
           ),
@@ -323,6 +326,7 @@ async function generateSqlForUseCase(
   aiModel: string,
   sampleRowsPerTable: number,
   sampleCache: Map<string, string>,
+  colBudget: ColumnBudgetConfig,
   runId?: string,
   userEmail?: string | null,
 ): Promise<SqlGenResult> {
@@ -372,7 +376,13 @@ async function generateSqlForUseCase(
   // Build schema markdown scoped to this use case's tables
   const schemaMarkdown =
     involvedTables.length > 0
-      ? buildSchemaMarkdown(involvedTables, involvedColumns)
+      ? buildSchemaMarkdown(
+          involvedTables,
+          involvedColumns,
+          colBudget.maxCommentLength,
+          undefined,
+          colBudget.maxColumnsPerTable,
+        )
       : uc.tablesInvolved.map((t) => `### ${t}\n  (schema not available)`).join("\n\n");
 
   // Filter foreign keys to only those involving this use case's tables
@@ -391,11 +401,14 @@ async function generateSqlForUseCase(
       (fqn) => !sampleCache.has(fqn.replace(/`/g, "")),
     );
     if (uncachedTables.length > 0) {
-      const sampleResult = await fetchSampleData(uncachedTables, sampleRowsPerTable, {
-        runId,
-        userEmail,
-        step: "sql-generation",
-      });
+      const sampleResult = await fetchSampleData(
+        uncachedTables,
+        sampleRowsPerTable,
+        { runId, userEmail, step: "sql-generation" },
+        colBudget.maxSampleColumns > 0
+          ? { maxSampleColumns: colBudget.maxSampleColumns, columnsByTable }
+          : undefined,
+      );
       // Populate cache: store per-table markdown for reuse by other use cases
       const lines = sampleResult.markdown.split("\n**");
       for (const line of lines) {

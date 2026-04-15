@@ -134,6 +134,11 @@ export async function buildSchemaContext(
     };
   });
 
+  // Release raw column data -- it's now fully represented in enrichedTables.
+  // On large schemas (12k+ tables) this frees ~90 MB of duplicate ColumnInfo[].
+  columnsByTable.clear();
+  (fetched as { columns: unknown }).columns = [];
+
   // Infer relationships from naming patterns
   const namingRelationships = inferRelationshipsFromNaming(
     enrichedTables.map((t) => ({
@@ -416,15 +421,33 @@ export function buildSchemaContextFromIntelligence(
  * into LLM prompts. One line per table, includes domain, role, tier,
  * data asset mapping, key relationships, and column count.
  */
+const MAX_SCHEMA_SUMMARY_TABLES = 2000;
+
 function buildSchemaSummaryText(
   tables: EnrichedTable[],
   relationships: InferredRelationship[],
 ): string {
+  const schemaCount = new Set(tables.map((t) => t.schema)).size;
+  const capped = tables.length > MAX_SCHEMA_SUMMARY_TABLES;
+
   const lines = [
     "### SCHEMA OVERVIEW",
-    `${tables.length} tables across ${new Set(tables.map((t) => t.schema)).size} schema(s)`,
+    `${tables.length} tables across ${schemaCount} schema(s)${capped ? ` (showing first ${MAX_SCHEMA_SUMMARY_TABLES})` : ""}`,
     "",
   ];
+
+  // Pre-index relationships by FQN for O(1) lookup instead of O(R) per table
+  const relsByFqn = new Map<string, InferredRelationship[]>();
+  for (const r of relationships) {
+    const src = r.sourceTable.toLowerCase();
+    const tgt = r.targetTable.toLowerCase();
+    if (!relsByFqn.has(src)) relsByFqn.set(src, []);
+    relsByFqn.get(src)!.push(r);
+    if (src !== tgt) {
+      if (!relsByFqn.has(tgt)) relsByFqn.set(tgt, []);
+      relsByFqn.get(tgt)!.push(r);
+    }
+  }
 
   // Group by domain for readability
   const byDomain = new Map<string, EnrichedTable[]>();
@@ -434,10 +457,14 @@ function buildSchemaSummaryText(
     byDomain.get(domain)!.push(t);
   }
 
+  let tableCount = 0;
   for (const [domain, domainTables] of byDomain) {
+    if (tableCount >= MAX_SCHEMA_SUMMARY_TABLES) break;
     lines.push(`**${domain}** (${domainTables.length} tables)`);
 
     for (const t of domainTables) {
+      if (tableCount >= MAX_SCHEMA_SUMMARY_TABLES) break;
+      tableCount++;
       const parts = [`  - ${t.fqn}`];
 
       const attrs: string[] = [];
@@ -449,12 +476,7 @@ function buildSchemaSummaryText(
 
       parts.push(`[${attrs.join(", ")}]`);
 
-      // Show key relationships for this table
-      const rels = relationships.filter(
-        (r) =>
-          r.sourceTable.toLowerCase() === t.fqn.toLowerCase() ||
-          r.targetTable.toLowerCase() === t.fqn.toLowerCase(),
-      );
+      const rels = relsByFqn.get(t.fqn.toLowerCase()) ?? [];
       if (rels.length > 0) {
         const relTargets = rels
           .map((r) => {

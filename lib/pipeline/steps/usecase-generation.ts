@@ -18,6 +18,7 @@ import { buildReferenceUseCasesPrompt } from "@/lib/domain/industry-outcomes-ser
 import { buildBenchmarkContextPrompt } from "@/lib/domain/benchmark-context";
 import { persistManifest, deriveTags, type EnrichmentTag } from "@/lib/pipeline/context-manifest";
 import { buildTokenAwareBatches, estimateTokens } from "@/lib/toolkit/token-budget";
+import { resolveColumnBudget } from "@/lib/toolkit/column-budget";
 import { fetchSampleData } from "@/lib/pipeline/sample-data";
 import { updateRunMessage } from "@/lib/lakebase/runs";
 import { logger as fallbackLogger } from "@/lib/logger";
@@ -25,7 +26,10 @@ import type { PipelineContext, UseCase, UseCaseType, LineageGraph } from "@/lib/
 import { DEFAULT_DEPTH_CONFIGS } from "@/lib/domain/types";
 import { v4 as uuidv4 } from "uuid";
 
-const MAX_CONCURRENT_BATCHES = 8;
+const DEFAULT_CONCURRENT_BATCHES = 8;
+const LARGE_SCHEMA_CONCURRENT_BATCHES = 3;
+const LARGE_SCHEMA_TABLE_THRESHOLD = 3_000;
+const LARGE_MODE_CONCURRENT_BATCHES = 2;
 const MAX_GENERATION_RETRIES = 2;
 
 /** Shape of each use case object in the JSON array returned by the LLM. */
@@ -60,8 +64,16 @@ export async function runUsecaseGeneration(
 
   const sampleRows = run.config.sampleRowsPerTable ?? 0;
 
-  // Build shared context that goes into every prompt (used for base token calc)
-  const fkMarkdown = buildForeignKeyMarkdown(metadata.foreignKeys);
+  // Build shared context that goes into every prompt (used for base token calc).
+  // Filter FKs to only those involving business-relevant tables to avoid
+  // unbounded string growth on large schemas (12k+ tables).
+  const filteredFqnSet = new Set(filteredTables.map((f) => f.replace(/`/g, "")));
+  const relevantFks = metadata.foreignKeys.filter(
+    (fk) =>
+      filteredFqnSet.has(fk.tableFqn.replace(/`/g, "")) ||
+      filteredFqnSet.has(fk.referencedTableFqn.replace(/`/g, "")),
+  );
+  const fkMarkdown = buildForeignKeyMarkdown(relevantFks);
   const depth = run.config.discoveryDepth ?? "balanced";
   const dc = run.config.depthConfig ?? DEFAULT_DEPTH_CONFIGS[depth];
   const targetRange = { min: dc.batchTargetMin, max: dc.batchTargetMax };
@@ -172,6 +184,10 @@ export async function runUsecaseGeneration(
     }
   }
 
+  // Resolve column budget (large schema mode reduces per-table columns and sample columns)
+  const largeMode = run.config.largeSchemaMode ?? false;
+  const colBudget = resolveColumnBudget(largeMode);
+
   // Estimate base token cost (everything except schema_markdown which varies per batch)
   const sharedContextTokens = estimateTokens(
     JSON.stringify(bc) +
@@ -195,14 +211,30 @@ export async function runUsecaseGeneration(
 
   const batches = buildTokenAwareBatches(
     tables,
-    (table) => buildSchemaMarkdown([table], columnsByTable.get(table.fqn) ?? []),
+    (table) =>
+      buildSchemaMarkdown(
+        [table],
+        columnsByTable.get(table.fqn) ?? [],
+        colBudget.maxCommentLength,
+        undefined,
+        colBudget.maxColumnsPerTable,
+      ),
     baseTokens,
   );
+
+  // Reduce concurrency on large schemas to limit peak memory from
+  // parallel LLM requests and their response payloads.
+  const maxConcurrentBatches = largeMode
+    ? LARGE_MODE_CONCURRENT_BATCHES
+    : tables.length >= LARGE_SCHEMA_TABLE_THRESHOLD
+      ? LARGE_SCHEMA_CONCURRENT_BATCHES
+      : DEFAULT_CONCURRENT_BATCHES;
 
   log.info("Use case generation starting", {
     tableCount: tables.length,
     batchCount: batches.length,
     sampleRowsPerTable: sampleRows,
+    concurrency: maxConcurrentBatches,
   });
 
   const allUseCases: UseCase[] = [];
@@ -212,16 +244,16 @@ export async function runUsecaseGeneration(
 
   // Process batches with controlled concurrency and cross-batch feedback
   let batchGroupIdx = 0;
-  for (let i = 0; i < batches.length; i += MAX_CONCURRENT_BATCHES) {
+  for (let i = 0; i < batches.length; i += maxConcurrentBatches) {
     batchGroupIdx++;
-    const totalGroups = Math.ceil(batches.length / MAX_CONCURRENT_BATCHES);
+    const totalGroups = Math.ceil(batches.length / maxConcurrentBatches);
     const samplingNote = sampleRows > 0 ? ` with ${sampleRows}-row sampling` : "";
     if (runId)
       await updateRunMessage(
         runId,
         `Generating AI & statistical use cases${samplingNote} (batch group ${batchGroupIdx} of ${totalGroups})...`,
       );
-    const concurrentBatches = batches.slice(i, i + MAX_CONCURRENT_BATCHES);
+    const concurrentBatches = batches.slice(i, i + maxConcurrentBatches);
 
     // Build cross-batch feedback: list of already-generated use case names
     const previousFeedback = buildPreviousUseCasesFeedback(allUseCases);
@@ -230,11 +262,14 @@ export async function runUsecaseGeneration(
     const concurrentTableFqns = concurrentBatches.flat().map((t) => t.fqn);
     let sampleDataSection = "";
     if (sampleRows > 0 && concurrentTableFqns.length > 0) {
-      const sampleResult = await fetchSampleData(concurrentTableFqns, sampleRows, {
-        runId,
-        userEmail: run.createdBy,
-        step: "usecase-generation",
-      });
+      const sampleResult = await fetchSampleData(
+        concurrentTableFqns,
+        sampleRows,
+        { runId, userEmail: run.createdBy, step: "usecase-generation" },
+        colBudget.maxSampleColumns > 0
+          ? { maxSampleColumns: colBudget.maxSampleColumns, columnsByTable }
+          : undefined,
+      );
       sampleDataSection = sampleResult.markdown;
       // Accumulate structured sample data for downstream Genie Engine use
       if (sampleResult.structured.size > 0) {
@@ -255,7 +290,13 @@ export async function runUsecaseGeneration(
 
     const batchPromises = concurrentBatches.flatMap((batch) => {
       const batchColumns = columns.filter((c) => batch.some((t) => t.fqn === c.tableFqn));
-      const schemaMarkdown = buildSchemaMarkdown(batch, batchColumns);
+      const schemaMarkdown = buildSchemaMarkdown(
+        batch,
+        batchColumns,
+        colBudget.maxCommentLength,
+        undefined,
+        colBudget.maxColumnsPerTable,
+      );
 
       const tableCount = batch.length;
       const targetCount = Math.max(targetRange.min, Math.min(targetRange.max, tableCount));
@@ -373,16 +414,24 @@ export async function runUsecaseGeneration(
  * Build a feedback string listing previously generated use case names so
  * subsequent batches avoid duplicating them.
  */
+const MAX_FEEDBACK_USE_CASES = 100;
+
 function buildPreviousUseCasesFeedback(existing: UseCase[]): string {
   if (existing.length === 0) {
     return "None -- this is the first batch.";
   }
 
   const names = existing.map((uc) => uc.name).filter(Boolean);
+  const shown =
+    names.length > MAX_FEEDBACK_USE_CASES ? names.slice(-MAX_FEEDBACK_USE_CASES) : names;
+  const prefix =
+    names.length > MAX_FEEDBACK_USE_CASES
+      ? `The following ${MAX_FEEDBACK_USE_CASES} most recent use cases (of ${names.length} total) have ALREADY been generated. `
+      : `The following ${names.length} use cases have ALREADY been generated. `;
   return (
-    `The following ${names.length} use cases have ALREADY been generated. ` +
+    prefix +
     `Do NOT generate similar or overlapping use cases:\n` +
-    names.map((n) => `- ${n}`).join("\n")
+    shown.map((n) => `- ${n}`).join("\n")
   );
 }
 

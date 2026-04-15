@@ -10,6 +10,11 @@ import { validateIdentifier } from "@/lib/validation";
 import { withRetry } from "@/lib/toolkit/retry";
 import { logger } from "@/lib/logger";
 import type { TableInfo, ColumnInfo, ForeignKey, MetricViewInfo } from "@/lib/domain/types";
+import {
+  selectRepresentativeColumns,
+  type ColumnBudgetConfig,
+  type ColumnScoreOptions,
+} from "@/lib/toolkit/column-budget";
 
 // ---------------------------------------------------------------------------
 // Error codes for structured error reporting
@@ -477,7 +482,13 @@ export function mergeTableTypes(
 /**
  * List columns for tables in a catalog.schema scope.
  */
-export async function listColumns(catalog: string, schema?: string): Promise<ColumnInfo[]> {
+const DEFAULT_MAX_COLUMN_ROWS = 500_000;
+
+export async function listColumns(
+  catalog: string,
+  schema?: string,
+  maxRows: number = DEFAULT_MAX_COLUMN_ROWS,
+): Promise<ColumnInfo[]> {
   const safeCatalog = validateIdentifier(catalog, "catalog");
   let sql = `
     SELECT table_catalog, table_schema, table_name,
@@ -490,7 +501,14 @@ export async function listColumns(catalog: string, schema?: string): Promise<Col
     sql += ` AND table_schema = '${safeSchema}'`;
   }
   sql += ` ORDER BY table_schema, table_name, ordinal_position`;
-  return executeSQLMapped(sql, rowToColumn);
+  sql += ` LIMIT ${maxRows}`;
+  const results = await executeSQLMapped(sql, rowToColumn);
+  if (results.length >= maxRows) {
+    logger.warn(
+      `[metadata] Column query hit ${maxRows} row limit for ${safeCatalog}${schema ? `.${schema}` : ""} -- results may be incomplete`,
+    );
+  }
+  return results;
 }
 
 /**
@@ -759,14 +777,18 @@ export async function fetchForeignKeysBatch(fqns: string[]): Promise<ForeignKey[
  * Build a schema markdown string for prompt injection.
  * Groups columns by table and formats as markdown.
  *
- * @param maxColumnsPerTable - Cap columns per table to prevent token overflow (default: 40).
  * @param maxCommentLength   - Truncate column comments to this length (default: 80).
+ * @param descriptionOverrides - Optional per-table description overrides.
+ * @param maxColumnsPerTable - Cap columns per table to prevent token overflow (default: 40).
+ * @param columnScoreOptions - Optional scoring context for intelligent column selection.
  */
 export function buildSchemaMarkdown(
   tables: TableInfo[],
   columns: ColumnInfo[],
   maxCommentLength: number = 80,
   descriptionOverrides?: Map<string, string>,
+  maxColumnsPerTable: number = 40,
+  columnScoreOptions?: ColumnScoreOptions,
 ): string {
   const columnsByTable: Record<string, ColumnInfo[]> = {};
   for (const col of columns) {
@@ -777,7 +799,28 @@ export function buildSchemaMarkdown(
   const sections = tables.map((table) => {
     const allCols = columnsByTable[table.fqn] ?? [];
 
-    const colLines = allCols
+    let visibleCols: ColumnInfo[];
+    let omittedSuffix = "";
+
+    if (maxColumnsPerTable > 0 && allCols.length > maxColumnsPerTable && columnScoreOptions) {
+      const result = selectRepresentativeColumns(allCols, maxColumnsPerTable, columnScoreOptions);
+      visibleCols = result.selected;
+      if (result.omittedCount > 0) {
+        const hints =
+          result.omittedHints.length > 0
+            ? ` (including: ${result.omittedHints.join(", ")})`
+            : "";
+        omittedSuffix = `\n  ... and ${result.omittedCount} more columns${hints}`;
+      }
+    } else {
+      const capped = maxColumnsPerTable > 0 && allCols.length > maxColumnsPerTable;
+      visibleCols = capped ? allCols.slice(0, maxColumnsPerTable) : allCols;
+      if (capped) {
+        omittedSuffix = `\n  ... and ${allCols.length - maxColumnsPerTable} more columns`;
+      }
+    }
+
+    const colLines = visibleCols
       .map((c) => {
         let comment = c.comment ?? "";
         if (comment.length > maxCommentLength) {
@@ -789,7 +832,7 @@ export function buildSchemaMarkdown(
 
     const desc = descriptionOverrides?.get(table.fqn) ?? table.comment;
     const tableComment = desc ? ` -- ${desc}` : "";
-    return `### ${table.fqn}${tableComment}\n${colLines || "  (no columns)"}`;
+    return `### ${table.fqn}${tableComment}\n${colLines || "  (no columns)"}${omittedSuffix}`;
   });
 
   return sections.join("\n\n");
@@ -797,13 +840,22 @@ export function buildSchemaMarkdown(
 
 /**
  * Build a foreign key relationships summary for prompt injection.
+ *
+ * @param maxFks - Maximum FK lines to include (default: 500). Prevents
+ *   unbounded string growth on large schemas with tens of thousands of FKs.
  */
-export function buildForeignKeyMarkdown(fks: ForeignKey[]): string {
+export function buildForeignKeyMarkdown(fks: ForeignKey[], maxFks: number = 500): string {
   if (fks.length === 0) return "No foreign key relationships found.";
 
-  const lines = fks.map(
+  const capped = maxFks > 0 && fks.length > maxFks;
+  const visible = capped ? fks.slice(0, maxFks) : fks;
+
+  const lines = visible.map(
     (fk) =>
       `- ${fk.tableFqn}.${fk.columnName} -> ${fk.referencedTableFqn}.${fk.referencedColumnName}`,
   );
+  if (capped) {
+    lines.push(`... and ${fks.length - maxFks} more foreign key relationships`);
+  }
   return lines.join("\n");
 }

@@ -85,6 +85,7 @@ function dbRowToRun(row: {
       estateScanEnabled: genOpts.estateScanEnabled,
       assetDiscoveryEnabled: genOpts.assetDiscoveryEnabled,
       fabricScanId: genOpts.fabricScanId,
+      largeSchemaMode: genOpts.largeSchemaMode ?? false,
     },
     status: row.status as RunStatus,
     currentStep: (row.currentStep as PipelineStep) ?? null,
@@ -124,6 +125,7 @@ function parseGenerationOptions(raw: string | null): {
   estateScanEnabled: boolean;
   assetDiscoveryEnabled: boolean;
   fabricScanId: string | null;
+  largeSchemaMode: boolean;
   industryAutoDetected: boolean;
   appVersion: string | null;
   promptVersions: Record<string, string> | null;
@@ -142,6 +144,7 @@ function parseGenerationOptions(raw: string | null): {
     estateScanEnabled: false,
     assetDiscoveryEnabled: false,
     fabricScanId: null as string | null,
+    largeSchemaMode: false,
     industryAutoDetected: false,
     appVersion: null as string | null,
     promptVersions: null as Record<string, string> | null,
@@ -167,6 +170,7 @@ function parseGenerationOptions(raw: string | null): {
         estateScanEnabled: parsed.estateScanEnabled === true,
         assetDiscoveryEnabled: parsed.assetDiscoveryEnabled === true,
         fabricScanId: parsed.fabricScanId ?? null,
+        largeSchemaMode: parsed.largeSchemaMode === true,
         industryAutoDetected: parsed.industryAutoDetected === true,
         appVersion: parsed.appVersion ?? null,
         promptVersions: parsed.promptVersions ?? null,

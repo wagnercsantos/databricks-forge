@@ -22,7 +22,6 @@ import {
   mergeTableComments,
   fetchTableTypes,
   mergeTableTypes,
-  buildSchemaMarkdown,
   fetchTableInfoBatch,
   fetchColumnsBatch,
   fetchForeignKeysBatch,
@@ -53,6 +52,7 @@ import type {
   DiscoveryDepthConfig,
 } from "@/lib/domain/types";
 import { updateSchemaSnapshot, type SchemaSnapshot } from "@/lib/lakebase/runs";
+import { resolveColumnBudget } from "@/lib/toolkit/column-budget";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -87,6 +87,13 @@ export async function runMetadataExtraction(
   const { config } = ctx.run;
   const scopes = parseUCMetadata(config.ucMetadata);
   const enrichmentStart = Date.now();
+  const colBudget = resolveColumnBudget(config.largeSchemaMode ?? false);
+
+  if (config.largeSchemaMode) {
+    log.info("Large Schema Mode active -- column row limit reduced", {
+      maxColumnRows: colBudget.maxColumnRowsPerScope,
+    });
+  }
 
   const allTables: TableInfo[] = [];
   const allColumns: ColumnInfo[] = [];
@@ -125,7 +132,7 @@ export async function runMetadataExtraction(
       const [tableComments, tableTypes, columns, fks, mvs] = await Promise.all([
         fetchTableComments(scope.catalog, scope.schema),
         fetchTableTypes(scope.catalog, scope.schema),
-        listColumns(scope.catalog, scope.schema),
+        listColumns(scope.catalog, scope.schema, colBudget.maxColumnRowsPerScope),
         listForeignKeys(scope.catalog, scope.schema),
         listMetricViews(scope.catalog, scope.schema),
       ]);
@@ -157,6 +164,28 @@ export async function runMetadataExtraction(
       runId,
       `Found ${allTables.length} tables across ${accessibleScopes.length} scope(s), ${allColumns.length} columns`,
     );
+  }
+
+  // Pre-flight check: warn operators about very large schemas
+  const LARGE_SCHEMA_TABLE_THRESHOLD = 5_000;
+  const LARGE_SCHEMA_COLUMN_THRESHOLD = 200_000;
+  if (
+    allTables.length > LARGE_SCHEMA_TABLE_THRESHOLD ||
+    allColumns.length > LARGE_SCHEMA_COLUMN_THRESHOLD
+  ) {
+    log.warn("Large schema detected -- pipeline may require increased memory", {
+      fn: "runMetadataExtraction",
+      tableCount: allTables.length,
+      columnCount: allColumns.length,
+      fkCount: allFKs.length,
+      threshold: { tables: LARGE_SCHEMA_TABLE_THRESHOLD, columns: LARGE_SCHEMA_COLUMN_THRESHOLD },
+    });
+    if (runId) {
+      await updateRunMessage(
+        runId,
+        `Large schema detected: ${allTables.length} tables, ${allColumns.length} columns. Consider using schema-level scoping for faster runs.`,
+      );
+    }
   }
 
   if (allTables.length === 0) {
@@ -226,8 +255,6 @@ export async function runMetadataExtraction(
     }
   }
 
-  const schemaMarkdown = buildSchemaMarkdown(allTables, allColumns);
-
   const snapshot: MetadataSnapshot = {
     cacheKey: uuidv4(),
     ucPath: config.ucMetadata,
@@ -235,7 +262,6 @@ export async function runMetadataExtraction(
     columns: allColumns,
     foreignKeys: allFKs,
     metricViews: allMetricViews,
-    schemaMarkdown,
     tableCount: allTables.length,
     columnCount: allColumns.length,
     cachedAt: new Date().toISOString(),
@@ -404,7 +430,6 @@ async function runEnrichmentPass(
       allColumns.push(...newColumns);
       snapshot.tableCount = snapshot.tables.length;
       snapshot.columnCount = snapshot.columns.length;
-      snapshot.schemaMarkdown = buildSchemaMarkdown(snapshot.tables, snapshot.columns);
 
       // Backfill lineage-discovered entries in expandedTables with
       // real tableType + dataSourceFormat from information_schema
@@ -535,17 +560,6 @@ async function runEnrichmentPass(
     for (const [fqn, desc] of intelligenceResult.generatedDescriptions) {
       const detail = details.find((d) => d.fqn === fqn);
       if (detail) detail.generatedDescription = desc;
-    }
-
-    // Rebuild schemaMarkdown so downstream steps (use case gen, scoring)
-    // benefit from LLM-generated descriptions
-    if (intelligenceResult.generatedDescriptions.size > 0) {
-      snapshot.schemaMarkdown = buildSchemaMarkdown(
-        snapshot.tables,
-        snapshot.columns,
-        80,
-        intelligenceResult.generatedDescriptions,
-      );
     }
 
     // Apply sensitivity levels

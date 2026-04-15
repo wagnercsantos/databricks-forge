@@ -310,7 +310,7 @@ export async function buildMetadataForSpace(tableFqns: string[]): Promise<Metada
     columns,
     foreignKeys: [],
     metricViews: [],
-    schemaMarkdown: "",
+
     tableCount: tables.length,
     columnCount: columns.length,
     cachedAt: new Date().toISOString(),

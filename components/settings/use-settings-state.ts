@@ -88,6 +88,10 @@ export function useSettingsState() {
     if (typeof window === "undefined") return "";
     return loadSettings().industry;
   });
+  const [largeSchemaMode, setLargeSchemaMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return loadSettings().largeSchemaMode;
+  });
   const [benchmarksServerEnabled, setBenchmarksServerEnabled] = useState<boolean | null>(null);
   const [metricViewsServerEnabled, setMetricViewsServerEnabled] = useState<boolean | null>(null);
   const [demoModeEnabled, setDemoModeEnabled] = useState<boolean | null>(null);
@@ -168,6 +172,8 @@ export function useSettingsState() {
     setCatalogResourcePrefix,
     industry,
     setIndustry,
+    largeSchemaMode,
+    setLargeSchemaMode,
     benchmarksServerEnabled,
     metricViewsServerEnabled,
     demoModeEnabled,

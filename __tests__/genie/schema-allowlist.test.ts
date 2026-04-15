@@ -136,7 +136,7 @@ describe("buildCompactColumnsBlock", () => {
     ],
     foreignKeys: [],
     metricViews: [],
-    schemaMarkdown: "",
+
     tableCount: 1,
     columnCount: 2,
     cachedAt: "",
@@ -186,7 +186,7 @@ describe("buildSchemaContextBlock", () => {
     ],
     foreignKeys: [],
     metricViews: [],
-    schemaMarkdown: "",
+
     tableCount: 1,
     columnCount: 2,
     cachedAt: "",

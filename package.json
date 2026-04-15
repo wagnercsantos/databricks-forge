@@ -1,6 +1,6 @@
 {
   "name": "databricks-forge",
-  "version": "0.39.3",
+  "version": "0.39.4",
   "description": "AI-powered use case discovery from Unity Catalog metadata -- turn your data estate into actionable insights",
   "license": "SEE LICENSE IN LICENSE",
   "private": true,
@@ -23,7 +23,7 @@
     "nextjs"
   ],
   "scripts": {
-    "dev": "prisma generate && next dev",
+    "dev": "prisma generate && NODE_OPTIONS='--max-old-space-size=4096' next dev",
     "build": "prisma generate && next build && sh scripts/postbuild.sh",
     "start": "prisma db push --accept-data-loss && next start",
     "lint": "eslint",

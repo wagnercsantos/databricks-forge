@@ -456,6 +456,11 @@ else
   cd .next/standalone
 fi
 
+# Allow large schemas (12k+ tables) without OOM.
+# Operators can override via NODE_OPTIONS in their environment.
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
+echo "[startup] Node heap limit: $NODE_OPTIONS"
+
 if [ -n "$LAKEBASE_STARTUP_URL" ]; then
   echo "[startup] Passing Lakebase runtime contract to server."
   unset DATABASE_URL

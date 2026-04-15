@@ -53,6 +53,7 @@ import {
   failDashboardJob,
 } from "@/lib/dashboard/engine-status";
 import { flushPromptLogs } from "@/lib/lakebase/prompt-logs";
+import { logMemoryUsage } from "@/lib/pipeline/memory-monitor";
 
 // ---------------------------------------------------------------------------
 // Step definitions with progress percentages
@@ -88,6 +89,59 @@ const STEPS: StepDef[] = [
   { step: PipelineStep.BusinessValueAnalysis, progressPct: 90, label: "Analyzing business value" },
   { step: PipelineStep.GenieRecommendations, progressPct: 100, label: "Building Genie Spaces" },
 ];
+
+// ---------------------------------------------------------------------------
+// Use case persistence helper
+// ---------------------------------------------------------------------------
+
+import type { UseCase } from "@/lib/domain/types";
+
+/**
+ * Atomically persist use cases for a run (delete old + insert new in a
+ * single transaction). Called as a checkpoint after Steps 4, 5, 6, and 7
+ * so partial results survive crashes.
+ */
+export async function persistUseCases(
+  runId: string,
+  useCases: UseCase[],
+  log: ScopedLogger,
+): Promise<void> {
+  const { withPrisma } = await import("@/lib/prisma");
+  await withPrisma(async (prisma) => {
+    await prisma.$transaction(
+      async (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => {
+        await tx.forgeUseCase.deleteMany({ where: { runId } });
+        if (useCases.length > 0) {
+          await tx.forgeUseCase.createMany({
+            data: useCases.map((uc) => ({
+              id: uc.id,
+              runId: uc.runId,
+              useCaseNo: uc.useCaseNo,
+              name: uc.name,
+              type: uc.type,
+              analyticsTechnique: uc.analyticsTechnique,
+              statement: uc.statement,
+              solution: uc.solution,
+              businessValue: uc.businessValue,
+              beneficiary: uc.beneficiary,
+              sponsor: uc.sponsor,
+              domain: uc.domain,
+              subdomain: uc.subdomain,
+              tablesInvolved: JSON.stringify(uc.tablesInvolved),
+              priorityScore: uc.priorityScore,
+              feasibilityScore: uc.feasibilityScore,
+              impactScore: uc.impactScore,
+              overallScore: uc.overallScore,
+              sqlCode: uc.sqlCode,
+              sqlStatus: uc.sqlStatus,
+            })),
+          });
+        }
+      },
+    );
+  });
+  log.info(`Checkpointed ${useCases.length} use cases`, { fn: "persistUseCases" });
+}
 
 // ---------------------------------------------------------------------------
 // Engine
@@ -126,17 +180,20 @@ export async function startPipeline(runId: string): Promise<void> {
       fn: () => Promise<void>,
     ): Promise<void> {
       const startedAt = new Date().toISOString();
+      logMemoryUsage(`Before step: ${step}`, { runId, step });
       stepLog.info("Step starting", { phase: "start" });
       try {
         await fn();
         const completedAt = new Date().toISOString();
         const durationMs = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+        logMemoryUsage(`After step: ${step}`, { runId, step, durationMs });
         stepLog.info("Step completed", { phase: "end", durationMs });
         await updateRunStepLog(runId, { step, startedAt, completedAt, durationMs });
       } catch (err) {
         const completedAt = new Date().toISOString();
         const durationMs = new Date(completedAt).getTime() - new Date(startedAt).getTime();
         const errorMsg = err instanceof Error ? err.message : String(err);
+        logMemoryUsage(`Step failed: ${step}`, { runId, step, durationMs, error: errorMsg });
         stepLog.error("Step failed", { phase: "error", durationMs, error: errorMsg });
         await updateRunStepLog(runId, {
           step,
@@ -334,6 +391,34 @@ export async function startPipeline(runId: string): Promise<void> {
         });
       }
 
+      // Prune metadata to only filtered tables. On large schemas (12k+ tables)
+      // this frees 50-80% of column/FK memory before the expensive LLM steps.
+      if (ctx.metadata && ctx.filteredTables.length > 0) {
+        const beforeCols = ctx.metadata.columns.length;
+        const beforeFks = ctx.metadata.foreignKeys.length;
+        const fqnSet = new Set(ctx.filteredTables.map((f) => f.replace(/`/g, "")));
+        ctx.metadata.columns = ctx.metadata.columns.filter((c) =>
+          fqnSet.has(c.tableFqn.replace(/`/g, "")),
+        );
+        ctx.metadata.foreignKeys = ctx.metadata.foreignKeys.filter(
+          (fk) =>
+            fqnSet.has(fk.tableFqn.replace(/`/g, "")) ||
+            fqnSet.has(fk.referencedTableFqn.replace(/`/g, "")),
+        );
+        if (
+          beforeCols !== ctx.metadata.columns.length ||
+          beforeFks !== ctx.metadata.foreignKeys.length
+        ) {
+          log.info("Pruned metadata to filtered tables", {
+            columnsBefore: beforeCols,
+            columnsAfter: ctx.metadata.columns.length,
+            fksBefore: beforeFks,
+            fksAfter: ctx.metadata.foreignKeys.length,
+          });
+          logMemoryUsage("After metadata pruning", { runId });
+        }
+      }
+
       // Step 4: Use Case Generation
       checkCancelled(ctx.signal);
       {
@@ -405,6 +490,7 @@ export async function startPipeline(runId: string): Promise<void> {
             undefined,
             `Generated ${ctx.useCases.length} validated use cases${hallucinated > 0 ? ` (${hallucinated} removed — invalid table refs)` : ""}`,
           );
+          await persistUseCases(runId, ctx.useCases, stepLog);
         });
       }
 
@@ -435,6 +521,7 @@ export async function startPipeline(runId: string): Promise<void> {
             undefined,
             `Organised use cases into ${domainCount} domains`,
           );
+          await persistUseCases(runId, ctx.useCases, stepLog);
         });
       }
 
@@ -511,6 +598,7 @@ export async function startPipeline(runId: string): Promise<void> {
             undefined,
             `Scored ${ctx.useCases.length} use cases`,
           );
+          await persistUseCases(runId, ctx.useCases, stepLog);
         });
       }
 
@@ -545,42 +633,8 @@ export async function startPipeline(runId: string): Promise<void> {
         });
       }
 
-      // Persist use cases atomically (delete old + insert new in a transaction)
-      log.info(`Persisting ${ctx.useCases.length} use cases`, { fn: "startPipeline" });
-      const { withPrisma } = await import("@/lib/prisma");
-      await withPrisma(async (prisma) => {
-        await prisma.$transaction(
-          async (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => {
-            await tx.forgeUseCase.deleteMany({ where: { runId } });
-            if (ctx.useCases.length > 0) {
-              await tx.forgeUseCase.createMany({
-                data: ctx.useCases.map((uc) => ({
-                  id: uc.id,
-                  runId: uc.runId,
-                  useCaseNo: uc.useCaseNo,
-                  name: uc.name,
-                  type: uc.type,
-                  analyticsTechnique: uc.analyticsTechnique,
-                  statement: uc.statement,
-                  solution: uc.solution,
-                  businessValue: uc.businessValue,
-                  beneficiary: uc.beneficiary,
-                  sponsor: uc.sponsor,
-                  domain: uc.domain,
-                  subdomain: uc.subdomain,
-                  tablesInvolved: JSON.stringify(uc.tablesInvolved),
-                  priorityScore: uc.priorityScore,
-                  feasibilityScore: uc.feasibilityScore,
-                  impactScore: uc.impactScore,
-                  overallScore: uc.overallScore,
-                  sqlCode: uc.sqlCode,
-                  sqlStatus: uc.sqlStatus,
-                })),
-              });
-            }
-          },
-        );
-      });
+      // Final use case checkpoint after SQL generation (Step 7)
+      await persistUseCases(runId, ctx.useCases, log);
 
       // Step 8: Business Value Analysis (financial quantification, roadmap, synthesis, stakeholders)
       checkCancelled(ctx.signal);
@@ -636,7 +690,8 @@ export async function startPipeline(runId: string): Promise<void> {
           getRoadmapPhasesForRun(runId),
           getStakeholderProfilesForRun(runId),
         ]);
-        const bvSynthesisRow = await withPrisma(async (prisma) => {
+        const { withPrisma: prismaHelper } = await import("@/lib/prisma");
+        const bvSynthesisRow = await prismaHelper(async (prisma) => {
           const row = await prisma.forgeRun.findUnique({
             where: { runId },
             select: { synthesisJson: true },
@@ -1002,6 +1057,19 @@ export async function resumePipeline(runId: string): Promise<void> {
         });
       }
 
+      // Prune metadata to only filtered tables (same as primary path)
+      if (ctx.metadata && ctx.filteredTables.length > 0) {
+        const fqnSet = new Set(ctx.filteredTables.map((f) => f.replace(/`/g, "")));
+        ctx.metadata.columns = ctx.metadata.columns.filter((c) =>
+          fqnSet.has(c.tableFqn.replace(/`/g, "")),
+        );
+        ctx.metadata.foreignKeys = ctx.metadata.foreignKeys.filter(
+          (fk) =>
+            fqnSet.has(fk.tableFqn.replace(/`/g, "")) ||
+            fqnSet.has(fk.referencedTableFqn.replace(/`/g, "")),
+        );
+      }
+
       // Step 4: Use Case Generation
       if (resumeIndex <= 4) {
         checkCancelled(ctx.signal);
@@ -1057,6 +1125,7 @@ export async function resumePipeline(runId: string): Promise<void> {
             undefined,
             `Generated ${ctx.useCases.length} validated use cases${hallucinated > 0 ? ` (${hallucinated} removed)` : ""}`,
           );
+          await persistUseCases(runId, ctx.useCases, stepLog);
         });
       }
 
@@ -1087,6 +1156,7 @@ export async function resumePipeline(runId: string): Promise<void> {
             undefined,
             `Organised use cases into ${domainCount} domains`,
           );
+          await persistUseCases(runId, ctx.useCases, stepLog);
         });
       }
 
@@ -1113,6 +1183,7 @@ export async function resumePipeline(runId: string): Promise<void> {
             undefined,
             `Scored ${ctx.useCases.length} use cases`,
           );
+          await persistUseCases(runId, ctx.useCases, stepLog);
         });
       }
 
@@ -1147,43 +1218,9 @@ export async function resumePipeline(runId: string): Promise<void> {
         });
       }
 
-      // Persist use cases only if we re-ran generation/scoring/SQL steps
+      // Final use case checkpoint after SQL generation (Step 7)
       if (resumeIndex <= 7) {
-        log.info(`Persisting ${ctx.useCases.length} use cases`);
-        const { withPrisma } = await import("@/lib/prisma");
-        await withPrisma(async (prisma) => {
-          await prisma.$transaction(
-            async (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => {
-              await tx.forgeUseCase.deleteMany({ where: { runId } });
-              if (ctx.useCases.length > 0) {
-                await tx.forgeUseCase.createMany({
-                  data: ctx.useCases.map((uc) => ({
-                    id: uc.id,
-                    runId: uc.runId,
-                    useCaseNo: uc.useCaseNo,
-                    name: uc.name,
-                    type: uc.type,
-                    analyticsTechnique: uc.analyticsTechnique,
-                    statement: uc.statement,
-                    solution: uc.solution,
-                    businessValue: uc.businessValue,
-                    beneficiary: uc.beneficiary,
-                    sponsor: uc.sponsor,
-                    domain: uc.domain,
-                    subdomain: uc.subdomain,
-                    tablesInvolved: JSON.stringify(uc.tablesInvolved),
-                    priorityScore: uc.priorityScore,
-                    feasibilityScore: uc.feasibilityScore,
-                    impactScore: uc.impactScore,
-                    overallScore: uc.overallScore,
-                    sqlCode: uc.sqlCode,
-                    sqlStatus: uc.sqlStatus,
-                  })),
-                });
-              }
-            },
-          );
-        });
+        await persistUseCases(runId, ctx.useCases, log);
       }
 
       // Step 8: Business Value Analysis

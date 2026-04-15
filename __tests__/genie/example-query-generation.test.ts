@@ -69,7 +69,7 @@ const metadata: MetadataSnapshot = {
   ],
   foreignKeys: [],
   metricViews: [],
-  schemaMarkdown: "",
+
   tableCount: 2,
   columnCount: 5,
   cachedAt: new Date().toISOString(),

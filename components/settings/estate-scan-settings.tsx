@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScanLine, Search, Target } from "lucide-react";
+import { ScanLine, Search, Target, Database } from "lucide-react";
 
 interface EstateScanSettingsProps {
   estateScanEnabled: boolean;
@@ -11,6 +11,8 @@ interface EstateScanSettingsProps {
   benchmarksEnabled: boolean;
   onBenchmarksEnabledChange: (value: boolean) => void;
   benchmarksServerEnabled: boolean | null;
+  largeSchemaMode: boolean;
+  onLargeSchemaModeChange: (value: boolean) => void;
 }
 
 function ToggleButton({
@@ -54,6 +56,8 @@ export function EstateScanSettings({
   benchmarksEnabled,
   onBenchmarksEnabledChange,
   benchmarksServerEnabled,
+  largeSchemaMode,
+  onLargeSchemaModeChange,
 }: EstateScanSettingsProps) {
   return (
     <Card>
@@ -140,6 +144,31 @@ export function EstateScanSettings({
             onClick={() => benchmarksServerEnabled && onBenchmarksEnabledChange(!benchmarksEnabled)}
             disabled={!benchmarksServerEnabled}
             activeColor="bg-amber-500"
+          />
+        </div>
+
+        <div
+          className={`flex items-center justify-between rounded-lg border-2 p-4 transition-colors ${
+            largeSchemaMode ? "border-violet-500/50 bg-violet-500/5" : "border-muted"
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <Database
+              className={`mt-0.5 h-4 w-4 shrink-0 ${largeSchemaMode ? "text-violet-500" : "text-muted-foreground"}`}
+            />
+            <div>
+              <p className="text-sm font-medium">Large Schema Mode</p>
+              <p className="text-xs text-muted-foreground">
+                {largeSchemaMode
+                  ? "Enabled — aggressive column budgeting active. Prompts use intelligent column selection (max 15 per table) and capped sample data to prevent memory and token budget failures."
+                  : "Disabled — standard column limits apply (40 per table). Enable for estates with wide tables (100+ columns per table)."}
+              </p>
+            </div>
+          </div>
+          <ToggleButton
+            enabled={largeSchemaMode}
+            onClick={() => onLargeSchemaModeChange(!largeSchemaMode)}
+            activeColor="bg-violet-500"
           />
         </div>
       </CardContent>

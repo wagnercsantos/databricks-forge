@@ -17,6 +17,7 @@ import { getCurrentUserEmail, getConfig } from "@/lib/dbx/client";
 import { isMetricViewsEnabled } from "@/lib/genie/metric-views-config";
 import { isDemoModeEnabled } from "@/lib/demo/config";
 import { getPoolAvailability } from "@/lib/dbx/model-registry";
+import { getMemorySnapshot } from "@/lib/pipeline/memory-monitor";
 import packageJson from "@/package.json";
 
 interface HealthCheck {
@@ -110,6 +111,7 @@ export async function GET(request: Request) {
     metricViewsEnabled?: boolean;
     demoModeEnabled?: boolean;
     modelPool?: { available: string[]; unavailable: string[]; total: number };
+    memory?: ReturnType<typeof getMemorySnapshot>;
   } = {
     ...base,
     checks: { database, warehouse },
@@ -119,6 +121,7 @@ export async function GET(request: Request) {
     metricViewsEnabled: isMetricViewsEnabled(),
     demoModeEnabled: isDemoModeEnabled(),
     modelPool: getPoolAvailability(),
+    memory: getMemorySnapshot(),
   };
 
   return NextResponse.json(health, { status: httpStatus, headers: cacheHeaders });

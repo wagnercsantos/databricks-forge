@@ -13,6 +13,8 @@
 import { executeSQL } from "@/lib/dbx/sql";
 import { logger } from "@/lib/logger";
 import type { SampleDataCache, SampleDataEntry } from "@/lib/genie/types";
+import type { ColumnInfo } from "@/lib/domain/types";
+import { selectRepresentativeColumns, type ColumnScoreOptions } from "@/lib/toolkit/column-budget";
 
 export interface SampleDataResult {
   /** Formatted markdown section ready for prompt injection (empty string if nothing sampled) */
@@ -33,15 +35,29 @@ export interface SampleAuditContext {
   step?: string;
 }
 
+export interface SampleDataOptions {
+  /** Max columns to include in SELECT. 0 = unlimited (SELECT *). */
+  maxSampleColumns?: number;
+  /** Column metadata keyed by table FQN, used for intelligent column selection. */
+  columnsByTable?: Map<string, ColumnInfo[]>;
+  /** Scoring context for intelligent column selection. */
+  columnScoreOptions?: ColumnScoreOptions;
+}
+
 /**
  * Fetch sample rows from each table and format as markdown tables for
  * prompt injection. Returns both the formatted markdown and stats about
  * what was sampled.
+ *
+ * When `maxSampleColumns` is set, selects only the most representative
+ * columns instead of `SELECT *`, preventing token budget blowout on
+ * wide tables (100-1200+ columns).
  */
 export async function fetchSampleData(
   tableFqns: string[],
   rowLimit: number,
   auditContext?: SampleAuditContext,
+  sampleOptions?: SampleDataOptions,
 ): Promise<SampleDataResult> {
   const sections: string[] = [
     "### SAMPLE DATA (real rows from the tables -- use this to understand data formats, values, and join keys)\n",
@@ -52,11 +68,28 @@ export async function fetchSampleData(
   let tablesSkipped = 0;
   let totalRows = 0;
 
+  const maxCols = sampleOptions?.maxSampleColumns ?? 0;
+
   const results = await Promise.allSettled(
     tableFqns.map(async (fqn) => {
       const cleanFqn = fqn.replace(/`/g, "");
+      const escapedFqn = `\`${cleanFqn.split(".").join("\`.\`")}\``;
+
+      let selectClause = "*";
+      if (maxCols > 0 && sampleOptions?.columnsByTable) {
+        const tableCols = sampleOptions.columnsByTable.get(cleanFqn);
+        if (tableCols && tableCols.length > maxCols) {
+          const { selected } = selectRepresentativeColumns(
+            tableCols,
+            maxCols,
+            sampleOptions.columnScoreOptions,
+          );
+          selectClause = selected.map((c) => `\`${c.columnName}\``).join(", ");
+        }
+      }
+
       const result = await executeSQL(
-        `SELECT * FROM \`${cleanFqn.split(".").join("\`.\`")}\` LIMIT ${rowLimit}`,
+        `SELECT ${selectClause} FROM ${escapedFqn} LIMIT ${rowLimit}`,
       );
 
       if (!result.columns || result.columns.length === 0 || result.rows.length === 0) {
