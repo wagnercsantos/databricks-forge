@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { PortfolioDrillDown } from "@/components/business-value/portfolio-drill-down";
 import { PortfolioExportButton } from "@/components/business-value/portfolio-export-button";
+import { RunBvaButton } from "@/components/business-value/run-bva-button";
 
 export const dynamic = "force-dynamic";
 
@@ -527,6 +528,7 @@ export default function BusinessValuePage() {
         subtitle="Executive overview of data-driven value across your organization"
         actions={
           <div className="flex items-center gap-2">
+            <RunBvaButton />
             <Button variant="outline" size="sm" asChild>
               <Link href="/ask-forge?persona=strategic">
                 <BrainCircuit className="mr-1.5 size-4" />

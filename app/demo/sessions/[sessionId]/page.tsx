@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { ResearchEngineResult } from "@/lib/demo/research-engine/types";
+import { loadSettings } from "@/lib/settings";
 
 import { ResearchHeader } from "@/components/demo/session/research-header";
 import { MeetingSummaryStrip } from "@/components/demo/session/meeting-summary-strip";
@@ -55,10 +56,7 @@ export default function DemoSessionPage() {
       try {
         const r = await fetch(`/api/demo/sessions/${sessionId}`);
         if (cancelled) return;
-        if (!r.ok)
-          throw new Error(
-            r.status === 404 ? "Session not found" : "Failed to load"
-          );
+        if (!r.ok) throw new Error(r.status === 404 ? "Session not found" : "Failed to load");
         const data = await r.json();
         if (cancelled) return;
 
@@ -92,28 +90,21 @@ export default function DemoSessionPage() {
 
   const handleExport = useCallback(
     (format: "pptx" | "pdf") => {
-      window.open(
-        `/api/demo/sessions/${sessionId}/export?format=${format}`,
-        "_blank"
-      );
+      window.open(`/api/demo/sessions/${sessionId}/export?format=${format}`, "_blank");
     },
-    [sessionId]
+    [sessionId],
   );
 
   const handleCopyFqn = useCallback(() => {
     if (!session) return;
-    navigator.clipboard.writeText(
-      `${session.catalogName}.${session.schemaName}`
-    );
+    navigator.clipboard.writeText(`${session.catalogName}.${session.schemaName}`);
     toast.success("Schema copied to clipboard");
   }, [session]);
 
   const handleLaunchDiscovery = useCallback(async () => {
     if (!session) return;
     if (!session.catalogName || !session.schemaName) {
-      toast.error(
-        "Session is missing catalog/schema. Re-run data generation first."
-      );
+      toast.error("Session is missing catalog/schema. Re-run data generation first.");
       return;
     }
     setLaunching("discovery");
@@ -142,9 +133,7 @@ export default function DemoSessionPage() {
       toast.success("Discovery pipeline started");
       router.push(`/runs/${runId}`);
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to launch discovery"
-      );
+      toast.error(err instanceof Error ? err.message : "Failed to launch discovery");
       setLaunching(null);
     }
   }, [session, router]);
@@ -152,9 +141,7 @@ export default function DemoSessionPage() {
   const handleLaunchEstateScan = useCallback(async () => {
     if (!session) return;
     if (!session.catalogName || !session.schemaName) {
-      toast.error(
-        "Session is missing catalog/schema. Re-run data generation first."
-      );
+      toast.error("Session is missing catalog/schema. Re-run data generation first.");
       return;
     }
     setLaunching("scan");
@@ -163,16 +150,17 @@ export default function DemoSessionPage() {
       const res = await fetch("/api/environment-scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ucMetadata: scope }),
+        body: JSON.stringify({
+          ucMetadata: scope,
+          largeSchemaMode: loadSettings().largeSchemaMode,
+        }),
       });
       if (!res.ok) throw new Error("Failed to start estate scan");
 
       toast.success("Estate scan started");
       router.push("/environment");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to launch estate scan"
-      );
+      toast.error(err instanceof Error ? err.message : "Failed to launch estate scan");
       setLaunching(null);
     }
   }, [session, router]);
@@ -190,9 +178,7 @@ export default function DemoSessionPage() {
         </div>
         <div className="text-center">
           <p className="text-sm font-medium">Loading intelligence briefing…</p>
-          <p className="text-xs text-muted-foreground">
-            Assembling research data
-          </p>
+          <p className="text-xs text-muted-foreground">Assembling research data</p>
         </div>
       </div>
     );
@@ -212,9 +198,7 @@ export default function DemoSessionPage() {
         <Card className="border-destructive/30">
           <CardContent className="py-16 text-center">
             <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-destructive/60" />
-            <p className="font-medium text-destructive">
-              {error ?? "Session not found"}
-            </p>
+            <p className="font-medium text-destructive">{error ?? "Session not found"}</p>
           </CardContent>
         </Card>
       </div>

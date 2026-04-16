@@ -637,8 +637,8 @@ export async function startPipeline(runId: string): Promise<void> {
       await persistUseCases(runId, ctx.useCases, log);
 
       // Step 8: Business Value Analysis (financial quantification, roadmap, synthesis, stakeholders)
-      checkCancelled(ctx.signal);
-      {
+      if (ctx.run.config.businessValueEnabled) {
+        checkCancelled(ctx.signal);
         const stepLog = log.child({
           task: "BusinessValueAnalysis",
           module: "pipeline/steps/business-value-analysis",
@@ -663,6 +663,8 @@ export async function startPipeline(runId: string): Promise<void> {
             "Business value analysis complete",
           );
         });
+      } else {
+        log.info("Business value analysis skipped (not enabled in config)");
       }
 
       // Generate vector embeddings for use cases + business context (best-effort)
@@ -1224,7 +1226,7 @@ export async function resumePipeline(runId: string): Promise<void> {
       }
 
       // Step 8: Business Value Analysis
-      if (resumeIndex <= 8) {
+      if (resumeIndex <= 8 && ctx.run.config.businessValueEnabled) {
         checkCancelled(ctx.signal);
         const stepLog = log.child({
           task: "BusinessValueAnalysis",

@@ -73,7 +73,6 @@ export async function runUsecaseGeneration(
       filteredFqnSet.has(fk.tableFqn.replace(/`/g, "")) ||
       filteredFqnSet.has(fk.referencedTableFqn.replace(/`/g, "")),
   );
-  const fkMarkdown = buildForeignKeyMarkdown(relevantFks);
   const depth = run.config.discoveryDepth ?? "balanced";
   const dc = run.config.depthConfig ?? DEFAULT_DEPTH_CONFIGS[depth];
   const targetRange = { min: dc.batchTargetMin, max: dc.batchTargetMax };
@@ -188,10 +187,21 @@ export async function runUsecaseGeneration(
   const largeMode = run.config.largeSchemaMode ?? false;
   const colBudget = resolveColumnBudget(largeMode);
 
-  // Estimate base token cost (everything except schema_markdown which varies per batch)
+  // Build column score options from FK metadata so buildSchemaMarkdown uses
+  // intelligent three-tier column selection instead of ordinal truncation.
+  const fkColumnNames = new Set<string>();
+  for (const fk of relevantFks) {
+    fkColumnNames.add(fk.columnName);
+    fkColumnNames.add(fk.referencedColumnName);
+  }
+  const columnScoreOpts: import("@/lib/toolkit/column-budget").ColumnScoreOptions = {
+    fkColumnNames,
+  };
+
+  // Estimate base token cost (everything except schema_markdown, sample_data,
+  // and FK markdown which are now scoped per batch)
   const sharedContextTokens = estimateTokens(
     JSON.stringify(bc) +
-      fkMarkdown +
       lineageContext +
       focusAreasInstruction +
       industryReferenceUseCases +
@@ -200,6 +210,15 @@ export async function runUsecaseGeneration(
   );
   // Add overhead for the prompt template itself (~2000 tokens)
   const baseTokens = sharedContextTokens + 2000;
+
+  // Pre-sort tables by catalog.schema so buildTokenAwareBatches groups
+  // related tables together, improving LLM context coherence and making
+  // per-batch FK scoping more effective.
+  const sortedTables = [...tables].sort((a, b) => {
+    const keyA = `${a.catalog}.${a.schema}`;
+    const keyB = `${b.catalog}.${b.schema}`;
+    return keyA.localeCompare(keyB);
+  });
 
   // Token-aware batching: renderItem estimates the per-table schema size
   const columnsByTable = new Map<string, typeof columns>();
@@ -210,7 +229,7 @@ export async function runUsecaseGeneration(
   }
 
   const batches = buildTokenAwareBatches(
-    tables,
+    sortedTables,
     (table) =>
       buildSchemaMarkdown(
         [table],
@@ -218,6 +237,7 @@ export async function runUsecaseGeneration(
         colBudget.maxCommentLength,
         undefined,
         colBudget.maxColumnsPerTable,
+        columnScoreOpts,
       ),
     baseTokens,
   );
@@ -258,9 +278,11 @@ export async function runUsecaseGeneration(
     // Build cross-batch feedback: list of already-generated use case names
     const previousFeedback = buildPreviousUseCasesFeedback(allUseCases);
 
-    // Fetch sample data for all tables in this concurrent group (if enabled)
+    // Fetch sample data for all tables in this concurrent group (if enabled).
+    // The structured cache is shared, but markdown is built per-batch below
+    // so each prompt only includes sample rows for its own tables.
     const concurrentTableFqns = concurrentBatches.flat().map((t) => t.fqn);
-    let sampleDataSection = "";
+    let groupSampleCache: import("@/lib/genie/types").SampleDataCache = new Map();
     if (sampleRows > 0 && concurrentTableFqns.length > 0) {
       const sampleResult = await fetchSampleData(
         concurrentTableFqns,
@@ -270,7 +292,7 @@ export async function runUsecaseGeneration(
           ? { maxSampleColumns: colBudget.maxSampleColumns, columnsByTable }
           : undefined,
       );
-      sampleDataSection = sampleResult.markdown;
+      groupSampleCache = sampleResult.structured;
       // Accumulate structured sample data for downstream Genie Engine use
       if (sampleResult.structured.size > 0) {
         if (!ctx.sampleData) ctx.sampleData = new Map();
@@ -296,7 +318,23 @@ export async function runUsecaseGeneration(
         colBudget.maxCommentLength,
         undefined,
         colBudget.maxColumnsPerTable,
+        columnScoreOpts,
       );
+
+      // Build sample data markdown scoped to this batch's tables only
+      const batchSampleSection = buildSampleMarkdownFromCache(
+        groupSampleCache,
+        batch.map((t) => t.fqn),
+      );
+
+      // Build FK markdown scoped to this batch's tables
+      const batchFqnSet = new Set(batch.map((t) => t.fqn.replace(/`/g, "")));
+      const batchFks = relevantFks.filter(
+        (fk) =>
+          batchFqnSet.has(fk.tableFqn.replace(/`/g, "")) ||
+          batchFqnSet.has(fk.referencedTableFqn.replace(/`/g, "")),
+      );
+      const batchFkMarkdown = buildForeignKeyMarkdown(batchFks);
 
       const tableCount = batch.length;
       const targetCount = Math.max(targetRange.min, Math.min(targetRange.max, tableCount));
@@ -312,8 +350,8 @@ export async function runUsecaseGeneration(
         focus_areas_instruction: focusAreasInstruction,
         industry_reference_use_cases: industryReferenceUseCases,
         schema_markdown: schemaMarkdown,
-        foreign_key_relationships: fkMarkdown,
-        sample_data_section: sampleDataSection,
+        foreign_key_relationships: batchFkMarkdown,
+        sample_data_section: batchSampleSection,
         previous_use_cases_feedback: previousFeedback + feedbackExamplesSection,
         target_use_case_count: String(targetCount),
         lineage_context: lineageContext,
@@ -566,4 +604,43 @@ function buildFilteredLineageSummary(
       ? `\n... and ${relevant.length - maxEdges} more data flow edges`
       : "";
   return `${header}\n${lines.join("\n")}${suffix}`;
+}
+
+/**
+ * Build sample data markdown from a pre-fetched cache, scoped to only the
+ * given table FQNs. This avoids duplicating sample data for the entire
+ * concurrent group into every batch prompt.
+ */
+function buildSampleMarkdownFromCache(
+  cache: import("@/lib/genie/types").SampleDataCache,
+  tableFqns: string[],
+): string {
+  if (cache.size === 0) return "";
+
+  const sections: string[] = [
+    "### SAMPLE DATA (real rows from the tables -- use this to understand data formats, values, and join keys)\n",
+  ];
+
+  for (const fqn of tableFqns) {
+    const cleanFqn = fqn.replace(/`/g, "");
+    const entry = cache.get(cleanFqn);
+    if (!entry || entry.rows.length === 0) continue;
+
+    const header = `| ${entry.columns.join(" | ")} |`;
+    const separator = `| ${entry.columns.map(() => "---").join(" | ")} |`;
+    const rows = entry.rows.map((row) => {
+      const cells = (row as unknown[]).map((val) => {
+        if (val === null || val === undefined) return "NULL";
+        const s = String(val);
+        return s.length > 60 ? s.substring(0, 57) + "..." : s;
+      });
+      return `| ${cells.join(" | ")} |`;
+    });
+
+    sections.push(
+      `**${cleanFqn}** (${entry.rows.length} sample rows):\n${header}\n${separator}\n${rows.join("\n")}\n`,
+    );
+  }
+
+  return sections.length > 1 ? sections.join("\n") : "";
 }

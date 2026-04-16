@@ -27,6 +27,7 @@ import { initScanProgress, updateScanProgress } from "@/lib/pipeline/scan-progre
 import { discoverExistingAssets } from "@/lib/discovery/asset-scanner";
 import { computeCoverage } from "@/lib/discovery/coverage";
 import { saveDiscoveryResults } from "@/lib/lakebase/discovered-assets";
+import { resolveColumnBudget } from "@/lib/toolkit/column-budget";
 import { createScopedLogger } from "@/lib/logger";
 import { parseExcludedString, parsePatternsString, globMatch } from "@/lib/domain/scope-selection";
 import type {
@@ -62,9 +63,11 @@ export async function runStandaloneEnrichment(
   assetDiscoveryEnabled = false,
   excludedScope?: string,
   exclusionPatternsStr?: string,
+  largeSchemaMode = false,
 ): Promise<void> {
   const startTime = Date.now();
   const scopes = parseUCMetadata(ucMetadata);
+  const colBudget = resolveColumnBudget(largeSchemaMode);
   const log = createScopedLogger({
     origin: "EstateScan",
     module: "pipeline/standalone-scan",
@@ -72,7 +75,13 @@ export async function runStandaloneEnrichment(
   });
 
   initScanProgress(scanId);
-  log.info("Starting", { scanId, ucMetadata, scopes: scopes.length });
+  log.info("Starting", { scanId, ucMetadata, scopes: scopes.length, largeSchemaMode });
+
+  if (largeSchemaMode) {
+    log.info("Large Schema Mode active -- column row limit reduced", {
+      maxColumnRows: colBudget.maxColumnRowsPerScope,
+    });
+  }
 
   try {
     // Phase 0: Permission pre-check -- filter out inaccessible scopes in parallel
@@ -132,7 +141,11 @@ export async function runStandaloneEnrichment(
           tablesFound: allTables.length,
           message: `Found ${allTables.length} tables. Fetching columns from ${scopeLabel}...`,
         });
-        const columns = await listColumns(scope.catalog, scope.schema);
+        const columns = await listColumns(
+          scope.catalog,
+          scope.schema,
+          colBudget.maxColumnRowsPerScope,
+        );
         allColumns.push(...columns);
         updateScanProgress(scanId, { columnsFound: allColumns.length });
         const fks = await listForeignKeys(scope.catalog, scope.schema);

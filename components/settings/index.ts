@@ -2,6 +2,7 @@ export { ProfileSettings } from "./profile-settings";
 export { IndustrySettings } from "./industry-settings";
 export { DataSamplingSettings } from "./data-sampling-settings";
 export { EstateScanSettings } from "./estate-scan-settings";
+export { SchemaSettings } from "./schema-settings";
 export { SemanticSearchSettings } from "./semantic-search-settings";
 export { DiscoveryDepthSettings } from "./discovery-depth-settings";
 export { GenieDefaultsSettings } from "./genie-defaults-settings";

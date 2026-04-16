@@ -86,6 +86,7 @@ function dbRowToRun(row: {
       assetDiscoveryEnabled: genOpts.assetDiscoveryEnabled,
       fabricScanId: genOpts.fabricScanId,
       largeSchemaMode: genOpts.largeSchemaMode ?? false,
+      businessValueEnabled: genOpts.businessValueEnabled ?? false,
     },
     status: row.status as RunStatus,
     currentStep: (row.currentStep as PipelineStep) ?? null,
@@ -126,6 +127,7 @@ function parseGenerationOptions(raw: string | null): {
   assetDiscoveryEnabled: boolean;
   fabricScanId: string | null;
   largeSchemaMode: boolean;
+  businessValueEnabled: boolean;
   industryAutoDetected: boolean;
   appVersion: string | null;
   promptVersions: Record<string, string> | null;
@@ -145,6 +147,7 @@ function parseGenerationOptions(raw: string | null): {
     assetDiscoveryEnabled: false,
     fabricScanId: null as string | null,
     largeSchemaMode: false,
+    businessValueEnabled: false,
     industryAutoDetected: false,
     appVersion: null as string | null,
     promptVersions: null as Record<string, string> | null,
@@ -171,6 +174,7 @@ function parseGenerationOptions(raw: string | null): {
         assetDiscoveryEnabled: parsed.assetDiscoveryEnabled === true,
         fabricScanId: parsed.fabricScanId ?? null,
         largeSchemaMode: parsed.largeSchemaMode === true,
+        businessValueEnabled: parsed.businessValueEnabled === true,
         industryAutoDetected: parsed.industryAutoDetected === true,
         appVersion: parsed.appVersion ?? null,
         promptVersions: parsed.promptVersions ?? null,
@@ -197,6 +201,8 @@ function serializeGenerationOptions(config: PipelineRunConfig): string {
     estateScanEnabled: config.estateScanEnabled,
     assetDiscoveryEnabled: config.assetDiscoveryEnabled,
     fabricScanId: config.fabricScanId ?? null,
+    largeSchemaMode: config.largeSchemaMode ?? false,
+    businessValueEnabled: config.businessValueEnabled ?? false,
     appVersion: packageJson.version,
     promptVersions: PROMPT_VERSIONS,
     stepLog: [],

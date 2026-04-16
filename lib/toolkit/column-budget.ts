@@ -22,9 +22,9 @@ import type { ColumnInfo } from "@/lib/domain/types";
 // ---------------------------------------------------------------------------
 
 export interface ColumnBudgetConfig {
-  /** Max columns per table in schema markdown (default: 40, large: 15). */
+  /** Max columns per table in schema markdown (default: 40, large: 25). */
   maxColumnsPerTable: number;
-  /** Max comment length in schema markdown (default: 80, large: 40). */
+  /** Max comment length in schema markdown (default: 80, large: 60). */
   maxCommentLength: number;
   /** Max columns in sample data SELECT (0 = unlimited). */
   maxSampleColumns: number;
@@ -43,9 +43,9 @@ const DEFAULT_BUDGET: ColumnBudgetConfig = {
 };
 
 const LARGE_SCHEMA_BUDGET: ColumnBudgetConfig = {
-  maxColumnsPerTable: 15,
-  maxCommentLength: 40,
-  maxSampleColumns: 12,
+  maxColumnsPerTable: 25,
+  maxCommentLength: 60,
+  maxSampleColumns: 18,
   maxColumnRowsPerScope: 200_000,
   compactFormat: true,
 };

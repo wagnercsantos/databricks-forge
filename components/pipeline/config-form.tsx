@@ -33,6 +33,7 @@ import {
   ChevronDown,
   Search,
   Zap,
+  TrendingUp,
 } from "lucide-react";
 import { CatalogBrowser } from "@/components/pipeline/catalog-browser";
 import {
@@ -110,6 +111,7 @@ export function ConfigForm({
     if (typeof window === "undefined") return false;
     return loadSettings().largeSchemaMode;
   });
+  const [businessValueEnabled, setBusinessValueEnabled] = useState(false);
   const [businessName, setBusinessName] = useState("");
   const settingsIndustry = typeof window !== "undefined" ? loadSettings().industry : "";
   const [industry, setIndustry] = useState(settingsIndustry);
@@ -288,6 +290,7 @@ export function ConfigForm({
           estateScanEnabled,
           assetDiscoveryEnabled,
           largeSchemaMode,
+          businessValueEnabled,
           ...(fabricScanId ? { fabricScanId } : {}),
         }),
       });
@@ -838,6 +841,41 @@ export function ConfigForm({
                   <span
                     className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition-transform ${
                       assetDiscoveryEnabled ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div
+                className={`flex items-center justify-between rounded-lg border-2 p-4 transition-colors ${
+                  businessValueEnabled ? "border-amber-500/50 bg-amber-500/5" : "border-muted"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <TrendingUp
+                    className={`mt-0.5 h-4 w-4 shrink-0 ${businessValueEnabled ? "text-amber-500" : "text-muted-foreground"}`}
+                  />
+                  <div>
+                    <p className="text-sm font-medium">
+                      Business Value Analysis
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Run financial quantification, roadmap phasing, executive synthesis, and
+                      stakeholder analysis as part of this pipeline run. Can also be run
+                      independently from the Business Value page.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBusinessValueEnabled((prev) => !prev)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    businessValueEnabled ? "bg-amber-500" : "bg-muted"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition-transform ${
+                      businessValueEnabled ? "translate-x-5" : "translate-x-0"
                     }`}
                   />
                 </button>

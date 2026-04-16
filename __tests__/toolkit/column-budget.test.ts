@@ -44,11 +44,11 @@ describe("resolveColumnBudget", () => {
 
   it("returns aggressive budget when largeSchemaMode is true", () => {
     const budget = resolveColumnBudget(true);
-    expect(budget.maxColumnsPerTable).toBe(15);
-    expect(budget.maxSampleColumns).toBe(12);
+    expect(budget.maxColumnsPerTable).toBe(25);
+    expect(budget.maxSampleColumns).toBe(18);
     expect(budget.maxColumnRowsPerScope).toBe(200_000);
     expect(budget.compactFormat).toBe(true);
-    expect(budget.maxCommentLength).toBe(40);
+    expect(budget.maxCommentLength).toBe(60);
   });
 
   it("returns a new object each call (no shared mutation)", () => {
@@ -56,7 +56,7 @@ describe("resolveColumnBudget", () => {
     const b = resolveColumnBudget(true);
     expect(a).not.toBe(b);
     a.maxColumnsPerTable = 999;
-    expect(b.maxColumnsPerTable).toBe(15);
+    expect(b.maxColumnsPerTable).toBe(25);
   });
 });
 
@@ -221,8 +221,8 @@ describe("selectRepresentativeColumns", () => {
     ];
 
     const result = selectRepresentativeColumns(columns, budget.maxColumnsPerTable);
-    expect(result.selected).toHaveLength(15);
-    expect(result.omittedCount).toBe(1185);
+    expect(result.selected).toHaveLength(25);
+    expect(result.omittedCount).toBe(1175);
 
     const selectedNames = result.selected.map((c) => c.columnName);
     expect(selectedNames).toContain("id");

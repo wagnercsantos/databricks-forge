@@ -159,6 +159,7 @@ export const CreateRunSchema = z.object({
   assetDiscoveryEnabled: z.boolean().optional().default(false),
   fabricScanId: z.string().uuid().optional().nullable(),
   largeSchemaMode: z.boolean().optional().default(false),
+  businessValueEnabled: z.boolean().optional().default(false),
 });
 
 export type CreateRunInput = z.infer<typeof CreateRunSchema>;

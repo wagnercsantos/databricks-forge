@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
       assetDiscoveryEnabled: body.assetDiscoveryEnabled ?? false,
       fabricScanId: body.fabricScanId ?? null,
       largeSchemaMode: body.largeSchemaMode ?? false,
+      businessValueEnabled: body.businessValueEnabled ?? false,
     };
 
     const userEmail = await getCurrentUserEmail();

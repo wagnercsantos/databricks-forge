@@ -118,6 +118,7 @@ export interface PipelineRunConfig {
   assetDiscoveryEnabled: boolean; // discover existing analytics assets (Genie spaces, dashboards, metric views)
   fabricScanId?: string | null; // linked Fabric/Power BI scan for PBI-aware generation
   largeSchemaMode: boolean; // aggressive column budgeting for wide-table estates (100-1200+ cols)
+  businessValueEnabled: boolean; // run business value analysis (step 8) during pipeline execution
 }
 
 /** Per-step timing and metadata logged during pipeline execution. */

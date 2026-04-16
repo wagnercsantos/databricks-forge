@@ -19,7 +19,7 @@ import {
   generateLambdaFunctionsSummary,
 } from "@/lib/ai/functions";
 import { buildSchemaMarkdown, buildForeignKeyMarkdown } from "@/lib/queries/metadata";
-import { resolveColumnBudget, type ColumnBudgetConfig } from "@/lib/toolkit/column-budget";
+import { resolveColumnBudget, type ColumnBudgetConfig, type ColumnScoreOptions } from "@/lib/toolkit/column-budget";
 import { updateRunMessage } from "@/lib/lakebase/runs";
 import { logger as fallbackLogger } from "@/lib/logger";
 import type { Logger } from "@/lib/ports/logger";
@@ -62,6 +62,14 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
   const colBudget = resolveColumnBudget(run.config.largeSchemaMode ?? false);
 
   if (useCases.length === 0) return useCases;
+
+  // Build column score options from FK metadata for intelligent column selection
+  const fkColumnNames = new Set<string>();
+  for (const fk of metadata.foreignKeys) {
+    fkColumnNames.add(fk.columnName);
+    fkColumnNames.add(fk.referencedColumnName);
+  }
+  const columnScoreOpts: ColumnScoreOptions = { fkColumnNames };
 
   // Build a lookup index: table FQN -> columns
   const columnsByTable = new Map<string, ColumnInfo[]>();
@@ -180,6 +188,7 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
             sampleRows,
             sampleDataCache,
             colBudget,
+            columnScoreOpts,
             runId,
             run.createdBy,
           ),
@@ -327,6 +336,7 @@ async function generateSqlForUseCase(
   sampleRowsPerTable: number,
   sampleCache: Map<string, string>,
   colBudget: ColumnBudgetConfig,
+  colScoreOpts: ColumnScoreOptions,
   runId?: string,
   userEmail?: string | null,
 ): Promise<SqlGenResult> {
@@ -382,6 +392,7 @@ async function generateSqlForUseCase(
           colBudget.maxCommentLength,
           undefined,
           colBudget.maxColumnsPerTable,
+          colScoreOpts,
         )
       : uc.tablesInvolved.map((t) => `### ${t}\n  (schema not available)`).join("\n\n");
 
