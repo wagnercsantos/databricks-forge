@@ -217,8 +217,6 @@ export default function SettingsPage() {
         benchmarksEnabled={benchmarksEnabled}
         onBenchmarksEnabledChange={setBenchmarksEnabled}
         benchmarksServerEnabled={benchmarksServerEnabled}
-        largeSchemaMode={largeSchemaMode}
-        onLargeSchemaModeChange={setLargeSchemaMode}
       />
 
       <SchemaSettings
