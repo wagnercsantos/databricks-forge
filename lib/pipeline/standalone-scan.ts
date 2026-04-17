@@ -27,7 +27,11 @@ import { initScanProgress, updateScanProgress } from "@/lib/pipeline/scan-progre
 import { discoverExistingAssets } from "@/lib/discovery/asset-scanner";
 import { computeCoverage } from "@/lib/discovery/coverage";
 import { saveDiscoveryResults } from "@/lib/lakebase/discovered-assets";
-import { resolveColumnBudget } from "@/lib/toolkit/column-budget";
+import {
+  resolveColumnBudget,
+  detectWideSchema,
+  WIDE_SCHEMA_FETCH_LIMITS,
+} from "@/lib/toolkit/column-budget";
 import { createScopedLogger } from "@/lib/logger";
 import { parseExcludedString, parsePatternsString, globMatch } from "@/lib/domain/scope-selection";
 import type {
@@ -63,11 +67,10 @@ export async function runStandaloneEnrichment(
   assetDiscoveryEnabled = false,
   excludedScope?: string,
   exclusionPatternsStr?: string,
-  largeSchemaMode = false,
 ): Promise<void> {
   const startTime = Date.now();
   const scopes = parseUCMetadata(ucMetadata);
-  const colBudget = resolveColumnBudget(largeSchemaMode);
+  const colBudget = resolveColumnBudget();
   const log = createScopedLogger({
     origin: "EstateScan",
     module: "pipeline/standalone-scan",
@@ -75,13 +78,7 @@ export async function runStandaloneEnrichment(
   });
 
   initScanProgress(scanId);
-  log.info("Starting", { scanId, ucMetadata, scopes: scopes.length, largeSchemaMode });
-
-  if (largeSchemaMode) {
-    log.info("Large Schema Mode active -- column row limit reduced", {
-      maxColumnRows: colBudget.maxColumnRowsPerScope,
-    });
-  }
+  log.info("Starting", { scanId, ucMetadata, scopes: scopes.length });
 
   try {
     // Phase 0: Permission pre-check -- filter out inaccessible scopes in parallel
@@ -172,6 +169,27 @@ export async function runStandaloneEnrichment(
         message: "No tables found. Check scope and permissions.",
       });
       return;
+    }
+
+    // Auto-detect wide tables. Downstream consumers (use-case + SQL
+    // generation) re-run detectWideSchema + applyWideSchemaLimits to cap
+    // sample-data fetching. The initial listColumns fetch has already
+    // happened at this point so maxColumnRowsPerScope does not apply
+    // retroactively -- we log what downstream consumers will enforce.
+    const colsByTableForDetection = new Map<string, unknown[]>();
+    for (const col of allColumns as Array<{ tableFqn: string }>) {
+      const existing = colsByTableForDetection.get(col.tableFqn) ?? [];
+      existing.push(col);
+      colsByTableForDetection.set(col.tableFqn, existing);
+    }
+    const wideSchemaInfo = detectWideSchema(colsByTableForDetection);
+    if (wideSchemaInfo.hasWideTables) {
+      log.info("Wide tables detected -- downstream fetch-level limits will apply", {
+        fn: "runStandaloneEnrichment",
+        wideTableCount: wideSchemaInfo.wideTableCount,
+        maxColumnCount: wideSchemaInfo.maxColumnCount,
+        downstreamMaxSampleColumns: WIDE_SCHEMA_FETCH_LIMITS.maxSampleColumns,
+      });
     }
 
     // Apply exclusions (explicit + patterns)

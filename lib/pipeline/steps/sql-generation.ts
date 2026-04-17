@@ -18,8 +18,30 @@ import {
   generateWindowFunctionsSummary,
   generateLambdaFunctionsSummary,
 } from "@/lib/ai/functions";
-import { buildSchemaMarkdown, buildForeignKeyMarkdown } from "@/lib/queries/metadata";
-import { resolveColumnBudget, type ColumnBudgetConfig, type ColumnScoreOptions } from "@/lib/toolkit/column-budget";
+import {
+  buildSchemaMarkdown,
+  buildAdaptiveSchemaMarkdown,
+  buildForeignKeyMarkdown,
+} from "@/lib/queries/metadata";
+import {
+  resolveColumnBudget,
+  computeAdaptiveColumnLimits,
+  type ColumnBudgetConfig,
+  type ColumnScoreOptions,
+} from "@/lib/toolkit/column-budget";
+import {
+  rankColumnsViaLLM,
+  ColumnRankingCache,
+  type LLMColumnRankingInput,
+} from "@/lib/toolkit/column-ranker";
+
+/**
+ * If the adaptive engine keeps at least this fraction of the original
+ * column count for a use case, the trim is considered marginal and we
+ * skip the LLM ranking round trip.
+ */
+const MIN_TRIM_RATIO_FOR_LLM_RANKING = 0.85;
+import { estimateTokens, MAX_PROMPT_TOKENS } from "@/lib/toolkit/token-budget";
 import { updateRunMessage } from "@/lib/lakebase/runs";
 import { logger as fallbackLogger } from "@/lib/logger";
 import type { Logger } from "@/lib/ports/logger";
@@ -59,7 +81,7 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
 
   const bc = run.businessContext;
   const useCases = ctx.useCases;
-  const colBudget = resolveColumnBudget(run.config.largeSchemaMode ?? false);
+  const colBudget = resolveColumnBudget();
 
   if (useCases.length === 0) return useCases;
 
@@ -138,6 +160,19 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
   // Avoids redundant warehouse queries when multiple use cases share tables.
   const sampleDataCache = new Map<string, string>();
 
+  // Run-level LLM column-ranking cache so identical (fqn, keepCount) pairs
+  // across use cases don't trigger duplicate ranking requests.
+  const rankingCache = new ColumnRankingCache();
+  const adaptiveStats = {
+    useCasesTrimmed: 0,
+    llmRankingCalls: 0,
+    llmRankedTables: 0,
+    heuristicRankedTables: 0,
+    trivialTrimsSkipped: 0,
+    budgetImpossible: 0,
+    correctivePassApplied: 0,
+  };
+
   // Progress interpolation: SQL generation spans 67% → 79% of overall pipeline.
   // Must stay below 80 (the SQL Generation step.pct threshold in RunProgress)
   // so the UI keeps the step "active" until all use cases are processed.
@@ -189,6 +224,9 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
             sampleDataCache,
             colBudget,
             columnScoreOpts,
+            `Industry: ${bc.industries}\nGoals: ${bc.strategicGoals}\nPriorities: ${bc.businessPriorities}`,
+            rankingCache,
+            adaptiveStats,
             runId,
             run.createdBy,
           ),
@@ -271,6 +309,7 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
     }
   }
 
+  const rankingCacheStats = rankingCache.stats();
   log.info("SQL generation complete", {
     fn: "runSqlGeneration",
     generated: completed - failed,
@@ -282,6 +321,12 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
     truncatedCount,
     reviewFixApplied,
     reviewFixRejected,
+    adaptive: {
+      ...adaptiveStats,
+      rankingCacheHits: rankingCacheStats.hits,
+      rankingCacheMisses: rankingCacheStats.misses,
+      rankingCacheSize: rankingCacheStats.size,
+    },
     outcomes: outcomes.map((o) => `${o.domain}/${o.name}: ${o.status}`),
   });
 
@@ -320,6 +365,16 @@ function emptyDiag(): SqlGenDiagnostics {
   };
 }
 
+interface SqlGenAdaptiveStats {
+  useCasesTrimmed: number;
+  llmRankingCalls: number;
+  llmRankedTables: number;
+  heuristicRankedTables: number;
+  trivialTrimsSkipped: number;
+  budgetImpossible: number;
+  correctivePassApplied: number;
+}
+
 async function generateSqlForUseCase(
   log: Logger,
   uc: UseCase,
@@ -337,6 +392,9 @@ async function generateSqlForUseCase(
   sampleCache: Map<string, string>,
   colBudget: ColumnBudgetConfig,
   colScoreOpts: ColumnScoreOptions,
+  businessContextSummary: string,
+  rankingCache: ColumnRankingCache,
+  adaptiveStats: SqlGenAdaptiveStats,
   runId?: string,
   userEmail?: string | null,
 ): Promise<SqlGenResult> {
@@ -383,19 +441,6 @@ async function generateSqlForUseCase(
     });
   }
 
-  // Build schema markdown scoped to this use case's tables
-  const schemaMarkdown =
-    involvedTables.length > 0
-      ? buildSchemaMarkdown(
-          involvedTables,
-          involvedColumns,
-          colBudget.maxCommentLength,
-          undefined,
-          colBudget.maxColumnsPerTable,
-          colScoreOpts,
-        )
-      : uc.tablesInvolved.map((t) => `### ${t}\n  (schema not available)`).join("\n\n");
-
   // Filter foreign keys to only those involving this use case's tables
   const involvedFqns = new Set(uc.tablesInvolved.map((t) => t.replace(/`/g, "")));
   const relevantFKs = allForeignKeys.filter(
@@ -404,6 +449,122 @@ async function generateSqlForUseCase(
       involvedFqns.has(fk.referencedTableFqn.replace(/`/g, "")),
   );
   const fkMarkdown = buildForeignKeyMarkdown(relevantFKs);
+
+  // Build schema markdown with adaptive column budget
+  let schemaMarkdown: string;
+  if (involvedTables.length > 0) {
+    const ucColsByTable = new Map<string, ColumnInfo[]>();
+    for (const col of involvedColumns) {
+      const existing = ucColsByTable.get(col.tableFqn) ?? [];
+      existing.push(col);
+      ucColsByTable.set(col.tableFqn, existing);
+    }
+
+    const fkTokens = estimateTokens(fkMarkdown);
+    const availableSchemaTokens = Math.max(5_000, MAX_PROMPT_TOKENS - 10_000 - fkTokens);
+    const adaptiveResult = computeAdaptiveColumnLimits(
+      involvedTables,
+      ucColsByTable,
+      availableSchemaTokens,
+    );
+
+    if (adaptiveResult.correctivePassApplied) {
+      adaptiveStats.correctivePassApplied++;
+      log.warn(
+        "SQL gen adaptive budget corrective pass shaved columns to stay under token budget",
+        {
+          fn: "generateSqlForUseCase",
+          useCaseId: uc.id,
+          availableSchemaTokens,
+          totalColumnsAfter: adaptiveResult.totalAfter,
+        },
+      );
+    }
+    if (adaptiveResult.budgetImpossible) {
+      adaptiveStats.budgetImpossible++;
+      log.warn("SQL gen adaptive budget impossible: floor-only limits exceed token budget", {
+        fn: "generateSqlForUseCase",
+        useCaseId: uc.id,
+        availableSchemaTokens,
+        totalColumnsAfter: adaptiveResult.totalAfter,
+        tableCount: involvedTables.length,
+      });
+    }
+
+    let llmRankings: Map<string, string[]> | undefined;
+    if (adaptiveResult.trimmed) {
+      adaptiveStats.useCasesTrimmed++;
+      const keepRatio =
+        adaptiveResult.totalBefore > 0
+          ? adaptiveResult.totalAfter / adaptiveResult.totalBefore
+          : 1;
+
+      if (keepRatio >= MIN_TRIM_RATIO_FOR_LLM_RANKING) {
+        // Trim is marginal -- heuristic scoring in buildAdaptiveSchemaMarkdown
+        // is good enough; skip the LLM ranking round trip.
+        adaptiveStats.trivialTrimsSkipped++;
+        log.debug("Skipping LLM column ranking: marginal trim", {
+          step: "sql-generation",
+          useCaseId: uc.id,
+          keepRatio: Number(keepRatio.toFixed(3)),
+          totalBefore: adaptiveResult.totalBefore,
+          totalAfter: adaptiveResult.totalAfter,
+        });
+      } else {
+        const trimmedInputs: LLMColumnRankingInput[] = adaptiveResult.trimDetails.map((td) => {
+          const tableCols = ucColsByTable.get(td.fqn) ?? [];
+          const tableInfo = involvedTables.find((t) => t.fqn === td.fqn);
+          return {
+            fqn: td.fqn,
+            tableComment: tableInfo?.comment ?? null,
+            columns: tableCols.map((c) => ({
+              name: c.columnName,
+              dataType: c.dataType,
+              comment: c.comment ?? null,
+            })),
+            keepCount: td.kept,
+          };
+        });
+
+        const llmResult = await rankColumnsViaLLM(
+          trimmedInputs,
+          businessContextSummary,
+          resolveEndpoint("classification"),
+          log,
+          rankingCache,
+        );
+        llmRankings = llmResult.rankings.size > 0 ? llmResult.rankings : undefined;
+        if (llmResult.callMade) adaptiveStats.llmRankingCalls++;
+        adaptiveStats.llmRankedTables += llmResult.llmTables.size;
+        adaptiveStats.heuristicRankedTables += llmResult.heuristicTables.size;
+
+        log.info("Adaptive column budget: trimmed wide tables for SQL gen", {
+          step: "sql-generation",
+          useCaseId: uc.id,
+          totalColumnsBefore: adaptiveResult.totalBefore,
+          totalColumnsAfter: adaptiveResult.totalAfter,
+          columnsDropped: adaptiveResult.totalBefore - adaptiveResult.totalAfter,
+          trimDetails: adaptiveResult.trimDetails,
+          llmTables: Array.from(llmResult.llmTables),
+          heuristicTables: Array.from(llmResult.heuristicTables),
+          callMade: llmResult.callMade,
+        });
+      }
+    }
+
+    schemaMarkdown = buildAdaptiveSchemaMarkdown(
+      involvedTables,
+      involvedColumns,
+      adaptiveResult.limits,
+      llmRankings,
+      colBudget.maxCommentLength,
+      colScoreOpts,
+    );
+  } else {
+    schemaMarkdown = uc.tablesInvolved
+      .map((t) => `### ${t}\n  (schema not available)`)
+      .join("\n\n");
+  }
 
   // Fetch sample data if enabled (with run-level cache to avoid redundant queries)
   let sampleDataSection = "";

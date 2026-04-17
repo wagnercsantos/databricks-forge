@@ -12,7 +12,6 @@ import {
   IndustrySettings,
   DataSamplingSettings,
   EstateScanSettings,
-  SchemaSettings,
   SemanticSearchSettings,
   DiscoveryDepthSettings,
   GenieDefaultsSettings,
@@ -54,8 +53,6 @@ export default function SettingsPage() {
     setCatalogResourcePrefix,
     industry,
     setIndustry,
-    largeSchemaMode,
-    setLargeSchemaMode,
     benchmarksServerEnabled,
     metricViewsServerEnabled,
     embeddingAvailable,
@@ -108,7 +105,6 @@ export default function SettingsPage() {
       questionComplexity,
       catalogResourcePrefix,
       industry,
-      largeSchemaMode,
     });
     toast.success("Settings saved");
   };
@@ -146,7 +142,6 @@ export default function SettingsPage() {
       });
       setCatalogResourcePrefix(DEFAULT_CATALOG_RESOURCE_PREFIX);
       setIndustry("");
-      setLargeSchemaMode(false);
       toast.success("Local settings cleared");
     }
   };
@@ -217,11 +212,6 @@ export default function SettingsPage() {
         benchmarksEnabled={benchmarksEnabled}
         onBenchmarksEnabledChange={setBenchmarksEnabled}
         benchmarksServerEnabled={benchmarksServerEnabled}
-      />
-
-      <SchemaSettings
-        largeSchemaMode={largeSchemaMode}
-        onLargeSchemaModeChange={setLargeSchemaMode}
       />
 
       {embeddingAvailable && (

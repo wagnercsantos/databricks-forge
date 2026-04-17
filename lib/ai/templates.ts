@@ -48,6 +48,7 @@ import {
   EXECUTIVE_SYNTHESIS_PROMPT,
   STAKEHOLDER_ANALYSIS_PROMPT,
 } from "./templates-business-value";
+import { COLUMN_RANKING_PROMPT } from "./templates-column-ranking";
 
 // ---------------------------------------------------------------------------
 // PROMPT_TEMPLATES registry
@@ -105,6 +106,9 @@ export const PROMPT_TEMPLATES = {
   ROADMAP_PHASING_PROMPT,
   EXECUTIVE_SYNTHESIS_PROMPT,
   STAKEHOLDER_ANALYSIS_PROMPT,
+
+  // Adaptive Column Budget Engine
+  COLUMN_RANKING_PROMPT,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -160,6 +164,8 @@ export const PROMPT_SYSTEM_MESSAGES: Partial<Record<PromptKey, string>> = {
     "You are a Senior Partner at a top-tier management consulting firm. You distill complex data analysis into sharp, actionable executive briefings. You produce structured JSON output only.",
   STAKEHOLDER_ANALYSIS_PROMPT:
     "You are an Organizational Change Management Consultant. You map stakeholder impact and readiness for data transformation programs. You produce structured JSON output only.",
+  COLUMN_RANKING_PROMPT:
+    "You are a data analyst selecting the most business-relevant columns from wide database tables. You produce structured JSON output only. Never include text outside the JSON object.",
 };
 
 /**

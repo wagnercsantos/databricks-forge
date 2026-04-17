@@ -158,7 +158,6 @@ export const CreateRunSchema = z.object({
   estateScanEnabled: z.boolean().optional().default(false),
   assetDiscoveryEnabled: z.boolean().optional().default(false),
   fabricScanId: z.string().uuid().optional().nullable(),
-  largeSchemaMode: z.boolean().optional().default(false),
   businessValueEnabled: z.boolean().optional().default(false),
 });
 

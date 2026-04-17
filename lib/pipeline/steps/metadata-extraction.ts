@@ -52,7 +52,11 @@ import type {
   DiscoveryDepthConfig,
 } from "@/lib/domain/types";
 import { updateSchemaSnapshot, type SchemaSnapshot } from "@/lib/lakebase/runs";
-import { resolveColumnBudget } from "@/lib/toolkit/column-budget";
+import {
+  resolveColumnBudget,
+  detectWideSchema,
+  WIDE_SCHEMA_FETCH_LIMITS,
+} from "@/lib/toolkit/column-budget";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -87,13 +91,7 @@ export async function runMetadataExtraction(
   const { config } = ctx.run;
   const scopes = parseUCMetadata(config.ucMetadata);
   const enrichmentStart = Date.now();
-  const colBudget = resolveColumnBudget(config.largeSchemaMode ?? false);
-
-  if (config.largeSchemaMode) {
-    log.info("Large Schema Mode active -- column row limit reduced", {
-      maxColumnRows: colBudget.maxColumnRowsPerScope,
-    });
-  }
+  const colBudget = resolveColumnBudget();
 
   const allTables: TableInfo[] = [];
   const allColumns: ColumnInfo[] = [];
@@ -192,6 +190,28 @@ export async function runMetadataExtraction(
     throw new Error(
       `No tables found for UC metadata scope: ${config.ucMetadata}. Check permissions and paths.`,
     );
+  }
+
+  // Auto-detect wide tables and apply fetch-level memory limits
+  const colsByTableForDetection = new Map<string, ColumnInfo[]>();
+  for (const col of allColumns) {
+    const existing = colsByTableForDetection.get(col.tableFqn) ?? [];
+    existing.push(col);
+    colsByTableForDetection.set(col.tableFqn, existing);
+  }
+  const wideSchemaInfo = detectWideSchema(colsByTableForDetection);
+  if (wideSchemaInfo.hasWideTables) {
+    // Downstream steps (use-case generation, SQL generation) re-run
+    // detectWideSchema and call applyWideSchemaLimits to cap sample-data
+    // fetching for memory safety. The initial listColumns fetch has
+    // already happened at this point, so maxColumnRowsPerScope does not
+    // apply retroactively -- we log what downstream consumers will enforce.
+    log.info("Wide tables detected -- downstream fetch-level limits will apply", {
+      fn: "runMetadataExtraction",
+      wideTableCount: wideSchemaInfo.wideTableCount,
+      maxColumnCount: wideSchemaInfo.maxColumnCount,
+      downstreamMaxSampleColumns: WIDE_SCHEMA_FETCH_LIMITS.maxSampleColumns,
+    });
   }
 
   // --- Phase 1b: Apply exclusions (explicit + patterns) ---

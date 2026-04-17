@@ -807,9 +807,7 @@ export function buildSchemaMarkdown(
       visibleCols = result.selected;
       if (result.omittedCount > 0) {
         const hints =
-          result.omittedHints.length > 0
-            ? ` (including: ${result.omittedHints.join(", ")})`
-            : "";
+          result.omittedHints.length > 0 ? ` (including: ${result.omittedHints.join(", ")})` : "";
         omittedSuffix = `\n  ... and ${result.omittedCount} more columns${hints}`;
       }
     } else {
@@ -832,6 +830,117 @@ export function buildSchemaMarkdown(
 
     const desc = descriptionOverrides?.get(table.fqn) ?? table.comment;
     const tableComment = desc ? ` -- ${desc}` : "";
+    return `### ${table.fqn}${tableComment}\n${colLines || "  (no columns)"}${omittedSuffix}`;
+  });
+
+  return sections.join("\n\n");
+}
+
+/**
+ * Build schema markdown with per-table adaptive column limits and optional
+ * LLM-ranked column ordering.
+ *
+ * For each table:
+ * - If `llmRankings` has an entry, columns are selected in the LLM-specified order
+ * - Otherwise, falls back to `selectRepresentativeColumns` (heuristic scorer)
+ * - Tables not in `columnLimits` get all their columns
+ */
+export function buildAdaptiveSchemaMarkdown(
+  tables: TableInfo[],
+  columns: ColumnInfo[],
+  columnLimits: Map<string, number>,
+  llmRankings?: Map<string, string[]>,
+  maxCommentLength: number = 80,
+  columnScoreOptions?: ColumnScoreOptions,
+): string {
+  const columnsByTable: Record<string, ColumnInfo[]> = {};
+  for (const col of columns) {
+    if (!columnsByTable[col.tableFqn]) columnsByTable[col.tableFqn] = [];
+    columnsByTable[col.tableFqn].push(col);
+  }
+
+  const sections = tables.map((table) => {
+    const allCols = columnsByTable[table.fqn] ?? [];
+    const limit = columnLimits.get(table.fqn);
+
+    let visibleCols: ColumnInfo[];
+    let omittedSuffix = "";
+
+    if (limit !== undefined && limit < allCols.length) {
+      const llmRanked = llmRankings?.get(table.fqn);
+
+      if (llmRanked && llmRanked.length > 0) {
+        // Use LLM-specified column order, deduplicating repeated names so a
+        // hallucinated duplicate can't push a real column out of the budget.
+        const colMap = new Map(allCols.map((c) => [c.columnName.toLowerCase(), c]));
+        const selected: ColumnInfo[] = [];
+        const seen = new Set<string>();
+        for (const name of llmRanked) {
+          if (selected.length >= limit) break;
+          const key = name.toLowerCase();
+          if (seen.has(key)) continue;
+          const col = colMap.get(key);
+          if (!col) continue;
+          selected.push(col);
+          seen.add(key);
+        }
+        // Fill remaining slots using the heuristic scorer on the unselected
+        // subset so we prioritise business-relevant columns over whatever
+        // happens to appear first in the DDL (usually audit fields).
+        if (selected.length < limit) {
+          const remaining = allCols.filter((c) => !seen.has(c.columnName.toLowerCase()));
+          const fillCount = limit - selected.length;
+          if (columnScoreOptions) {
+            const filler = selectRepresentativeColumns(
+              remaining,
+              fillCount,
+              columnScoreOptions,
+            );
+            for (const col of filler.selected) {
+              if (selected.length >= limit) break;
+              const key = col.columnName.toLowerCase();
+              if (seen.has(key)) continue;
+              selected.push(col);
+              seen.add(key);
+            }
+          } else {
+            for (const col of remaining) {
+              if (selected.length >= limit) break;
+              const key = col.columnName.toLowerCase();
+              if (seen.has(key)) continue;
+              selected.push(col);
+              seen.add(key);
+            }
+          }
+        }
+        visibleCols = selected;
+      } else if (columnScoreOptions) {
+        // Heuristic fallback
+        const result = selectRepresentativeColumns(allCols, limit, columnScoreOptions);
+        visibleCols = result.selected;
+      } else {
+        visibleCols = allCols.slice(0, limit);
+      }
+
+      const omitted = allCols.length - visibleCols.length;
+      if (omitted > 0) {
+        omittedSuffix = `\n  ... and ${omitted} more columns`;
+      }
+    } else {
+      visibleCols = allCols;
+    }
+
+    const colLines = visibleCols
+      .map((c) => {
+        let comment = c.comment ?? "";
+        if (comment.length > maxCommentLength) {
+          comment = comment.slice(0, maxCommentLength - 3) + "...";
+        }
+        return `  - ${c.columnName} (${c.dataType})${comment ? ` -- ${comment}` : ""}`;
+      })
+      .join("\n");
+
+    const tableComment = table.comment ? ` -- ${table.comment}` : "";
     return `### ${table.fqn}${tableComment}\n${colLines || "  (no columns)"}${omittedSuffix}`;
   });
 

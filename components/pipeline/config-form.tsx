@@ -107,10 +107,6 @@ export function ConfigForm({
     if (typeof window === "undefined") return false;
     return loadSettings().assetDiscoveryEnabled;
   });
-  const [largeSchemaMode] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return loadSettings().largeSchemaMode;
-  });
   const [businessValueEnabled, setBusinessValueEnabled] = useState(false);
   const [businessName, setBusinessName] = useState("");
   const settingsIndustry = typeof window !== "undefined" ? loadSettings().industry : "";
@@ -289,7 +285,6 @@ export function ConfigForm({
           depthConfig: appSettings.discoveryDepthConfigs[discoveryDepth],
           estateScanEnabled,
           assetDiscoveryEnabled,
-          largeSchemaMode,
           businessValueEnabled,
           ...(fabricScanId ? { fabricScanId } : {}),
         }),

@@ -238,7 +238,6 @@ export default function EstatePage() {
           lineageDepth: depthCfg.lineageDepth,
           excludedScope: excludedSources.join(", ") || undefined,
           exclusionPatterns: exclusionPatterns.join(", ") || undefined,
-          largeSchemaMode: settings.largeSchemaMode ?? false,
         }),
       });
       if (!resp.ok) throw new Error("Failed to start scan");

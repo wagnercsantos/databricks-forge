@@ -8,8 +8,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { ResearchEngineResult } from "@/lib/demo/research-engine/types";
-import { loadSettings } from "@/lib/settings";
-
 import { ResearchHeader } from "@/components/demo/session/research-header";
 import { MeetingSummaryStrip } from "@/components/demo/session/meeting-summary-strip";
 import { StickyBriefRail } from "@/components/demo/session/sticky-brief-rail";
@@ -152,7 +150,6 @@ export default function DemoSessionPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ucMetadata: scope,
-          largeSchemaMode: loadSettings().largeSchemaMode,
         }),
       });
       if (!res.ok) throw new Error("Failed to start estate scan");

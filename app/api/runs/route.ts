@@ -62,7 +62,6 @@ export async function POST(request: NextRequest) {
       estateScanEnabled: body.estateScanEnabled ?? false,
       assetDiscoveryEnabled: body.assetDiscoveryEnabled ?? false,
       fabricScanId: body.fabricScanId ?? null,
-      largeSchemaMode: body.largeSchemaMode ?? false,
       businessValueEnabled: body.businessValueEnabled ?? false,
     };
 

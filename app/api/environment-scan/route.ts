@@ -41,7 +41,6 @@ export async function POST(request: NextRequest) {
         ? Math.min(Math.max(Math.round(body.lineageDepth), 1), 10)
         : undefined;
     const assetDiscoveryEnabled = body.assetDiscoveryEnabled === true;
-    const largeSchemaMode = body.largeSchemaMode === true;
     const excludedScope = typeof body.excludedScope === "string" ? body.excludedScope : undefined;
     const exclusionPatterns =
       typeof body.exclusionPatterns === "string" ? body.exclusionPatterns : undefined;
@@ -68,7 +67,6 @@ export async function POST(request: NextRequest) {
       assetDiscoveryEnabled,
       excludedScope,
       exclusionPatterns,
-      largeSchemaMode,
     ).catch((error) => {
       log.error("Standalone scan failed", {
         scanId,

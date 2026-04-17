@@ -117,7 +117,7 @@ export interface PipelineRunConfig {
   estateScanEnabled: boolean; // run estate scan (environment intelligence enrichment) during metadata extraction
   assetDiscoveryEnabled: boolean; // discover existing analytics assets (Genie spaces, dashboards, metric views)
   fabricScanId?: string | null; // linked Fabric/Power BI scan for PBI-aware generation
-  largeSchemaMode: boolean; // aggressive column budgeting for wide-table estates (100-1200+ cols)
+  largeSchemaMode?: boolean; // deprecated: adaptive column budgeting is always on
   businessValueEnabled: boolean; // run business value analysis (step 8) during pipeline execution
 }
 

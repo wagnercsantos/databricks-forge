@@ -67,8 +67,6 @@ export interface AppSettings {
   catalogResourcePrefix: string;
   /** Global industry outcome map id. When set, kickoff forms skip the per-job industry dropdown and use this value. Empty string = not set. */
   industry: string;
-  /** Enable aggressive column budgeting for estates with wide tables (100-1200+ columns). Default: false. */
-  largeSchemaMode: boolean;
 }
 
 const STORAGE_KEY = "forge-settings";
@@ -120,7 +118,6 @@ const DEFAULTS: AppSettings = {
   questionComplexity: { ...DEFAULT_QUESTION_COMPLEXITY },
   catalogResourcePrefix: DEFAULT_CATALOG_RESOURCE_PREFIX,
   industry: "",
-  largeSchemaMode: false,
 };
 
 export function loadSettings(): AppSettings {
@@ -172,10 +169,6 @@ export function loadSettings(): AppSettings {
       questionComplexity: parseQuestionComplexity(parsed.questionComplexity),
       catalogResourcePrefix: parseCatalogResourcePrefix(parsed.catalogResourcePrefix),
       industry: typeof parsed.industry === "string" ? parsed.industry : DEFAULTS.industry,
-      largeSchemaMode:
-        typeof parsed.largeSchemaMode === "boolean"
-          ? parsed.largeSchemaMode
-          : DEFAULTS.largeSchemaMode,
     };
   } catch {
     return { ...DEFAULTS };

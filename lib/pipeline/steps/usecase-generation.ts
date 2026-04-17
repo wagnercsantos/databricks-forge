@@ -13,12 +13,34 @@ import {
   generateStatisticalFunctionsSummary,
   generateGeospatialFunctionsSummary,
 } from "@/lib/ai/functions";
-import { buildSchemaMarkdown, buildForeignKeyMarkdown } from "@/lib/queries/metadata";
+import {
+  buildSchemaMarkdown,
+  buildAdaptiveSchemaMarkdown,
+  buildForeignKeyMarkdown,
+} from "@/lib/queries/metadata";
 import { buildReferenceUseCasesPrompt } from "@/lib/domain/industry-outcomes-server";
 import { buildBenchmarkContextPrompt } from "@/lib/domain/benchmark-context";
 import { persistManifest, deriveTags, type EnrichmentTag } from "@/lib/pipeline/context-manifest";
-import { buildTokenAwareBatches, estimateTokens } from "@/lib/toolkit/token-budget";
-import { resolveColumnBudget } from "@/lib/toolkit/column-budget";
+import {
+  buildTokenAwareBatches,
+  estimateTokens,
+  MAX_PROMPT_TOKENS,
+} from "@/lib/toolkit/token-budget";
+import {
+  resolveColumnBudget,
+  applyWideSchemaLimits,
+  computeAdaptiveColumnLimits,
+  detectWideSchema,
+  BATCH_ESTIMATION_COL_CAP,
+  type ColumnScoreOptions,
+  type AdaptiveColumnLimits,
+} from "@/lib/toolkit/column-budget";
+import {
+  rankColumnsViaLLM,
+  ColumnRankingCache,
+  type LLMColumnRankingInput,
+  type LLMColumnRankings,
+} from "@/lib/toolkit/column-ranker";
 import { fetchSampleData } from "@/lib/pipeline/sample-data";
 import { updateRunMessage } from "@/lib/lakebase/runs";
 import { logger as fallbackLogger } from "@/lib/logger";
@@ -29,8 +51,22 @@ import { v4 as uuidv4 } from "uuid";
 const DEFAULT_CONCURRENT_BATCHES = 8;
 const LARGE_SCHEMA_CONCURRENT_BATCHES = 3;
 const LARGE_SCHEMA_TABLE_THRESHOLD = 3_000;
-const LARGE_MODE_CONCURRENT_BATCHES = 2;
 const MAX_GENERATION_RETRIES = 2;
+
+/**
+ * If the adaptive engine keeps at least this fraction of the original column
+ * count, the trim is considered marginal and we skip the LLM ranking round
+ * trip (heuristic scoring is good enough when the overall shave is small).
+ */
+const MIN_TRIM_RATIO_FOR_LLM_RANKING = 0.85;
+
+/**
+ * Floor for `availableSchemaTokens`. When computed values fall below this
+ * (e.g. an unusually large shared context), we clamp and warn so the adaptive
+ * engine doesn't produce unrealistically tiny per-table budgets that cascade
+ * into over-budget prompts anyway.
+ */
+const AVAILABLE_SCHEMA_TOKENS_FLOOR = 5_000;
 
 /** Shape of each use case object in the JSON array returned by the LLM. */
 interface UseCaseItem {
@@ -183,9 +219,7 @@ export async function runUsecaseGeneration(
     }
   }
 
-  // Resolve column budget (large schema mode reduces per-table columns and sample columns)
-  const largeMode = run.config.largeSchemaMode ?? false;
-  const colBudget = resolveColumnBudget(largeMode);
+  const baseColBudget = resolveColumnBudget();
 
   // Build column score options from FK metadata so buildSchemaMarkdown uses
   // intelligent three-tier column selection instead of ordinal truncation.
@@ -194,7 +228,7 @@ export async function runUsecaseGeneration(
     fkColumnNames.add(fk.columnName);
     fkColumnNames.add(fk.referencedColumnName);
   }
-  const columnScoreOpts: import("@/lib/toolkit/column-budget").ColumnScoreOptions = {
+  const columnScoreOpts: ColumnScoreOptions = {
     fkColumnNames,
   };
 
@@ -228,6 +262,21 @@ export async function runUsecaseGeneration(
     columnsByTable.set(col.tableFqn, existing);
   }
 
+  // Wide-schema detection drives fetch-level memory limits for sample data
+  // fetching below (was previously logged but never applied -- see B3).
+  const wideSchemaInfo = detectWideSchema(columnsByTable);
+  const colBudget = applyWideSchemaLimits(baseColBudget, wideSchemaInfo.hasWideTables);
+  if (wideSchemaInfo.hasWideTables) {
+    log.info("Wide-schema detected in use-case generation -- applying fetch limits", {
+      wideTableCount: wideSchemaInfo.wideTableCount,
+      maxColumnCount: wideSchemaInfo.maxColumnCount,
+      maxSampleColumns: colBudget.maxSampleColumns,
+    });
+  }
+
+  // Use a capped column estimate for batch packing so wide tables don't
+  // shatter batches (the adaptive engine still handles the real cap at
+  // render time). See BATCH_ESTIMATION_COL_CAP.
   const batches = buildTokenAwareBatches(
     sortedTables,
     (table) =>
@@ -236,7 +285,7 @@ export async function runUsecaseGeneration(
         columnsByTable.get(table.fqn) ?? [],
         colBudget.maxCommentLength,
         undefined,
-        colBudget.maxColumnsPerTable,
+        BATCH_ESTIMATION_COL_CAP,
         columnScoreOpts,
       ),
     baseTokens,
@@ -244,9 +293,8 @@ export async function runUsecaseGeneration(
 
   // Reduce concurrency on large schemas to limit peak memory from
   // parallel LLM requests and their response payloads.
-  const maxConcurrentBatches = largeMode
-    ? LARGE_MODE_CONCURRENT_BATCHES
-    : tables.length >= LARGE_SCHEMA_TABLE_THRESHOLD
+  const maxConcurrentBatches =
+    tables.length >= LARGE_SCHEMA_TABLE_THRESHOLD
       ? LARGE_SCHEMA_CONCURRENT_BATCHES
       : DEFAULT_CONCURRENT_BATCHES;
 
@@ -261,6 +309,24 @@ export async function runUsecaseGeneration(
   let attemptedBatchCalls = 0;
   let failedBatchCalls = 0;
   let emptyBatchCalls = 0;
+
+  // Run-scoped cache for LLM column rankings so identical (fqn, keepCount)
+  // pairs across concurrent batches don't incur duplicate LLM calls.
+  const rankingCache = new ColumnRankingCache();
+
+  // Aggregate adaptive-trim statistics surfaced at end-of-step.
+  const adaptiveStats = {
+    batchesTotal: 0,
+    batchesTrimmed: 0,
+    totalColumnsBefore: 0,
+    totalColumnsAfter: 0,
+    llmRankingCalls: 0,
+    llmRankedTables: 0,
+    heuristicRankedTables: 0,
+    trivialTrimsSkipped: 0,
+    budgetImpossibleBatches: 0,
+    correctivePassBatches: 0,
+  };
 
   // Process batches with controlled concurrency and cross-batch feedback
   let batchGroupIdx = 0;
@@ -310,24 +376,34 @@ export async function runUsecaseGeneration(
       }
     }
 
-    const batchPromises = concurrentBatches.flatMap((batch) => {
-      const batchColumns = columns.filter((c) => batch.some((t) => t.fqn === c.tableFqn));
-      const schemaMarkdown = buildSchemaMarkdown(
-        batch,
-        batchColumns,
-        colBudget.maxCommentLength,
-        undefined,
-        colBudget.maxColumnsPerTable,
-        columnScoreOpts,
-      );
+    // ----------------------------------------------------------------
+    // Phase A (sync) -- per-batch prep and adaptive limit computation.
+    // Ranking calls are queued here but not awaited, so every batch in
+    // this concurrent group can rank in parallel during Phase B.
+    // ----------------------------------------------------------------
+    interface BatchPrep {
+      batch: typeof concurrentBatches[number];
+      batchColumns: typeof columns;
+      batchColsByTable: Map<string, typeof columns>;
+      batchSampleSection: string;
+      batchFkMarkdown: string;
+      adaptiveResult: AdaptiveColumnLimits;
+      availableSchemaTokens: number;
+      rankingTask: Promise<LLMColumnRankings>;
+      /** True when trim was skipped because the keep ratio was above MIN_TRIM_RATIO. */
+      trimSkippedAsTrivial: boolean;
+    }
 
-      // Build sample data markdown scoped to this batch's tables only
+    const preps: BatchPrep[] = [];
+
+    for (const batch of concurrentBatches) {
+      const batchColumns = columns.filter((c) => batch.some((t) => t.fqn === c.tableFqn));
+
       const batchSampleSection = buildSampleMarkdownFromCache(
         groupSampleCache,
         batch.map((t) => t.fqn),
       );
 
-      // Build FK markdown scoped to this batch's tables
       const batchFqnSet = new Set(batch.map((t) => t.fqn.replace(/`/g, "")));
       const batchFks = relevantFks.filter(
         (fk) =>
@@ -336,7 +412,208 @@ export async function runUsecaseGeneration(
       );
       const batchFkMarkdown = buildForeignKeyMarkdown(batchFks);
 
-      const tableCount = batch.length;
+      const batchFixedTokens = estimateTokens(
+        batchSampleSection + batchFkMarkdown + previousFeedback + feedbackExamplesSection,
+      );
+      const rawAvailableSchemaTokens = MAX_PROMPT_TOKENS - baseTokens - batchFixedTokens;
+      if (rawAvailableSchemaTokens <= 0) {
+        log.warn("availableSchemaTokens non-positive; clamping to floor", {
+          fn: "runUsecaseGeneration",
+          batchGroupIndex: batchGroupIdx,
+          rawAvailableSchemaTokens,
+          floor: AVAILABLE_SCHEMA_TOKENS_FLOOR,
+        });
+      }
+      const availableSchemaTokens = Math.max(
+        AVAILABLE_SCHEMA_TOKENS_FLOOR,
+        rawAvailableSchemaTokens,
+      );
+
+      const batchColsByTable = new Map<string, typeof batchColumns>();
+      for (const col of batchColumns) {
+        const existing = batchColsByTable.get(col.tableFqn) ?? [];
+        existing.push(col);
+        batchColsByTable.set(col.tableFqn, existing);
+      }
+
+      const adaptiveResult = computeAdaptiveColumnLimits(
+        batch,
+        batchColsByTable,
+        availableSchemaTokens,
+      );
+
+      if (adaptiveResult.correctivePassApplied) {
+        adaptiveStats.correctivePassBatches++;
+        log.warn(
+          "Adaptive budget corrective pass shaved columns to stay under token budget",
+          {
+            fn: "runUsecaseGeneration",
+            batchGroupIndex: batchGroupIdx,
+            availableSchemaTokens,
+            totalColumnsAfter: adaptiveResult.totalAfter,
+          },
+        );
+      }
+      if (adaptiveResult.budgetImpossible) {
+        adaptiveStats.budgetImpossibleBatches++;
+        log.warn(
+          "Adaptive budget impossible: floor-only limits exceed availableSchemaTokens",
+          {
+            fn: "runUsecaseGeneration",
+            batchGroupIndex: batchGroupIdx,
+            availableSchemaTokens,
+            totalColumnsAfter: adaptiveResult.totalAfter,
+            tableCount: batch.length,
+          },
+        );
+      }
+
+      // Decide whether to consult the LLM for column ranking.
+      let rankingTask: Promise<LLMColumnRankings> = Promise.resolve({
+        rankings: new Map(),
+        llmTables: new Set(),
+        heuristicTables: new Set(),
+        callMade: false,
+        fromLLM: false,
+      });
+      let trimSkippedAsTrivial = false;
+
+      if (adaptiveResult.trimmed) {
+        const keepRatio =
+          adaptiveResult.totalBefore > 0
+            ? adaptiveResult.totalAfter / adaptiveResult.totalBefore
+            : 1;
+        if (keepRatio >= MIN_TRIM_RATIO_FOR_LLM_RANKING) {
+          // Trim is marginal -- heuristic scoring is good enough.
+          trimSkippedAsTrivial = true;
+        } else {
+          const trimmedInputs: LLMColumnRankingInput[] = adaptiveResult.trimDetails.map((td) => {
+            const tableCols = batchColsByTable.get(td.fqn) ?? [];
+            const tableInfo = batch.find((t) => t.fqn === td.fqn);
+            return {
+              fqn: td.fqn,
+              tableComment: tableInfo?.comment ?? null,
+              columns: tableCols.map((c) => ({
+                name: c.columnName,
+                dataType: c.dataType,
+                comment: c.comment ?? null,
+              })),
+              keepCount: td.kept,
+            };
+          });
+
+          const bcSummary = `Industry: ${bc.industries}\nGoals: ${bc.strategicGoals}\nPriorities: ${bc.businessPriorities}`;
+          rankingTask = rankColumnsViaLLM(
+            trimmedInputs,
+            bcSummary,
+            resolveEndpoint("classification"),
+            log,
+            rankingCache,
+          );
+        }
+      }
+
+      preps.push({
+        batch,
+        batchColumns,
+        batchColsByTable,
+        batchSampleSection,
+        batchFkMarkdown,
+        adaptiveResult,
+        availableSchemaTokens,
+        rankingTask,
+        trimSkippedAsTrivial,
+      });
+    }
+
+    // ----------------------------------------------------------------
+    // Phase B -- run every queued ranking call in parallel.
+    // ----------------------------------------------------------------
+    const rankingResults = await Promise.all(preps.map((p) => p.rankingTask));
+
+    // Accumulate stats + emit a single aggregate run message for the group.
+    let groupTablesTrimmed = 0;
+    let groupColumnsBefore = 0;
+    let groupColumnsAfter = 0;
+    let groupLLMTables = 0;
+    let groupHeuristicTables = 0;
+    let groupLLMCallsMade = 0;
+    let groupTrivialSkipped = 0;
+
+    preps.forEach((p, idx) => {
+      const r = rankingResults[idx];
+      adaptiveStats.batchesTotal++;
+      if (p.adaptiveResult.trimmed) {
+        adaptiveStats.batchesTrimmed++;
+        adaptiveStats.totalColumnsBefore += p.adaptiveResult.totalBefore;
+        adaptiveStats.totalColumnsAfter += p.adaptiveResult.totalAfter;
+        groupTablesTrimmed += p.adaptiveResult.trimDetails.length;
+        groupColumnsBefore += p.adaptiveResult.totalBefore;
+        groupColumnsAfter += p.adaptiveResult.totalAfter;
+      }
+      if (r.callMade) {
+        adaptiveStats.llmRankingCalls++;
+        groupLLMCallsMade++;
+      }
+      adaptiveStats.llmRankedTables += r.llmTables.size;
+      adaptiveStats.heuristicRankedTables += r.heuristicTables.size;
+      groupLLMTables += r.llmTables.size;
+      groupHeuristicTables += r.heuristicTables.size;
+      if (p.trimSkippedAsTrivial) {
+        adaptiveStats.trivialTrimsSkipped++;
+        groupTrivialSkipped++;
+      }
+    });
+
+    if (runId && groupTablesTrimmed > 0) {
+      const parts: string[] = [
+        `Adaptive column budgeting active — ${groupTablesTrimmed} tables trimmed from ${groupColumnsBefore} to ${groupColumnsAfter} total columns`,
+      ];
+      if (groupLLMTables > 0 || groupHeuristicTables > 0) {
+        parts.push(
+          `${groupLLMTables} ranked by LLM, ${groupHeuristicTables} by heuristic`,
+        );
+      }
+      if (groupTrivialSkipped > 0) {
+        parts.push(`${groupTrivialSkipped} trivial trims skipped LLM`);
+      }
+      await updateRunMessage(runId, `${parts.join("; ")}.`);
+    }
+
+    if (groupTablesTrimmed > 0) {
+      log.info("Adaptive column budget group summary", {
+        step: "usecase-generation",
+        batchGroupIndex: batchGroupIdx,
+        batchesInGroup: preps.length,
+        tablesTrimmed: groupTablesTrimmed,
+        columnsBefore: groupColumnsBefore,
+        columnsAfter: groupColumnsAfter,
+        llmTables: groupLLMTables,
+        heuristicTables: groupHeuristicTables,
+        llmCallsMade: groupLLMCallsMade,
+        trivialTrimsSkipped: groupTrivialSkipped,
+      });
+    }
+
+    // ----------------------------------------------------------------
+    // Phase C -- render schemas with per-batch rankings and dispatch.
+    // ----------------------------------------------------------------
+    const batchPromises: Promise<UseCase[]>[] = [];
+
+    preps.forEach((p, idx) => {
+      const r = rankingResults[idx];
+      const llmRankings = r.rankings.size > 0 ? r.rankings : undefined;
+
+      const schemaMarkdown = buildAdaptiveSchemaMarkdown(
+        p.batch,
+        p.batchColumns,
+        p.adaptiveResult.limits,
+        llmRankings,
+        colBudget.maxCommentLength,
+        columnScoreOpts,
+      );
+
+      const tableCount = p.batch.length;
       const targetCount = Math.max(targetRange.min, Math.min(targetRange.max, tableCount));
 
       const baseVars: Record<string, string> = {
@@ -350,8 +627,8 @@ export async function runUsecaseGeneration(
         focus_areas_instruction: focusAreasInstruction,
         industry_reference_use_cases: industryReferenceUseCases,
         schema_markdown: schemaMarkdown,
-        foreign_key_relationships: batchFkMarkdown,
-        sample_data_section: batchSampleSection,
+        foreign_key_relationships: p.batchFkMarkdown,
+        sample_data_section: p.batchSampleSection,
         previous_use_cases_feedback: previousFeedback + feedbackExamplesSection,
         target_use_case_count: String(targetCount),
         lineage_context: lineageContext,
@@ -362,8 +639,7 @@ export async function runUsecaseGeneration(
         customer_profile_context: `Customer maturity: ${run.config.customerMaturity}\nRisk posture: ${run.config.riskPosture}\nTransformation horizon: ${run.config.transformationHorizon}\nAdditional context: ${run.config.additionalContext || "None provided"}`,
       };
 
-      // Generate both AI and Stats use cases per batch
-      return [
+      batchPromises.push(
         generateBatch(
           log,
           "AI_USE_CASE_GEN_PROMPT",
@@ -393,7 +669,7 @@ export async function runUsecaseGeneration(
           runId,
           enrichmentTags,
         ),
-      ];
+      );
     });
     attemptedBatchCalls += batchPromises.length;
 
@@ -443,7 +719,31 @@ export async function runUsecaseGeneration(
     throw new Error(message);
   }
 
-  log.info("Use case generation complete", { useCaseCount: allUseCases.length });
+  const rankingCacheStats = rankingCache.stats();
+  log.info("Use case generation complete", {
+    useCaseCount: allUseCases.length,
+    adaptive: {
+      ...adaptiveStats,
+      rankingCacheHits: rankingCacheStats.hits,
+      rankingCacheMisses: rankingCacheStats.misses,
+      rankingCacheSize: rankingCacheStats.size,
+    },
+  });
+
+  if (runId && adaptiveStats.batchesTrimmed > 0) {
+    const avgKept =
+      adaptiveStats.batchesTrimmed > 0
+        ? Math.round(adaptiveStats.totalColumnsAfter / adaptiveStats.batchesTrimmed)
+        : 0;
+    const avgBefore =
+      adaptiveStats.batchesTrimmed > 0
+        ? Math.round(adaptiveStats.totalColumnsBefore / adaptiveStats.batchesTrimmed)
+        : 0;
+    await updateRunMessage(
+      runId,
+      `Adaptive column budget summary: ${adaptiveStats.batchesTrimmed}/${adaptiveStats.batchesTotal} batches trimmed (avg ${avgKept}/${avgBefore} cols kept); ${adaptiveStats.llmRankingCalls} LLM ranking call(s), ${rankingCacheStats.hits} cache hit(s), ${adaptiveStats.trivialTrimsSkipped} trivial trim(s) skipped.`,
+    );
+  }
 
   return allUseCases;
 }
