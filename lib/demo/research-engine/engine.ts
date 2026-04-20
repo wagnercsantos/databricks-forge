@@ -2,8 +2,13 @@
  * Research Engine -- multi-pass, preset-aware company intelligence gathering.
  *
  * Orchestrates source collection, industry classification, outcome map
- * generation, and analytical passes (Quick: 1 call, Balanced: 2 calls,
- * Full: 4 calls).
+ * generation, and analytical passes. Consultant-grade outputs come from
+ * parallel fan-outs:
+ *   - Phase 1: industry-landscape || key-quotes-extraction || source-summaries
+ *   - Phase 2: company-deep-dive (Full) or strategy-and-narrative (Balanced)
+ *   - Phase 3: data-strategy-mapping (Full)
+ *   - Phase 4: demo-narrative (Full)
+ *   - Phase 5: persona-talk-track || evidence-linking
  */
 
 import { createScopedLogger } from "@/lib/logger";
@@ -21,6 +26,10 @@ import type {
   CompanyStrategicProfile,
   DataStrategyMap,
   DemoNarrativeDesign,
+  ExecutiveBrief,
+  KeyQuote,
+  SourceSummary,
+  PersonaTalkTrack,
 } from "./types";
 import type { ResearchSource, DataNarrative } from "../types";
 
@@ -36,6 +45,12 @@ import { runStrategyAndNarrative } from "./passes/strategy-and-narrative";
 import { runCompanyDeepDive } from "./passes/company-deep-dive";
 import { runDataStrategyMapping } from "./passes/data-strategy-mapping";
 import { runDemoNarrative } from "./passes/demo-narrative";
+import { runKeyQuotesExtraction } from "./passes/key-quotes";
+import { runSourceSummaries } from "./passes/source-summaries";
+import { runPersonaTalkTrack } from "./passes/persona-talk-track";
+import { runEvidenceLinking } from "./passes/evidence-linking";
+import { getCachedIndustryLandscape, setCachedIndustryLandscape } from "./industry-cache";
+import { recencyWeight } from "./recency";
 
 export class ResearchCancelledError extends Error {
   constructor() {
@@ -55,10 +70,8 @@ function normalizeIndustryId(
   if (!raw) return null;
   const trimmed = raw.trim();
 
-  // 1. Exact match
   if (allOutcomes.some((o) => o.id === trimmed)) return trimmed;
 
-  // 2. Kebab-case normalize
   const kebab = trimmed
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -67,13 +80,11 @@ function normalizeIndustryId(
   const exactKebab = allOutcomes.find((o) => o.id === kebab);
   if (exactKebab) return exactKebab.id;
 
-  // 3. Starts-with / contains match (kebab vs kebab)
   const startsWith = allOutcomes.find(
     (o) => o.id.startsWith(kebab) || kebab.startsWith(o.id),
   );
   if (startsWith) return startsWith.id;
 
-  // 4. Case-insensitive name match
   const lowerName = trimmed.toLowerCase();
   const nameMatch = allOutcomes.find(
     (o) =>
@@ -129,7 +140,6 @@ export async function runResearchEngine(
     },
   };
 
-  // Run source passes in parallel (bounded by budget)
   const sourceTexts: string[] = [];
   let t0 = Date.now();
 
@@ -156,7 +166,6 @@ export async function runResearchEngine(
     }
   }
 
-  // User docs (only in full mode, synchronous since already parsed)
   let docResult: { text: string; sources: ResearchSource[] } | null = null;
   if (budget.sources.includes("user-docs")) {
     docResult = runDocParsing(input.uploadedDocuments, input.pastedContext, {
@@ -167,44 +176,86 @@ export async function runResearchEngine(
     allSources.push(...docResult.sources);
   }
 
-  const combinedSourceText = sourceTexts.join("\n\n---\n\n");
+  let combinedSourceText = sourceTexts.join("\n\n---\n\n");
   passTimings["source-collection"] = Date.now() - t0;
+
+  // Build per-source array used by key-quotes + source-summaries + embedding.
+  const perSourceData: Array<{ source: ResearchSource; text: string }> = [];
+  for (const result of sourceResults) {
+    if (result.status === "fulfilled" && result.value.text) {
+      const firstReady = result.value.sources.find((s) => s.status === "ready");
+      if (firstReady) {
+        perSourceData.push({ source: firstReady, text: result.value.text });
+      }
+    }
+  }
+  if (docResult?.text) {
+    const firstDoc = docResult.sources.find((s) => s.status === "ready");
+    if (firstDoc) perSourceData.push({ source: firstDoc, text: docResult.text });
+  }
+
+  // Rank sources by recency * volume before they feed LLM passes. When
+  // downstream prompts truncate on token budget, the oldest/lowest-value
+  // material drops off first instead of the tail of the original array.
+  // This is the single highest-leverage change: a 2016 annual report can
+  // no longer dominate the deep-dive prompt when a 2024 report is also
+  // available.
+  perSourceData.sort((a, b) => {
+    const aVol = Math.min(a.text.length / 1e6, 1);
+    const bVol = Math.min(b.text.length / 1e6, 1);
+    const aScore = recencyWeight(a.source) * (0.2 + aVol);
+    const bScore = recencyWeight(b.source) * (0.2 + bVol);
+    return bScore - aScore;
+  });
+
+  // Rebuild combinedSourceText in recency-ranked order with a small header
+  // per source carrying the publication date. Passes like company-deep-dive
+  // and strategy-and-narrative slice the first N chars of source_text, so
+  // putting recent material first is what makes the bias bite on the LLM's
+  // truncated view.
+  combinedSourceText = perSourceData
+    .map(({ source, text }, idx) => {
+      const title = (source.title || `Source ${idx + 1}`).slice(0, 140);
+      const published =
+        (source.publishedAt && source.publishedAt.slice(0, 10)) ||
+        (typeof source.publishedYear === "number" ? String(source.publishedYear) : "unknown date");
+      const conf =
+        source.dateConfidence && source.dateConfidence !== "unknown"
+          ? ` (${source.dateConfidence} confidence)`
+          : "";
+      return `[${title} -- Published: ${published}${conf}]\n${text}`;
+    })
+    .join("\n\n---\n\n");
 
   checkCancelled(signal);
   progress("source-collection", 15, `${allSources.filter((s) => s.status === "ready").length} sources gathered`);
 
   // =======================================================================
   // Phase 0.5 + 3.25 + 3.5: Embedding, Classification, Outcome Map
-  //
-  // Embedding has no dependency on the classification/outcome-map pipeline
-  // so we run it concurrently to save wall-clock time.
   // =======================================================================
 
-  // --- Build embedding task (fire-and-forget, runs in parallel) ----------
   const embeddingTask = allSources.some((s) => s.status === "ready")
     ? (async () => {
         const tEmbed = Date.now();
         progress("embedding", 12, `Embedding ${allSources.filter((s) => s.status === "ready").length} sources for Ask Forge...`);
 
-        const embedSources: Array<{ type: string; title: string; text: string }> = [];
-        for (const result of sourceResults) {
-          if (result.status === "fulfilled" && result.value.text) {
-            const firstSource = result.value.sources.find((s) => s.status === "ready");
-            embedSources.push({
-              type: firstSource?.type ?? "website",
-              title: firstSource?.title ?? "Source",
-              text: result.value.text,
-            });
-          }
-        }
-        if (docResult?.text) {
-          const firstDoc = docResult.sources.find((s) => s.status === "ready");
-          embedSources.push({
-            type: firstDoc?.type ?? "upload",
-            title: firstDoc?.title ?? "Uploaded documents",
-            text: docResult.text,
-          });
-        }
+        const embedSources: Array<{
+          type: string;
+          title: string;
+          text: string;
+          url?: string;
+          publishedAt?: string;
+          publishedYear?: number;
+          dateConfidence?: "high" | "medium" | "low" | "unknown";
+        }> = perSourceData.map(({ source, text }) => ({
+          type: source.type,
+          title: source.title,
+          text,
+          url: source.url,
+          publishedAt: source.publishedAt,
+          publishedYear: source.publishedYear,
+          dateConfidence: source.dateConfidence,
+        }));
 
         const embeddedCount = await embedResearchSources(
           {
@@ -221,7 +272,6 @@ export async function runResearchEngine(
       })()
     : Promise.resolve();
 
-  // --- Classification + outcome map pipeline (runs in parallel with embedding)
   const classificationAndOutcomeTask = (async () => {
     let industryIdInner = input.industryId ?? "";
     let industryNameInner = "";
@@ -270,14 +320,13 @@ export async function runResearchEngine(
 
     checkCancelled(signal);
 
-    // Phase 3.5: Outcome Map + Enrichment
     progress("outcome-map-generation", 20, "Checking existing industry knowledge...");
 
     const existingOutcome = await getIndustryOutcomeAsync(industryIdInner);
     const existingEnrichment = await getMasterRepoEnrichmentAsync(industryIdInner);
 
     if (existingOutcome && existingEnrichment) {
-      progress("outcome-map-generation", 28, `Using existing outcome map + enrichment for ${industryNameInner}`);
+      progress("outcome-map-generation", 23, `Using existing outcome map + enrichment for ${industryNameInner}`);
       log.info("Outcome map + enrichment both exist, skipping generation", { industryId: industryIdInner });
     } else if (existingOutcome && !existingEnrichment) {
       progress("outcome-map-generation", 21, `Generating data asset enrichment for ${industryNameInner}...`);
@@ -292,7 +341,7 @@ export async function runResearchEngine(
 
       generatedOutcomeMapInner = true;
       const reloadedEnrichment = await getMasterRepoEnrichmentAsync(industryIdInner);
-      progress("outcome-map-generation", 28, `Generated ${reloadedEnrichment?.dataAssets?.length ?? 0} data assets`);
+      progress("outcome-map-generation", 23, `Generated ${reloadedEnrichment?.dataAssets?.length ?? 0} data assets`);
       passTimings["outcome-map-generation"] = Date.now() - t0;
     } else {
       progress("outcome-map-generation", 21, `No existing outcome map -- generating for ${industryNameInner}...`);
@@ -306,20 +355,18 @@ export async function runResearchEngine(
       });
 
       generatedOutcomeMapInner = true;
-      progress("outcome-map-generation", 28, `Generated ${genResult.enrichment.dataAssets.length} data assets and ${genResult.enrichment.useCases.length} use cases`);
+      progress("outcome-map-generation", 23, `Generated ${genResult.enrichment.dataAssets.length} data assets and ${genResult.enrichment.useCases.length} use cases`);
       passTimings["outcome-map-generation"] = Date.now() - t0;
     }
 
     return { industryId: industryIdInner, industryName: industryNameInner, generatedOutcomeMap: generatedOutcomeMapInner };
   })();
 
-  // Wait for both pipelines to finish
   const [, classResult] = await Promise.all([embeddingTask, classificationAndOutcomeTask]);
   const { industryId, industryName, generatedOutcomeMap } = classResult;
 
   checkCancelled(signal);
 
-  // Reload after potential generation
   const outcomeMap = await getIndustryOutcomeAsync(industryId);
   const enrichment = await getMasterRepoEnrichmentAsync(industryId);
 
@@ -350,6 +397,7 @@ export async function runResearchEngine(
   // Analytical Pipeline (varies by preset)
   // =======================================================================
   const resolvedScope = resolveScope(input.scope);
+  const hasReadySources = perSourceData.some(({ text }) => text.length > 100);
 
   let industryLandscape: IndustryLandscapeAnalysis | null = null;
   let companyProfile: CompanyStrategicProfile | null = null;
@@ -358,9 +406,13 @@ export async function runResearchEngine(
   let matchedDataAssetIds: string[] = [];
   let nomenclature: Record<string, string> = {};
   let dataNarratives: DataNarrative[] = [];
+  let executiveBrief: ExecutiveBrief | null = null;
+  let personaTalkTracks: PersonaTalkTrack[] | null = null;
+  let keyQuotes: KeyQuote[] = [];
+  let sourceSummaries: SourceSummary[] = [];
 
   if (preset === "quick") {
-    // ----- QUICK: Single combined synthesis -----
+    // ----- QUICK: single synthesis call; evidence-linking is RAG-only. -----
     progress("quick-synthesis", 30, `Running quick synthesis for ${input.customerName}...`);
     t0 = Date.now();
 
@@ -380,23 +432,86 @@ export async function runResearchEngine(
     dataNarratives = quickResult.dataNarratives ?? [];
     passTimings["quick-synthesis"] = Date.now() - t0;
 
+    // Best-effort evidence linking (RAG only -- no LLM call).
+    if (hasReadySources && companyProfile) {
+      progress("evidence-linking", 92, "Linking evidence to sources...");
+      t0 = Date.now();
+      try {
+        const linked = await runEvidenceLinking(
+          {
+            customerName: input.customerName,
+            industryId,
+            sessionId: input.sessionId,
+            executiveBrief: null,
+            companyProfile,
+            demoNarrative: null,
+            personaTalkTracks: null,
+          },
+          log,
+        );
+        companyProfile = linked.companyProfile ?? companyProfile;
+        progress(
+          "evidence-linking",
+          96,
+          `Linked ${linked.stats.attached}/${linked.stats.attempted} evidence items`,
+        );
+      } catch (err) {
+        log.warn("evidence-linking failed on quick preset", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      passTimings["evidence-linking"] = Date.now() - t0;
+    }
   } else if (preset === "balanced") {
-    // ----- BALANCED: 2-pass (landscape + combined strategy-narrative) -----
-    progress("industry-landscape", 30, `Analysing ${industryName} market forces and benchmarks...`);
+    // ----- BALANCED: Phase-1 fan-out + combined strategy-narrative + Phase-5 fan-out -----
+    const cached = getCachedIndustryLandscape(industryId, input.scope?.subVertical);
+
+    progress("industry-landscape", 25, `Analysing ${industryName} market forces and benchmarks...`);
+    if (hasReadySources) {
+      progress("key-quotes-extraction", 25, `Extracting key quotes from ${perSourceData.length} sources...`);
+      progress("source-summaries", 25, `Summarising ${perSourceData.length} sources...`);
+    }
     t0 = Date.now();
 
-    industryLandscape = await runIndustryLandscape(
-      industryName,
-      outcomeMapContext,
-      benchmarkContext,
-      combinedSourceText,
-      { llm, logger: log, signal, maxTokens: budget.maxTokensPerPass, modelTier },
-    );
-    passTimings["industry-landscape"] = Date.now() - t0;
-    progress("industry-landscape", 45, `Identified ${industryLandscape.marketForces?.length ?? 0} market forces, ${industryLandscape.keyBenchmarks?.length ?? 0} benchmarks`);
+    const landscapePromise: Promise<IndustryLandscapeAnalysis> = cached
+      ? Promise.resolve(cached)
+      : runIndustryLandscape(industryName, outcomeMapContext, benchmarkContext, combinedSourceText, {
+          llm, logger: log, signal, maxTokens: budget.maxTokensPerPass, modelTier,
+        });
+
+    const keyQuotesPromise: Promise<KeyQuote[]> = hasReadySources
+      ? runKeyQuotesExtraction(input.customerName, perSourceData, { llm, logger: log, signal })
+      : Promise.resolve([]);
+
+    const sourceSummariesPromise: Promise<SourceSummary[]> = hasReadySources
+      ? runSourceSummaries(input.customerName, perSourceData, { llm, logger: log, signal })
+      : Promise.resolve([]);
+
+    const [landscapeResult, keyQuotesResult, summariesResult] = await Promise.all([
+      landscapePromise,
+      keyQuotesPromise,
+      sourceSummariesPromise,
+    ]);
+
+    industryLandscape = landscapeResult;
+    keyQuotes = keyQuotesResult;
+    sourceSummaries = summariesResult;
+
+    if (!cached && industryLandscape) {
+      setCachedIndustryLandscape(industryId, input.scope?.subVertical, industryLandscape);
+    }
+
+    passTimings["industry-landscape"] = cached ? 0 : Date.now() - t0;
+    progress("industry-landscape", 40, cached
+      ? `Loaded ${industryLandscape.marketForces?.length ?? 0} market forces from cache`
+      : `Identified ${industryLandscape.marketForces?.length ?? 0} market forces, ${industryLandscape.keyBenchmarks?.length ?? 0} benchmarks`);
+    if (hasReadySources) {
+      progress("key-quotes-extraction", 40, `Extracted ${keyQuotes.length} quotes`);
+      progress("source-summaries", 40, `Summarised ${sourceSummaries.length} sources`);
+    }
 
     checkCancelled(signal);
-    progress("strategy-and-narrative", 50, `Building strategy & demo narrative for ${input.customerName}...`);
+    progress("strategy-and-narrative", 45, `Building strategy & demo narrative for ${input.customerName}...`);
     t0 = Date.now();
 
     const combined = await runStrategyAndNarrative(
@@ -406,50 +521,153 @@ export async function runResearchEngine(
       dataAssetsContext,
       combinedSourceText,
       input.scope,
-      { llm, logger: log, signal, maxTokens: budget.maxTokensPerPass, modelTier },
+      { llm, logger: log, signal, maxTokens: budget.maxTokensPerPass, modelTier, keyQuotes },
     );
 
     companyProfile = combined.companyProfile;
     dataStrategy = combined.dataStrategy;
     demoNarrative = combined.demoNarrative;
+    executiveBrief = combined.executiveBrief;
     matchedDataAssetIds = dataStrategy?.matchedDataAssetIds ?? [];
     nomenclature = dataStrategy?.nomenclature ?? {};
     dataNarratives = demoNarrative?.dataNarratives ?? [];
     passTimings["strategy-and-narrative"] = Date.now() - t0;
-    progress("strategy-and-narrative", 92, `Matched ${matchedDataAssetIds.length} data assets, designed ${demoNarrative?.killerMoments?.length ?? 0} killer moments`);
+    progress("strategy-and-narrative", 85, `Matched ${matchedDataAssetIds.length} assets, ${demoNarrative?.killerMoments?.length ?? 0} killer moments`);
+
+    // --- Phase-5 fan-out: persona-talk-track || evidence-linking ---
+    checkCancelled(signal);
+    progress("persona-talk-track", 90, "Building persona talk tracks...");
+    progress("evidence-linking", 90, "Linking evidence to source quotes...");
+    t0 = Date.now();
+
+    const talkTrackPromise = runPersonaTalkTrack(input.customerName, industryName, {
+      llm, logger: log, signal, modelTier: "generation",
+      executiveBrief,
+      companyProfile,
+      industryLandscape,
+      killerMoments: demoNarrative?.killerMoments ?? [],
+      keyQuotes,
+    });
+
+    const linkingPromise = hasReadySources
+      ? runEvidenceLinking(
+          {
+            customerName: input.customerName,
+            industryId,
+            sessionId: input.sessionId,
+            executiveBrief,
+            companyProfile,
+            demoNarrative,
+            personaTalkTracks: null,
+          },
+          log,
+        )
+      : Promise.resolve(null);
+
+    const [talkResult, linkResult] = await Promise.all([talkTrackPromise, linkingPromise]);
+    personaTalkTracks = talkResult;
+    if (linkResult) {
+      executiveBrief = linkResult.executiveBrief ?? executiveBrief;
+      companyProfile = linkResult.companyProfile ?? companyProfile;
+      demoNarrative = linkResult.demoNarrative ?? demoNarrative;
+    }
+
+    // Second, link evidence inside the newly produced persona talk tracks.
+    if (hasReadySources && personaTalkTracks && personaTalkTracks.length > 0) {
+      try {
+        const linked2 = await runEvidenceLinking(
+          {
+            customerName: input.customerName,
+            industryId,
+            sessionId: input.sessionId,
+            executiveBrief: null,
+            companyProfile: null,
+            demoNarrative: null,
+            personaTalkTracks,
+          },
+          log,
+        );
+        personaTalkTracks = linked2.personaTalkTracks ?? personaTalkTracks;
+      } catch (err) {
+        log.warn("evidence-linking (persona tracks) failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    passTimings["persona-talk-track"] = Date.now() - t0;
+    progress("persona-talk-track", 96, `Produced ${personaTalkTracks?.length ?? 0} persona talk tracks`);
+    if (hasReadySources) {
+      progress("evidence-linking", 96, `Linked evidence: ${linkResult?.stats.attached ?? 0}/${linkResult?.stats.attempted ?? 0}`);
+    }
 
   } else {
-    // ----- FULL: 4-pass McKinsey team -----
+    // ----- FULL: Phase-1 fan-out + deep-dive + data-strategy + demo-narrative + Phase-5 fan-out -----
+    const cached = getCachedIndustryLandscape(industryId, input.scope?.subVertical);
+
     progress("industry-landscape", 25, `Analysing ${industryName} market forces and benchmarks...`);
+    if (hasReadySources) {
+      progress("key-quotes-extraction", 25, `Extracting key quotes from ${perSourceData.length} sources...`);
+      progress("source-summaries", 25, `Summarising ${perSourceData.length} sources...`);
+    }
     t0 = Date.now();
 
-    industryLandscape = await runIndustryLandscape(
-      industryName,
-      outcomeMapContext,
-      benchmarkContext,
-      combinedSourceText,
-      { llm, logger: log, signal, maxTokens: budget.maxTokensPerPass, modelTier },
-    );
-    passTimings["industry-landscape"] = Date.now() - t0;
-    progress("industry-landscape", 35, `Identified ${industryLandscape.marketForces?.length ?? 0} market forces, ${industryLandscape.keyBenchmarks?.length ?? 0} benchmarks`);
+    const landscapePromise: Promise<IndustryLandscapeAnalysis> = cached
+      ? Promise.resolve(cached)
+      : runIndustryLandscape(industryName, outcomeMapContext, benchmarkContext, combinedSourceText, {
+          llm, logger: log, signal, maxTokens: budget.maxTokensPerPass, modelTier,
+        });
+
+    const keyQuotesPromise: Promise<KeyQuote[]> = hasReadySources
+      ? runKeyQuotesExtraction(input.customerName, perSourceData, { llm, logger: log, signal })
+      : Promise.resolve([]);
+
+    const sourceSummariesPromise: Promise<SourceSummary[]> = hasReadySources
+      ? runSourceSummaries(input.customerName, perSourceData, { llm, logger: log, signal })
+      : Promise.resolve([]);
+
+    const [landscapeResult, keyQuotesResult, summariesResult] = await Promise.all([
+      landscapePromise,
+      keyQuotesPromise,
+      sourceSummariesPromise,
+    ]);
+
+    industryLandscape = landscapeResult;
+    keyQuotes = keyQuotesResult;
+    sourceSummaries = summariesResult;
+
+    if (!cached && industryLandscape) {
+      setCachedIndustryLandscape(industryId, input.scope?.subVertical, industryLandscape);
+    }
+
+    passTimings["industry-landscape"] = cached ? 0 : Date.now() - t0;
+    progress("industry-landscape", 40, cached
+      ? `Loaded ${industryLandscape.marketForces?.length ?? 0} market forces from cache`
+      : `Identified ${industryLandscape.marketForces?.length ?? 0} market forces, ${industryLandscape.keyBenchmarks?.length ?? 0} benchmarks`);
+    if (hasReadySources) {
+      progress("key-quotes-extraction", 40, `Extracted ${keyQuotes.length} quotes`);
+      progress("source-summaries", 40, `Summarised ${sourceSummaries.length} sources`);
+    }
 
     checkCancelled(signal);
-    progress("company-deep-dive", 40, `Deep-diving ${input.customerName} strategic profile...`);
+    progress("company-deep-dive", 45, `Deep-diving ${input.customerName} strategic profile + exec brief...`);
     t0 = Date.now();
 
-    companyProfile = await runCompanyDeepDive(
+    const deepDive = await runCompanyDeepDive(
       input.customerName,
       industryName,
       industryLandscape,
       combinedSourceText,
       input.scope,
-      { llm, logger: log, signal, maxTokens: budget.maxTokensPerPass, modelTier },
+      { llm, logger: log, signal, maxTokens: budget.maxTokensPerPass, modelTier, keyQuotes },
     );
+    companyProfile = deepDive.profile;
+    executiveBrief = deepDive.executiveBrief;
     passTimings["company-deep-dive"] = Date.now() - t0;
-    progress("company-deep-dive", 52, `Found ${companyProfile.statedPriorities?.length ?? 0} stated priorities, ${companyProfile.urgencySignals?.length ?? 0} urgency signals`);
+    progress("company-deep-dive", 58, `Found ${companyProfile.statedPriorities?.length ?? 0} stated priorities, exec brief ready`);
 
     checkCancelled(signal);
-    progress("data-strategy-mapping", 55, `Mapping ${input.customerName} priorities to data assets...`);
+    progress("data-strategy-mapping", 62, `Mapping ${input.customerName} priorities to data assets...`);
     t0 = Date.now();
 
     dataStrategy = await runDataStrategyMapping(
@@ -461,10 +679,10 @@ export async function runResearchEngine(
       { llm, logger: log, signal, maxTokens: budget.maxTokensPerPass, modelTier },
     );
     passTimings["data-strategy-mapping"] = Date.now() - t0;
-    progress("data-strategy-mapping", 72, `Mapped ${dataStrategy.matchedDataAssetIds?.length ?? 0} assets, maturity: ${dataStrategy.dataMaturityAssessment ?? "unknown"}`);
+    progress("data-strategy-mapping", 75, `Mapped ${dataStrategy.matchedDataAssetIds?.length ?? 0} assets, maturity: ${dataStrategy.dataMaturityAssessment ?? "unknown"}`);
 
     checkCancelled(signal);
-    progress("demo-narrative", 75, `Designing demo flow and killer moments for ${input.customerName}...`);
+    progress("demo-narrative", 78, `Designing consultant-grade killer moments for ${input.customerName}...`);
     t0 = Date.now();
 
     demoNarrative = await runDemoNarrative(
@@ -474,14 +692,81 @@ export async function runResearchEngine(
       companyProfile,
       dataStrategy,
       input.scope,
-      { llm, logger: log, signal, maxTokens: budget.maxTokensPerPass, modelTier },
+      { llm, logger: log, signal, maxTokens: budget.maxTokensPerPass, modelTier, keyQuotes },
     );
     passTimings["demo-narrative"] = Date.now() - t0;
-    progress("demo-narrative", 95, `Designed ${demoNarrative.killerMoments?.length ?? 0} killer moments, ${demoNarrative.demoFlow?.length ?? 0}-step demo flow`);
+    progress("demo-narrative", 88, `Designed ${demoNarrative.killerMoments?.length ?? 0} killer moments, ${demoNarrative.demoFlow?.length ?? 0}-step demo flow`);
 
     matchedDataAssetIds = dataStrategy?.matchedDataAssetIds ?? [];
     nomenclature = dataStrategy?.nomenclature ?? {};
     dataNarratives = demoNarrative?.dataNarratives ?? [];
+
+    // --- Phase-5 fan-out: persona-talk-track || evidence-linking ---
+    checkCancelled(signal);
+    progress("persona-talk-track", 92, "Building persona talk tracks...");
+    progress("evidence-linking", 92, "Linking evidence to source quotes...");
+    t0 = Date.now();
+
+    const talkTrackPromise = runPersonaTalkTrack(input.customerName, industryName, {
+      llm, logger: log, signal, modelTier: "generation",
+      executiveBrief,
+      companyProfile,
+      industryLandscape,
+      killerMoments: demoNarrative?.killerMoments ?? [],
+      keyQuotes,
+    });
+
+    const linkingPromise = hasReadySources
+      ? runEvidenceLinking(
+          {
+            customerName: input.customerName,
+            industryId,
+            sessionId: input.sessionId,
+            executiveBrief,
+            companyProfile,
+            demoNarrative,
+            personaTalkTracks: null,
+          },
+          log,
+        )
+      : Promise.resolve(null);
+
+    const [talkResult, linkResult] = await Promise.all([talkTrackPromise, linkingPromise]);
+    personaTalkTracks = talkResult;
+    if (linkResult) {
+      executiveBrief = linkResult.executiveBrief ?? executiveBrief;
+      companyProfile = linkResult.companyProfile ?? companyProfile;
+      demoNarrative = linkResult.demoNarrative ?? demoNarrative;
+    }
+
+    // Second pass on persona tracks.
+    if (hasReadySources && personaTalkTracks && personaTalkTracks.length > 0) {
+      try {
+        const linked2 = await runEvidenceLinking(
+          {
+            customerName: input.customerName,
+            industryId,
+            sessionId: input.sessionId,
+            executiveBrief: null,
+            companyProfile: null,
+            demoNarrative: null,
+            personaTalkTracks,
+          },
+          log,
+        );
+        personaTalkTracks = linked2.personaTalkTracks ?? personaTalkTracks;
+      } catch (err) {
+        log.warn("evidence-linking (persona tracks) failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    passTimings["persona-talk-track"] = Date.now() - t0;
+    progress("persona-talk-track", 97, `Produced ${personaTalkTracks?.length ?? 0} persona talk tracks`);
+    if (hasReadySources) {
+      progress("evidence-linking", 97, `Linked evidence: ${linkResult?.stats.attached ?? 0}/${linkResult?.stats.attempted ?? 0}`);
+    }
   }
 
   // =======================================================================
@@ -505,6 +790,10 @@ export async function runResearchEngine(
     matchedDataAssetIds,
     nomenclature,
     dataNarratives,
+    executiveBrief,
+    personaTalkTracks,
+    sourceSummaries,
+    keyQuotes,
     sources: allSources,
     confidence,
     passTimings,
@@ -518,6 +807,9 @@ export async function runResearchEngine(
     assets: matchedDataAssetIds.length,
     sources: allSources.length,
     passTimings,
+    keyQuotes: keyQuotes.length,
+    sourceSummaries: sourceSummaries.length,
+    personaTalkTracks: personaTalkTracks?.length ?? 0,
   });
 
   return result;

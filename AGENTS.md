@@ -361,10 +361,40 @@ Key modules:
 - `lib/demo/research-engine/engine-status.ts` -- in-memory + Lakebase job status
 - `lib/demo/research-engine/prompts.ts` -- prompt templates for all passes
 - `lib/demo/research-engine/types.ts` -- `ResearchEngineInput`, `ResearchEngineResult`
-- `lib/demo/research-engine/passes/` -- individual pass modules (website-scrape, ir-crawler, doc-parser, industry-classification, outcome-map-generation, quick-synthesis, industry-landscape, company-deep-dive, data-strategy-mapping, demo-narrative)
+- `lib/demo/research-engine/passes/` -- individual pass modules (website-scrape, ir-crawler, doc-parser, industry-classification, outcome-map-generation, quick-synthesis, industry-landscape, company-deep-dive, data-strategy-mapping, demo-narrative, **key-quotes-extraction**, **source-summaries**, **persona-talk-track**, **evidence-linking**)
+- `lib/demo/research-engine/industry-cache.ts` -- in-memory LRU cache (24h TTL) keyed by `industryId::subVertical` for reusing `industry-landscape` outputs across sessions in the same segment
+- `lib/demo/research-engine/recency.ts` -- `recencyWeight()` / `isStale()` / `publishedYearOf()` utilities; tunable constants `RECENT_YEARS`, `HARD_FLOOR_YEARS`, `STALE_YEARS`, `UNKNOWN_DATE_WEIGHT` (single source of truth for the recency bias curve)
+- `lib/demo/research-engine/date-extraction.ts` -- detects `publishedAt` from sitemap `lastmod`, SEC filing dates, HTTP `Last-Modified`, HTML meta / JSON-LD, URL / filename year regex, and text-body scan; tags a `dateConfidence` of `high` | `medium` | `low` | `unknown`
 
 Passes (vary by preset): source collection → industry classification → outcome map
-generation (if needed) → analysis passes (1 pass for Quick, 2 for Balanced, 4 for Full).
+generation (if needed) → Phase-1 fan-out (industry-landscape ∥ key-quotes-extraction ∥ source-summaries) → analysis passes (quick-synthesis for Quick; strategy-and-narrative for Balanced; company-deep-dive → data-strategy-mapping → demo-narrative for Full) → Phase-5 fan-out (persona-talk-track ∥ evidence-linking).
+
+**Consultant-grade outputs** (Balanced + Full): every major assertion is
+grounded via a tiered `Evidence` model -- `sourced` (verbatim quote + URL),
+`benchmark` (industry-standard ranges), or `inferred` (explicit rationale).
+The `evidence-linking` pass uses the pgvector `company_research` embeddings
+(keyed by `customerName`) to attach verbatim quotes to `sourced` claims; any
+claim that cannot be grounded is downgraded to `inferred`. New output fields
+on `ResearchEngineResult`: `executiveBrief` (Who / What / What's Broken / Why
+Now / Where We Win + Situation-Complication-Resolution), `personaTalkTracks`
+(5 executive personas with provocative opening, 3 objections + responses,
+discovery ladder, close signal), `sourceSummaries`, and `keyQuotes`.
+Expanded `KillerMoment` includes `problemStatement`, `hypothesisTree`,
+`quantifiedImpact` (low/mid/high + unit), `kpiDelta`, `riskOfInaction`,
+`discoveryQuestions`, `measureOfSuccess`, `evidence[]`, `idealBuyerPersona`,
+and `timeToValue`.
+
+**Source recency bias**: every collected source is tagged with `publishedAt`,
+`publishedYear`, and `dateConfidence`. `perSourceData` in the engine is sorted
+by `recencyWeight(source) * volume` before LLM passes so token truncation drops
+old material first. `company_research` embeddings carry `publishedAt` +
+`ttlDays=365` in `metadataJson`, and `evidence-linking` runs retrieval with
+`enforceSourcePriority: true`, activating the retriever's graded `freshnessMultiplier`
+(full weight < 2 years, soft decay to 0.25 by year 5). Prompts include a
+`Published: YYYY-MM-DD` line per source and are instructed to prefer recent
+material; UI (`source-list.tsx`, `evidence-list.tsx`) shows publication year
+and a "Stale: YYYY" badge for anything older than 3 years. See `docs/DEMO_MODE.md`
+("Source Recency Bias") for the full layering.
 
 ### Data Engine
 
@@ -376,10 +406,28 @@ Key modules:
 - `lib/demo/data-engine/engine-status.ts` -- per-table phase tracking + Lakebase persistence
 - `lib/demo/data-engine/prompts.ts` -- prompt templates for schema/SQL generation
 - `lib/demo/data-engine/types.ts` -- `DataEngineInput`, `DataEngineResult`, `TableResult`
-- `lib/demo/data-engine/passes/` -- individual pass modules (narrative-design, schema-design, seed-generation, fact-generation, validation)
+- `lib/demo/data-engine/date-window.ts` -- `computeDemoDateWindow()` anchors every generated row to a rolling last-completed-FY + YTD window so demos never drift into stale years; threaded through narrative / seed / fact prompts and the validation freshness check
+- `lib/demo/data-engine/passes/` -- individual pass modules (narrative-design, schema-design, seed-generation, fact-generation, validation, **genie-deploy**)
+- `components/demo/session/data-window-card.tsx` -- session-page chip + per-fact-table MIN→MAX date coverage with Stale badge
 
 Passes: narrative design → schema design → seed generation (dimensions) → fact generation
-(CTAS with EXPLODE/SEQUENCE) → validation (row counts, FK integrity).
+(CTAS with EXPLODE/SEQUENCE) → validation (row counts, FK integrity, date freshness) →
+single-shot fact-freshness auto-fix loop for any table flagged outside the window →
+**Genie deploy (Genie Mode only)**.
+
+**Genie Mode** (Pass 5 `genie-deploy`): when `DataEngineInput.genieMode=true`,
+every preceding pass gets a Genie-biased prompt block (wider row counts 8K–50K,
+12–18 tables, star-schema bias, extra measures/hierarchical dims) and after
+validation the engine runs `runFastGenieEngine` + `createGenieSpace` using the
+user's OBO token (`DataEngineInput.oboToken`), seeds `ForgeGenieSpaceCache` via
+`upsertCachedSpaces` + `updateCachedSpaceDiscovery` so `/genie` shows the new
+space immediately, and calls `trackGenieSpaceCreated`. Failure is non-fatal --
+the surrounding engine records `genieDeployError` on the result and data
+generation still succeeds. The Genie Space id/url flow through the session's
+`dataModelJson` envelope and surface in the wizard Complete step and the
+session detail page as a violet "Genie Space" card. Constants:
+`DEMO_GENIE_ROW_BAND` / `DEMO_GENIE_TABLE_BAND` in `lib/demo/types.ts`.
+Activity log: `demo_genie_space_deployed`.
 
 ### Shared Demo Modules
 

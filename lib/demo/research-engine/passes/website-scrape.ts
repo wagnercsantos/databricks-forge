@@ -13,6 +13,13 @@ import type { Logger } from "@/lib/ports/logger";
 import type { LLMClient } from "@/lib/ports/llm-client";
 import type { ResearchSource, DemoScope } from "../../types";
 import { runStrategicCrawl } from "./strategic-crawl";
+import {
+  fromStructuredDate,
+  fromHtml,
+  fromUrl,
+  fromTextBody,
+  type DateExtractionResult,
+} from "../date-extraction";
 
 const MAX_CHARS = 15_000;
 const FETCH_TIMEOUT_MS = 15_000;
@@ -77,8 +84,11 @@ export async function runWebsiteScrape(
       }
 
       const html = await response.text();
+      const lastModified = response.headers.get("last-modified") ?? undefined;
       const markdown = htmlToMarkdown(html);
       const truncated = markdown.slice(0, MAX_CHARS);
+
+      applyDateSignals(source, { lastModifiedHeader: lastModified, html, body: markdown });
 
       source.charCount = truncated.length;
       source.status = "ready";
@@ -131,6 +141,21 @@ export async function runDeepWebsiteScrape(
     signal: opts.signal,
     onSourceReady: opts.onSourceReady,
   });
+}
+
+function applyDateSignals(
+  source: ResearchSource,
+  signals: { lastModifiedHeader?: string; html?: string; body?: string },
+): void {
+  let result: DateExtractionResult | undefined =
+    fromStructuredDate(signals.lastModifiedHeader) ??
+    fromHtml(signals.html) ??
+    fromUrl(source.url) ??
+    fromTextBody(signals.body);
+  if (!result) result = { dateConfidence: "unknown" };
+  if (result.publishedAt) source.publishedAt = result.publishedAt;
+  if (typeof result.publishedYear === "number") source.publishedYear = result.publishedYear;
+  source.dateConfidence = result.dateConfidence;
 }
 
 function htmlToMarkdown(html: string): string {

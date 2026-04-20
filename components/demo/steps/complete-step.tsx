@@ -13,10 +13,18 @@ import {
   BarChart3,
   Clock,
   AlertCircle,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import type { DemoSessionSummary } from "@/lib/demo/types";
+
+interface SessionDetail extends DemoSessionSummary {
+  genieMode?: boolean;
+  genieSpaceId?: string | null;
+  genieSpaceUrl?: string | null;
+  genieDeployError?: string | null;
+}
 
 interface CompleteStepProps {
   sessionId: string;
@@ -25,6 +33,7 @@ interface CompleteStepProps {
   customerName?: string;
   industryId?: string;
   wizardStartTime?: number;
+  genieMode?: boolean;
 }
 
 export function CompleteStep({
@@ -34,9 +43,10 @@ export function CompleteStep({
   customerName,
   industryId,
   wizardStartTime,
+  genieMode,
 }: CompleteStepProps) {
   const router = useRouter();
-  const [session, setSession] = useState<DemoSessionSummary | null>(null);
+  const [session, setSession] = useState<SessionDetail | null>(null);
   const [launchState, setLaunchState] = useState<"ready" | "launching" | "launched" | "failed">(
     "ready",
   );
@@ -194,6 +204,71 @@ export function CompleteStep({
           </div>
         )}
       </div>
+
+      {/* Genie Space card (Genie Mode only) */}
+      {(genieMode || session?.genieMode) && (
+        <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-4 dark:border-violet-900 dark:bg-violet-950/20">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-100 dark:bg-violet-900/40">
+              <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">Genie Space</p>
+                {session?.genieSpaceId && (
+                  <span className="text-[10px] font-medium uppercase tracking-wider rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5">
+                    Deployed
+                  </span>
+                )}
+              </div>
+              {session?.genieSpaceId ? (
+                <>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Your Genie Space is ready. It&apos;s bound to{" "}
+                    <code className="font-mono text-[11px]">{fqn}</code>.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {session.genieSpaceUrl && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:text-violet-300 dark:hover:bg-violet-900/40"
+                        onClick={() => window.open(session.genieSpaceUrl!, "_blank")}
+                      >
+                        Open in Databricks
+                        <ExternalLink className="h-3 w-3" />
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1.5"
+                      onClick={() => router.push("/genie")}
+                    >
+                      View in Forge
+                    </Button>
+                  </div>
+                </>
+              ) : session?.genieDeployError ? (
+                <>
+                  <p className="mt-0.5 text-xs text-destructive">
+                    Deploy failed: {session.genieDeployError}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Data was generated successfully. You can retry the Genie Space from the Genie
+                    page or contact the field team.
+                  </p>
+                </>
+              ) : (
+                <p className="mt-0.5 text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Finalising Genie Space...
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Primary action: Start Discovery Run */}
       {(launchState === "ready" || launchState === "failed") && (

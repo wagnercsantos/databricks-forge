@@ -11,7 +11,8 @@ import type { LLMClient } from "@/lib/ports/llm-client";
 import type { SqlExecutor } from "@/lib/ports/sql-executor";
 import type { Logger } from "@/lib/ports/logger";
 import type { TableDesign, TablePhase } from "../../types";
-import { SEED_TABLE_PROMPT } from "../prompts";
+import { GENIE_SEED_BIAS, SEED_TABLE_PROMPT } from "../prompts";
+import type { DemoDateWindow } from "../date-window";
 
 const MAX_RETRIES = 2;
 
@@ -20,6 +21,7 @@ export async function runSeedGeneration(
   catalog: string,
   schema: string,
   research: { customerName: string; industryId: string; nomenclature: Record<string, string>; scope?: { division?: string } },
+  dateWindow: DemoDateWindow,
   opts: {
     llm: LLMClient;
     sql: SqlExecutor;
@@ -27,9 +29,10 @@ export async function runSeedGeneration(
     signal?: AbortSignal;
     onPhase?: (phase: TablePhase) => void;
     reviewAndFixSql?: (sql: string, error: string, context?: string) => Promise<string>;
+    genieMode?: boolean;
   },
 ): Promise<{ rowCount: number; error?: string }> {
-  const { llm, sql, logger: log, signal, onPhase, reviewAndFixSql } = opts;
+  const { llm, sql, logger: log, signal, onPhase, reviewAndFixSql, genieMode = false } = opts;
 
   onPhase?.("generating-sql");
 
@@ -43,7 +46,12 @@ export async function runSeedGeneration(
     .replace("{industry_name}", research.industryId)
     .replace("{division}", research.scope?.division ?? "Full Enterprise")
     .replace("{nomenclature}", JSON.stringify(research.nomenclature))
-    .replace("{row_target}", String(table.rowTarget));
+    .replace("{row_target}", String(table.rowTarget))
+    .replace(/{start_date}/g, dateWindow.startDate)
+    .replace(/{end_date}/g, dateWindow.endDate)
+    .replace(/{fy_label}/g, dateWindow.fyLabel)
+    .replace(/{date_range_days}/g, String(dateWindow.dateRangeDays))
+    .replace("{genie_bias}", genieMode ? GENIE_SEED_BIAS : "");
 
   const endpoint = resolveEndpoint("sql");
 

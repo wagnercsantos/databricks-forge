@@ -9,8 +9,12 @@ import type {
   DemoSessionSummary,
   ResearchPreset,
   DemoScope,
+  TableDesign,
+  ValidationSummary,
+  ValidationResult,
 } from "@/lib/demo/types";
 import type { ResearchEngineResult } from "@/lib/demo/research-engine/types";
+import type { DemoDateWindow } from "@/lib/demo/data-engine/date-window";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,6 +93,78 @@ export async function getDemoSessionResearch(
       return null;
     }
   });
+}
+
+/**
+ * Envelope persisted in `dataModelJson` starting v2. Backward-compatible with
+ * v1 (which stored a bare `TableDesign[]`).
+ */
+export interface DemoSessionDataModel {
+  designs: TableDesign[];
+  dateWindow?: DemoDateWindow;
+  validationResults?: ValidationResult[];
+  /** Whether this session was generated with Genie Mode on. */
+  genieMode?: boolean;
+  /** Databricks space_id of the Genie Space deployed by Pass 5 (Genie Mode). */
+  genieSpaceId?: string;
+  /** Deep link to the Genie Space (host + /genie/rooms/{space_id}). */
+  genieSpaceUrl?: string;
+  /** If Genie deploy was requested but failed or was skipped, the reason. */
+  genieDeployError?: string;
+}
+
+/**
+ * Read and parse the data-model envelope.  Handles both v1 (array) and v2
+ * (object) shapes so older sessions still render.
+ */
+export async function getDemoSessionDataModel(
+  sessionId: string,
+): Promise<DemoSessionDataModel | null> {
+  return withPrisma(async (prisma) => {
+    const row = await prisma.forgeDemoSession.findUnique({
+      where: { id: sessionId },
+      select: { dataModelJson: true },
+    });
+    if (!row?.dataModelJson) return null;
+    try {
+      const parsed = JSON.parse(row.dataModelJson);
+      if (Array.isArray(parsed)) {
+        return { designs: parsed as TableDesign[] };
+      }
+      if (parsed && typeof parsed === "object" && Array.isArray(parsed.designs)) {
+        return parsed as DemoSessionDataModel;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
+}
+
+/**
+ * Serialise a data-model envelope for persistence. Always emits v2 shape.
+ */
+export function serializeDemoSessionDataModel(
+  designs: TableDesign[],
+  dateWindow?: DemoDateWindow,
+  validationSummary?: ValidationSummary,
+  genie?: {
+    genieMode?: boolean;
+    genieSpaceId?: string;
+    genieSpaceUrl?: string;
+    genieDeployError?: string;
+  },
+): string {
+  const envelope: DemoSessionDataModel = {
+    designs,
+    ...(dateWindow ? { dateWindow } : {}),
+    ...(validationSummary?.results ? { validationResults: validationSummary.results } : {}),
+    ...(genie?.genieMode !== undefined ? { genieMode: genie.genieMode } : {}),
+    ...(genie?.genieSpaceId ? { genieSpaceId: genie.genieSpaceId } : {}),
+    ...(genie?.genieSpaceUrl ? { genieSpaceUrl: genie.genieSpaceUrl } : {}),
+    ...(genie?.genieDeployError ? { genieDeployError: genie.genieDeployError } : {}),
+  };
+  return JSON.stringify(envelope);
 }
 
 export async function getDemoSessionTables(sessionId: string): Promise<string[]> {

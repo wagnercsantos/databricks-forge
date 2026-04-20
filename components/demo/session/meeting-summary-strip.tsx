@@ -61,9 +61,15 @@ function deriveSummaryCards(research: ResearchEngineResult | null): SummaryCard[
     });
   }
 
-  const buyerPersona = research.demoNarrative?.executiveTalkingPoints?.[0]?.headline
-    ? "CxO / Digital Leader"
-    : "Line of Business Owner";
+  // Best buyer prefers top killer-moment persona, then first persona talk track.
+  const idealPersona = research.demoNarrative?.killerMoments?.[0]?.idealBuyerPersona;
+  const firstTrack = research.personaTalkTracks?.[0]?.label;
+  const buyerPersona =
+    idealPersona ??
+    firstTrack ??
+    (research.demoNarrative?.executiveTalkingPoints?.[0]?.headline
+      ? "CxO / Digital Leader"
+      : "Line of Business Owner");
   cards.push({
     label: "Best Buyer",
     value: buyerPersona,
@@ -71,20 +77,52 @@ function deriveSummaryCards(research: ResearchEngineResult | null): SummaryCard[
     accent: "text-emerald-600 dark:text-emerald-400",
   });
 
-  const sourceCount = research.sources?.filter((s) => s.status === "ready").length ?? 0;
-  const conf = research.confidence ?? 0;
-  const proofLabel =
-    conf >= 0.75 && sourceCount >= 3
-      ? "Strong"
-      : conf >= 0.45
-        ? "Moderate"
-        : "Limited";
-  cards.push({
-    label: "Proof Strength",
-    value: `${proofLabel} (${sourceCount} sources)`,
-    icon: ShieldCheck,
-    accent: conf >= 0.75 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400",
-  });
+  // Proof strength now counts tiered evidence (sourced + benchmark + inferred).
+  const allEvidence: Array<{ tier: "sourced" | "benchmark" | "inferred" }> = [];
+  for (const e of research.executiveBrief?.evidence ?? []) allEvidence.push({ tier: e.tier });
+  for (const p of research.companyProfile?.statedPriorities ?? []) {
+    if (p.evidence) allEvidence.push({ tier: p.evidence.tier });
+  }
+  for (const p of research.companyProfile?.inferredPriorities ?? []) {
+    if (p.evidenceObj) allEvidence.push({ tier: p.evidenceObj.tier });
+  }
+  for (const g of research.companyProfile?.strategicGaps ?? []) {
+    if (g.evidence) allEvidence.push({ tier: g.evidence.tier });
+  }
+  for (const m of research.demoNarrative?.killerMoments ?? []) {
+    for (const e of m.evidence ?? []) allEvidence.push({ tier: e.tier });
+  }
+  for (const t of research.personaTalkTracks ?? []) {
+    for (const e of t.evidence ?? []) allEvidence.push({ tier: e.tier });
+    for (const o of t.threeObjections ?? []) {
+      if (o.proofToUse) allEvidence.push({ tier: o.proofToUse.tier });
+    }
+  }
+
+  const sourced = allEvidence.filter((e) => e.tier === "sourced").length;
+  const benchmark = allEvidence.filter((e) => e.tier === "benchmark").length;
+  const inferred = allEvidence.filter((e) => e.tier === "inferred").length;
+
+  if (allEvidence.length > 0) {
+    const proofLabel =
+      sourced >= 5 ? "Strong" : sourced + benchmark >= 5 ? "Moderate" : "Limited";
+    cards.push({
+      label: "Proof Strength",
+      value: `${proofLabel} (${sourced}s · ${benchmark}b · ${inferred}i)`,
+      icon: ShieldCheck,
+      accent: sourced >= 5 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400",
+    });
+  } else {
+    const sourceCount = research.sources?.filter((s) => s.status === "ready").length ?? 0;
+    const conf = research.confidence ?? 0;
+    const proofLabel = conf >= 0.75 && sourceCount >= 3 ? "Strong" : conf >= 0.45 ? "Moderate" : "Limited";
+    cards.push({
+      label: "Proof Strength",
+      value: `${proofLabel} (${sourceCount} sources)`,
+      icon: ShieldCheck,
+      accent: conf >= 0.75 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400",
+    });
+  }
 
   return cards.slice(0, 5);
 }

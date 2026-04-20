@@ -14,6 +14,13 @@ import { parseLLMJson } from "@/lib/toolkit/parse-llm-json";
 import { mapWithConcurrency } from "@/lib/toolkit/concurrency";
 import type { ResearchSource, DemoScope } from "../../types";
 import { runSitemapDiscovery } from "./sitemap-discovery";
+import {
+  fromStructuredDate,
+  fromHtml,
+  fromUrl,
+  fromTextBody,
+  type DateExtractionResult,
+} from "../date-extraction";
 
 const STRATEGIC_PATHS = [
   "/about",
@@ -85,6 +92,10 @@ export async function runStrategicCrawl(
     signal,
   });
   const sitemapUrls = new Set(sitemapEntries.map((e) => e.url));
+  const urlToLastmod = new Map<string, string>();
+  for (const e of sitemapEntries) {
+    if (e.lastmod) urlToLastmod.set(e.url, e.lastmod);
+  }
 
   onProgress?.("Probing strategic paths...");
   const probePaths = [...STRATEGIC_PATHS];
@@ -133,13 +144,14 @@ export async function runStrategicCrawl(
     sources.push(source);
 
     try {
-      const html = await fetchPage(fetchFn, url, signal);
-      if (!html) {
+      const fetched = await fetchPage(fetchFn, url, signal);
+      if (!fetched) {
         source.status = "failed";
         source.error = "Fetch failed or empty response";
         onSourceReady?.(source);
         return null;
       }
+      const { html, lastModified } = fetched;
 
       const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
       const title = titleMatch ? titleMatch[1].trim() : url;
@@ -147,6 +159,13 @@ export async function runStrategicCrawl(
 
       const markdown = htmlToMarkdown(html);
       const truncated = markdown.slice(0, MAX_CHARS_PER_PAGE);
+
+      applyDateSignals(source, {
+        sitemapLastmod: urlToLastmod.get(url),
+        lastModifiedHeader: lastModified,
+        html,
+        body: markdown,
+      });
 
       source.charCount = truncated.length;
       source.status = "ready";
@@ -199,7 +218,7 @@ async function fetchPage(
   fetchFn: typeof fetch,
   url: string,
   signal?: AbortSignal,
-): Promise<string | null> {
+): Promise<{ html: string; lastModified?: string } | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -211,10 +230,33 @@ async function fetchPage(
     });
     clearTimeout(timeout);
     if (!resp.ok) return null;
-    return await resp.text();
+    const html = await resp.text();
+    const lastModified = resp.headers.get("last-modified") ?? undefined;
+    return { html, lastModified };
   } catch {
     return null;
   }
+}
+
+function applyDateSignals(
+  source: ResearchSource,
+  signals: {
+    sitemapLastmod?: string;
+    lastModifiedHeader?: string;
+    html?: string;
+    body?: string;
+  },
+): void {
+  let result: DateExtractionResult | undefined =
+    fromStructuredDate(signals.sitemapLastmod) ??
+    fromStructuredDate(signals.lastModifiedHeader) ??
+    fromHtml(signals.html) ??
+    fromUrl(source.url) ??
+    fromTextBody(signals.body);
+  if (!result) result = { dateConfidence: "unknown" };
+  if (result.publishedAt) source.publishedAt = result.publishedAt;
+  if (typeof result.publishedYear === "number") source.publishedYear = result.publishedYear;
+  source.dateConfidence = result.dateConfidence;
 }
 
 async function classifyUrls(

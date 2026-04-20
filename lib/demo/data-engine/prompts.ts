@@ -7,6 +7,34 @@
 
 import { DATABRICKS_SQL_RULES_COMPACT } from "@/lib/ai/sql-rules";
 
+/**
+ * Shared "DATA RECENCY" block injected into every data-generation prompt.
+ *
+ * The Data Engine computes a single `DemoDateWindow` per run (see
+ * `lib/demo/data-engine/date-window.ts`) and threads it through every pass.
+ * This block makes the window a hard, non-negotiable constraint for the LLM.
+ *
+ * Placeholders: {start_date}, {end_date}, {fy_label}, {date_range_days}
+ */
+export const DATA_RECENCY_BLOCK = `
+# DATA RECENCY (CRITICAL -- non-negotiable)
+All dates and timestamps in this table MUST land inside:
+  start: DATE '{start_date}' (start of {fy_label})
+  end:   CURRENT_DATE() (today, approx. {end_date})
+  span:  {date_range_days} days
+
+HARD RULES:
+- NEVER hardcode a year literal (no DATE '2024-...', no DATE '2025-...').
+- ALWAYS derive dates from CURRENT_DATE() using DATE_SUB / DATE_ADD / make_interval.
+- For a random date inside the window, use:
+    DATE_SUB(CURRENT_DATE(), CAST(RAND() * {date_range_days} AS INT))
+- For fact tables, bias the distribution toward the most recent 90 days
+  (roughly 40% of rows in the last 90 days, 60% spread across the rest of the window)
+  so "current state" questions have fresh data to answer.
+- For seed / dimension tables with a created_at / updated_at, place those
+  timestamps anywhere inside the window (uniform is fine for reference data).
+`;
+
 /** SQL constraints for demo data generation to avoid Databricks rejection. */
 export const DEMO_DATA_SQL_CONSTRAINTS = `
 # CRITICAL DATABRICKS SQL CONSTRAINTS FOR DATA GENERATION
@@ -29,10 +57,10 @@ export const DEMO_DATA_SQL_CONSTRAINTS = `
 - NEVER add make_interval() or any time-component INTERVAL to a DATE value.
   Databricks throws INVALID_INTERVAL_WITH_MICROSECONDS_ADDITION.
   WRONG:    date_col + make_interval(0, 0, 0, 0, hours, mins, secs)
-  WRONG:    DATE '2024-01-01' + make_interval(0, 0, 0, 0, 8, 30, 0)
+  WRONG:    DATE_SUB(CURRENT_DATE(), 30) + make_interval(0, 0, 0, 0, 8, 30, 0)
   WRONG:    date_sub(current_date(), N) + make_interval(...)
   CORRECT:  CAST(date_col AS TIMESTAMP) + make_interval(0, 0, 0, 0, hours, mins, secs)
-  CORRECT:  CAST(DATE '2024-01-01' AS TIMESTAMP) + make_interval(0, 0, 0, 0, 8, 30, 0)
+  CORRECT:  CAST(DATE_SUB(CURRENT_DATE(), 30) AS TIMESTAMP) + make_interval(0, 0, 0, 0, 8, 30, 0)
   Always CAST to TIMESTAMP before adding any interval with hour/minute/second components.
   For created_at/updated_at columns, use this pattern:
     CAST(CAST(some_date AS TIMESTAMP) + make_interval(0,0,0,0,h,m,s) AS TIMESTAMP)
@@ -73,11 +101,107 @@ export const DEMO_DATA_SQL_CONSTRAINTS = `
 - Include COMMENT on the CREATE TABLE: CREATE OR REPLACE TABLE ... COMMENT 'description' AS SELECT ...
 
 ## Date/Calendar Dimension Tables
-- Generate rows with DATE_ADD(DATE'2024-01-01', seq_id - 1).
-  Derive date parts using built-in functions: YEAR(), MONTH(), DAY(), QUARTER(),
+- NEVER hardcode a year literal such as DATE '2024-01-01'. All date generation
+  MUST be relative to CURRENT_DATE() so the demo stays fresh over time.
+- For a rolling calendar that ends today and spans {date_range_days} days, use:
+    DATE_ADD(DATE_SUB(CURRENT_DATE(), {date_range_days} - 1), seq_id - 1)
+- Derive date parts using built-in functions: YEAR(), MONTH(), DAY(), QUARTER(),
   DAYOFWEEK(), WEEKOFYEAR(), DAYOFYEAR(). Use DATE_FORMAT() ONLY with these safe
   patterns: 'yyyy', 'MM', 'dd', 'HH', 'mm', 'ss', 'E', 'EEEE', 'MMM', 'MMMM'.
   NEVER use 'u', 'e', 'c', or 'L' in DATE_FORMAT -- Spark does NOT support them.
+`;
+
+// ---------------------------------------------------------------------------
+// Genie Mode bias blocks
+// ---------------------------------------------------------------------------
+// When Genie Mode is on, these blocks are substituted into the `{genie_bias}`
+// placeholder of each prompt to steer the LLM toward a richer, Genie-Space-
+// optimal schema + dataset. When Genie Mode is off, the placeholder is
+// replaced with an empty string.
+
+/** Narrative-design bias: more stories, each tied to concrete Genie questions. */
+export const GENIE_NARRATIVE_BIAS = `
+# GENIE MODE (ACTIVE)
+This dataset will power a Databricks Genie Space demo for a business-user audience.
+Design 5-8 narratives (not 3-5). Each narrative MUST:
+- Name 2-4 concrete business questions a Genie user would realistically ask
+  (e.g. "Which regions saw the biggest revenue spike last quarter?",
+  "What is the average ticket size by channel this year?").
+- Create a pattern that is clearly VISIBLE in a simple GROUP BY / aggregate
+  query -- no subtle sub-percent shifts.
+- Spread across at least two fact tables so Genie has to JOIN across domains
+  to answer cleanly.
+`;
+
+/** Schema-design bias: more tables, star schema discipline, Genie-friendly columns. */
+export const GENIE_SCHEMA_BIAS = `
+# GENIE MODE OVERRIDES (HIGHEST PRIORITY -- supersede any earlier table count above)
+This schema will back a Databricks Genie Space demo, so it must be RICHER than
+a LEAN demo model. Override the "8-12 tables" rule and apply these instead:
+
+## Counts
+- Design 12-18 tables TOTAL: 6-9 dimension tables + 4-6 fact tables.
+- AT LEAST 2 fact tables. Prefer 3+ so Genie can demonstrate joins across
+  transaction domains (e.g. orders + shipments + returns, claims + policies,
+  loans + payments).
+
+## Star schema discipline
+- INCLUDE at least one role-playing or bridge dimension (e.g. a customer dim
+  referenced as both "customer" and "referring_customer"; a date dim
+  referenced as both "order_date" and "ship_date").
+- Every fact MUST have:
+  - >= 1 DATE or TIMESTAMP column (for time-based Genie queries).
+  - >= 3 numeric measure columns (DOUBLE/DECIMAL/BIGINT) with business meaning.
+  - >= 3 FK columns to distinct dimension tables (for GROUP BY drill-downs).
+- Every dimension MUST have:
+  - >= 1 low-cardinality categorical STRING column (10-50 distinct values)
+    that Genie can use for GROUP BY slicing.
+  - >= 1 descriptive text / name column.
+  - Hierarchy columns where natural (region -> country, category -> subcategory,
+    segment -> tier) so Genie can drill down.
+
+## Geography + identity
+- Customer/location/site dimensions MUST include explicit geography columns
+  (country, region, state_province, city, postcode) so Genie can answer
+  "by region" / "by country" questions without inference.
+- Every table keeps a primary key named \`<table>_id\`.
+- Every FK column MUST be named \`<target_table>_id\` (e.g.
+  \`customer_id\`, \`product_id\`). This is non-negotiable -- Forge's
+  deterministic FK inference relies on this pattern.
+
+## Narrative coverage
+- Every narrative in DATA NARRATIVES must touch at least one fact table in
+  this schema. No orphan narratives.
+`;
+
+/** Seed-generation bias: richer categorical distributions for Genie entity matching. */
+export const GENIE_SEED_BIAS = `
+# GENIE MODE
+This table will be queried by a Databricks Genie Space. Populate categorical
+STRING columns with stable, human-readable values (NOT placeholder codes) --
+Genie's entity matcher keys off sample values, so realism directly improves
+answer quality:
+- Names, locations, categories, segments: use real-looking values drawn from
+  the customer's nomenclature (e.g. "Enterprise", "Mid-Market", "SMB" for
+  segment; "North America", "EMEA", "APAC" for region).
+- Keep enum cardinalities moderate (5-50 distinct values per column) so Genie
+  can comfortably display them in grouped results.
+`;
+
+/** Fact-generation bias: higher row counts, stronger trends, seasonality. */
+export const GENIE_FACT_BIAS = `
+# GENIE MODE
+This fact table will be queried by a Databricks Genie Space. Ensure the
+distributions make common Genie questions produce MEANINGFUL answers:
+- Create clear, visible trends (month-over-month growth or decline of 10-30%
+  somewhere in the window) so "How did X change over time?" has a real answer.
+- Embed a recognisable seasonal pattern (weekly, monthly or quarterly) so
+  "Is there seasonality in X?" shows an actual cycle.
+- Ensure GROUP BY dimensional breakdowns produce an uneven distribution
+  (e.g. top 3 regions account for >50% of rows, not an even split) so
+  "Which X is the largest?" returns a real ranking.
+- Keep the DATA RECENCY bias (40% in last 90 days) but spread the rest so
+  year-over-year comparisons are possible.
 `;
 
 // ---------------------------------------------------------------------------
@@ -96,6 +220,18 @@ export const NARRATIVE_DESIGN_PROMPT = `You are a data engineer designing realis
 Division: {division}
 Target Row Count: {min_rows} - {max_rows} per fact table
 
+# DATA RECENCY WINDOW (CRITICAL)
+Every narrative MUST live inside the demo's rolling data window:
+  start: {start_date} (start of {fy_label})
+  end:   today ({end_date})
+  span:  {date_range_days} days (approx. {date_range_months} months)
+
+Use \`temporalRange\` in days relative to today (0 = today, negative = past):
+  - startOffset MUST be >= -{date_range_days}
+  - endOffset MUST be <= 0
+Spread narratives across the full window (some rooted in the completed FY,
+some in year-to-date) so the demo shows a real trend curve, not a 6-month stub.
+
 # TASK
 Design 3-5 data stories that will be embedded as patterns in the generated tables.
 Each story creates visible, queryable trends that make the demo compelling.
@@ -104,7 +240,7 @@ Stories must be:
 - Specific to {customer_name}'s division and industry
 - Use their nomenclature: {nomenclature}
 - Create patterns that use cases can discover (spikes, trends, anomalies, seasonal patterns)
-- Be temporally distributed across the last 6-12 months
+- Distributed across the full data window ({fy_label}), not clustered in one quarter
 
 # OUTPUT FORMAT
 Return JSON:
@@ -115,17 +251,18 @@ Return JSON:
       "description": "Detailed description of what the data pattern looks like",
       "affectedTables": ["table_name"],
       "pattern": "spike|trend|anomaly|seasonal|correlation",
-      "temporalRange": { "startOffset": -180, "endOffset": 0 },
+      "temporalRange": { "startOffset": -{date_range_days}, "endOffset": 0 },
       "magnitudeDescription": "e.g., 23% increase, 3x spike"
     }
   ],
   "globalSettings": {
-    "dateRangeMonths": 12,
+    "dateRangeMonths": {date_range_months},
     "primaryCurrency": "USD",
     "primaryTimezone": "UTC",
     "geographicFocus": ["region1", "region2"]
   }
-}`;
+}
+{genie_bias}`;
 
 // ---------------------------------------------------------------------------
 // Pass 1: Schema Design
@@ -188,7 +325,8 @@ Return JSON:
       "narrativeLinks": ["Narrative Title 1"]
     }
   ]
-}`;
+}
+{genie_bias}`;
 
 // ---------------------------------------------------------------------------
 // Pass 2: Seed SQL Generation (per dimension table)
@@ -210,6 +348,7 @@ Nomenclature: {nomenclature}
 # DATABRICKS SQL RULES
 ${DATABRICKS_SQL_RULES_COMPACT}
 ${DEMO_DATA_SQL_CONSTRAINTS}
+${DATA_RECENCY_BLOCK}
 
 # TASK
 Generate a single CREATE OR REPLACE TABLE ... COMMENT '{description}' AS SELECT statement with {row_target} rows.
@@ -225,9 +364,10 @@ Requirements:
 - Values must be realistic for {customer_name}'s industry and division
 - Product names, locations, categories must use their nomenclature
 - IDs should be formatted strings (e.g., "CUST-001", "PROD-042")
-- Dates within the last 12 months
+- All dates/timestamps MUST obey the DATA RECENCY block above (inside {fy_label})
 - Non-uniform distributions (80/20 for categories, realistic geographic spread)
 - No placeholder or Lorem Ipsum text
+{genie_bias}
 
 Return ONLY the SQL statement. No markdown, no explanation.`;
 
@@ -257,6 +397,7 @@ Nomenclature: {nomenclature}
 # DATABRICKS SQL RULES
 ${DATABRICKS_SQL_RULES_COMPACT}
 ${DEMO_DATA_SQL_CONSTRAINTS}
+${DATA_RECENCY_BLOCK}
 
 # TASK
 Generate a single CREATE OR REPLACE TABLE ... COMMENT '{description}' AS SELECT statement.
@@ -268,12 +409,14 @@ Use CTAS only -- NEVER CREATE TABLE + INSERT INTO.
 3. Creates non-uniform distributions:
    - CASE WHEN RAND() < 0.3 THEN 'X' for weighted categories (RAND() with no seed)
    - RAND() * range + offset for numeric measures
-   - DATE_ADD(CURRENT_DATE(), -CAST(RAND()*{date_range} AS INT)) for dates
+   - DATE_SUB(CURRENT_DATE(), CAST(RAND() * {date_range_days} AS INT)) for dates,
+     biased toward the last 90 days (see DATA RECENCY block)
 4. Embeds the narrative patterns:
    - Temporal spikes/dips using CASE WHEN date BETWEEN ... conditions
    - Correlated anomalies across related columns
    - Seasonal patterns using MONTH() or DAYOFWEEK()
 5. For TIMESTAMP columns: ALWAYS CAST date to TIMESTAMP before adding time intervals.
 6. NEVER reference the table being created -- it does not exist yet.
+{genie_bias}
 
 Return ONLY the SQL statement. No markdown, no explanation.`;

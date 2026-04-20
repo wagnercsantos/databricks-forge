@@ -18,14 +18,15 @@ Sessions** sidebar entry or from **Settings**.
 2. [Research Presets](#research-presets)
 3. [Wizard Walkthrough](#wizard-walkthrough)
 4. [Demo Scope](#demo-scope)
-5. [Customer Insight Page](#customer-insight-page)
-6. [Exporting Research](#exporting-research)
-7. [After Generation](#after-generation)
-8. [Managing Sessions](#managing-sessions)
-9. [Architecture](#architecture)
-10. [API Reference](#api-reference)
-11. [Troubleshooting](#troubleshooting)
-12. [File Reference](#file-reference)
+5. [Genie Mode](#genie-mode)
+6. [Customer Insight Page](#customer-insight-page)
+7. [Exporting Research](#exporting-research)
+8. [After Generation](#after-generation)
+9. [Managing Sessions](#managing-sessions)
+10. [Architecture](#architecture)
+11. [API Reference](#api-reference)
+12. [Troubleshooting](#troubleshooting)
+13. [File Reference](#file-reference)
 
 ---
 
@@ -83,9 +84,9 @@ time you have and how polished the demo needs to be.
 
 | Preset | Sources | Analysis | Estimated Time | Best For |
 |---|---|---|---|---|
-| **Quick** | Website only | Single synthesis pass | 20--45 s | Fast standups, internal testing |
-| **Balanced** | Website + investor docs | Industry landscape + combined strategy-narrative | 60--90 s | Customer meetings with reasonable prep time |
-| **Full** | Website + IR docs + uploads | 4-pass McKinsey-grade analysis (landscape, deep-dive, data strategy, demo narrative) | 2--3 min | High-stakes executive demos, QBRs |
+| **Quick** | Website only | Single synthesis pass (+ best-effort evidence-linking) | 25--55 s | Fast standups, internal testing |
+| **Balanced** | Website + investor docs | Phase-1 fan-out (landscape ∥ key-quotes ∥ source-summaries) → combined strategy-narrative → Phase-5 fan-out (persona-talk-track ∥ evidence-linking) | 75--180 s | Customer meetings with reasonable prep time |
+| **Full** | Website + IR docs + uploads | Phase-1 fan-out → deep-dive → data strategy → demo narrative → Phase-5 fan-out. Produces consultant-grade executive brief, 6 opportunities, 5 persona talk tracks, and a quote-backed evidence register | 3--5 min | High-stakes executive demos, QBRs |
 
 All presets allow industry selection from a dropdown of known industries,
 or auto-detection from website content when left as "Auto-detect". If the
@@ -107,6 +108,7 @@ no enrichment data, only the enrichment layer is generated (faster).
 | Research Depth | Yes | Quick / Balanced / Full (see above). |
 | Division / Scope | No | Narrows the demo to a business unit. See [Demo Scope](#demo-scope). |
 | Demo Objective | No | Free text describing what the demo should emphasise. |
+| **Genie Mode** | No | Toggle. Biases every data-engine pass toward a rich, Genie-Space-optimised schema and, after data generation, auto-deploys a Genie Space bound to `<catalog>.<schema>`. See [Genie Mode](#genie-mode). |
 | Additional Documents | No | Upload PDFs, paste strategy excerpts, annual report text. Only used in Full mode. |
 
 Click **Start Research** to kick off the Research Engine.
@@ -118,7 +120,9 @@ The wizard shows a step-by-step timeline with real-time progress:
 - **Gathering Sources** -- website scraping, IR document discovery
 - **Classifying Industry** -- LLM-based industry detection (if auto-detect)
 - **Industry Knowledge** -- checking/generating outcome map and enrichment
-- **Analytical Passes** -- varies by preset (1 pass for Quick, 2 for Balanced, 4 for Full)
+- **Industry Landscape / Key Quotes / Source Summaries** -- Phase-1 fan-out runs in parallel (Balanced + Full)
+- **Analytical Passes** -- varies by preset: Quick = 1 synthesis pass; Balanced = combined strategy-narrative; Full = deep-dive → data strategy → demo narrative
+- **Persona Talk Tracks / Evidence Linking** -- Phase-5 fan-out runs in parallel; the evidence-linking pass retrieves verbatim quotes from the `company_research` pgvector store to ground every `sourced` claim
 
 Each step shows a detail message (e.g. "Scraping https://riotinto.com -- 45K chars",
 "Classified as Manufacturing (92% confidence)").
@@ -171,6 +175,75 @@ Scope narrows the demo from a full enterprise view to a specific unit.
 | **Functional Focus** | Asset families to include (e.g. "Commercial & Customer", "Operations & OT"). |
 | **Departments** | Auto-maps to asset families. HR → Workforce, Finance → Finance & Regulatory, etc. |
 | **Demo Objective** | Free text that shapes the narrative design and killer moments. |
+
+---
+
+## Genie Mode
+
+Genie Mode is a toggle on **Step 1: Company Info** that turns the wizard into
+a one-click **"rich demo dataset + deployed Genie Space"** pipeline.
+
+### What Genie Mode does
+
+When enabled, every data-engine pass is biased toward a schema that showcases
+well in Genie Spaces, and after validation the engine auto-deploys a real
+Genie Space bound to the generated `<catalog>.<schema>`.
+
+| Surface | Standard wizard | Genie Mode |
+|---|---|---|
+| Row counts | 2K–10K per table | **8K–50K per table** (`DEMO_GENIE_ROW_BAND`) |
+| Table count | 8–12 | **12–18** (`DEMO_GENIE_TABLE_BAND`) |
+| Schema bias | Star-ish; domain coverage | Strong star schema: ≥ 3 fact tables + conformed date/customer/product dimensions |
+| Column bias | Domain-appropriate | Extra measures (amount, qty, margin, discount) + hierarchical dims (region → country → store, category → subcategory) |
+| Narrative | Talk-track / killer moments | Biased toward **question-answerability** -- narratives map to specific Genie questions |
+| Post-validation | Done | **Pass 5: Genie Deploy** runs the ad-hoc Genie Engine and creates a Genie Space |
+
+### Pass 5: Genie Deploy
+
+`lib/demo/data-engine/passes/genie-deploy.ts` runs only when `genieMode=true`
+**and** at least one fact table produced rows. On failure it records
+`genieDeployError` and the surrounding data-generation result is still
+returned successfully.
+
+Steps:
+
+1. Collect the fully-qualified names of every successfully-generated table
+2. Call `runFastGenieEngine` (the ad-hoc engine) with `qualityPreset: "balanced"`
+3. Call `createGenieSpace` with `authMode: "obo"` -- the user's OBO token is
+   required so the space is owned by the logged-in user, not the app SP
+4. Seed `ForgeGenieSpaceCache` via `upsertCachedSpaces` +
+   `updateCachedSpaceDiscovery` so `/genie` shows the new space immediately
+   (no manual sync required)
+5. Call `trackGenieSpaceCreated` so the space appears in the Forge tracking tables
+6. Emit a `demo_genie_space_deployed` activity log entry
+
+### OBO token requirement
+
+The wizard's `POST /api/demo/generate` route captures
+`x-forwarded-access-token` at request time and threads it through
+`DataEngineInput.oboToken`. This is non-negotiable: the Genie Create /
+Conversation APIs return `RESOURCE_DOES_NOT_EXIST` when called as the service
+principal. See `.cursor/rules/genie-obo-auth.mdc` and AGENTS.md
+("Genie Conversation API MUST use OBO tokens").
+
+### UI surfaces
+
+- **Wizard Step 1** -- "Genie Mode" toggle card with sparkle icon
+- **Wizard Step 5 (Generation Progress)** -- progress messages prefixed with
+  `Genie:` during the deploy pass; overall progress runs 95→99% during the
+  deploy band
+- **Wizard Step 6 (Complete)** -- violet "Genie Space" card with
+  **Open in Databricks** and **View in Forge** buttons; "Failed" state when
+  deploy errors
+- **Session detail page** (`/demo/sessions/{id}`) -- same Genie Space card
+  rendered above the Data Window card for any Genie-Mode session
+
+### When to use Genie Mode
+
+Pick Genie Mode when the demo's hero surface is Genie. Skip it when you only
+need a schema for the discovery pipeline or environment scan -- the standard
+bands are faster (smaller row counts) and the extra Genie deploy pass adds
+~30–60 s.
 
 ---
 
@@ -271,8 +344,12 @@ that).
 │  Pass 0: Sources       │  │  Pass 0: Narrative Design │
 │  Pass 3.25: Industry   │  │  Pass 1: Schema Design    │
 │  Pass 3.5: Outcome Map │  │  Pass 2: Seed Generation  │
-│  Pass 4-7: Analysis    │  │  Pass 3: Fact Generation  │
-│  (varies by preset)    │  │  Pass 4: Validation       │
+│  Phase-1 fan-out:      │  │  Pass 3: Fact Generation  │
+│   landscape ∥ quotes   │  │  Pass 4: Validation       │
+│   ∥ source-summaries   │  │                           │
+│  Analysis (Q/B/F)      │  │                           │
+│  Phase-5 fan-out:      │  │                           │
+│   persona ∥ evidence   │  │                           │
 └───────────────────────┘  └───────────────────────────┘
             │                          │
             ▼                          ▼
@@ -290,21 +367,105 @@ that).
 | 3.25 | Industry Classification | All (if needed) | classification | Auto-detect industry from sources |
 | 3.5 | Outcome Map / Enrichment | All (if needed) | reasoning / generation | 3-case: skip if both exist, generate enrichment if outcome-only, full generation if neither |
 | 4Q | Quick Synthesis | Quick | generation | Single-pass: assets + nomenclature + narratives |
-| 4 | Industry Landscape | Balanced, Full | reasoning | Market forces, benchmarks, competitive dynamics |
-| 5B | Strategy & Narrative | Balanced | reasoning | Combined strategic profile + data strategy + demo narrative |
-| 5 | Company Deep-Dive | Full | reasoning | SWOT, stated/inferred priorities, urgency signals |
+| 4a | Industry Landscape | Balanced, Full | reasoning | Market forces, benchmarks, competitive dynamics (cached by `industryId::subVertical`, 24h TTL) |
+| 4b | Key Quotes Extraction | Balanced, Full | classification | Pull 8--15 verbatim, executive-worthy quotes per source; dedup by normalized text |
+| 4c | Source Summaries | Balanced, Full | classification | Two-sentence summary + 3 key takeaways per source for the Ingested Sources panel |
+| 5B | Strategy & Narrative | Balanced | reasoning | Combined strategic profile + data strategy + demo narrative + executive brief |
+| 5 | Company Deep-Dive | Full | reasoning | SWOT, stated/inferred priorities, urgency signals, executive brief |
 | 6 | Data Strategy Mapping | Full | reasoning | Map priorities to data assets with criticality scoring |
-| 7 | Demo Narrative Design | Full | reasoning | Killer moments, demo flow, executive talking points |
+| 7 | Demo Narrative Design | Full | reasoning | Expanded killer moments (problem, hypothesis tree, quantified impact, discovery Qs, risk of inaction) |
+| 8 | Persona Talk Tracks | Balanced, Full | reasoning | 5 executive personas: provocative opening, 3 objections + responses, discovery ladder, close signal |
+| 9 | Evidence Linking | All | -- (RAG only) | Retrieve verbatim quotes from `company_research` pgvector index to ground `sourced` claims; downgrade to `inferred` when no match |
+
+### Tiered Evidence Model
+
+Every consultant-grade output (executive brief, company profile priorities,
+killer moments, persona talk tracks) carries an `evidence[]` array where each
+item has one of three tiers:
+
+| Tier | Fields | Meaning |
+|---|---|---|
+| `sourced` | `claim`, `quote`, `sourceUrl`, `sourceTitle` | Verbatim attribution from an ingested research source. Quotes are filled by the evidence-linking pass via pgvector retrieval over the `company_research` index (filtered by `customerName`). |
+| `benchmark` | `claim`, `benchmarkLabel`, `benchmarkRange` | Industry-standard figure (e.g. "Mining asset-utilisation 68--78%"). Produced directly by analysis passes; never linked to a customer URL. |
+| `inferred` | `claim`, `rationale` | Reasoned hypothesis with an explicit rationale. Claims requested as `sourced` but ungrounded by the evidence-linking pass are downgraded here. |
+
+The Customer Insight Page renders tier counts in the summary strip
+("3s · 5b · 2i") and provides a per-tier filter on the Evidence Register.
+The PPTX and PDF exports include a dedicated Evidence Register section with
+up to 20--25 items.
+
+### New Result Fields
+
+`ResearchEngineResult` exposes the following optional top-level fields that
+power the consultant-grade UI and exports:
+
+| Field | Type | Produced By |
+|---|---|---|
+| `executiveBrief` | `ExecutiveBrief` | `company-deep-dive` (Full) or `strategy-and-narrative` (Balanced) |
+| `personaTalkTracks` | `PersonaTalkTrack[]` (5 entries) | `persona-talk-track` pass (Balanced + Full) |
+| `sourceSummaries` | `SourceSummary[]` | `source-summaries` pass (Balanced + Full) |
+| `keyQuotes` | `KeyQuote[]` | `key-quotes-extraction` pass (Balanced + Full) |
+
+Expanded `KillerMoment` fields (emitted by `demo-narrative` for Full,
+`strategy-and-narrative` for Balanced): `problemStatement`, `hypothesisTree`,
+`quantifiedImpact` (low/mid/high + unit), `kpiDelta`, `riskOfInaction`,
+`discoveryQuestions`, `measureOfSuccess`, `evidence[]`, `idealBuyerPersona`,
+`timeToValue`.
+
+### Source Recency Bias
+
+The Research Engine biases every LLM pass toward newer material so a 2016
+annual report cannot outrank a 2024 report on pure similarity.
+
+| Layer | Where | What it does |
+|---|---|---|
+| Date extraction | `lib/demo/research-engine/date-extraction.ts` | Pulls `publishedAt` from sitemap `lastmod`, SEC filing dates, HTTP `Last-Modified`, HTML meta tags / JSON-LD, URL or filename year regex, and a first-500-char text-body scan. Tags a confidence: `high`, `medium`, `low`, or `unknown`. |
+| Source type | `lib/demo/types.ts` (`ResearchSource`) | Carries `publishedAt`, `publishedYear`, and `dateConfidence` through every downstream pass. |
+| Per-pass ordering | `lib/demo/research-engine/engine.ts` | Sorts the `perSourceData` manifest by `recencyWeight(source) * volume` so the newest material wins the token budget in `key-quotes`, `source-summaries`, `company-deep-dive`, and `strategy-and-narrative`. |
+| RAG retrieval | `lib/embeddings/retriever.ts` | `company_research` chunks carry `publishedAt` + `ttlDays=365` in `metadataJson`; `freshnessMultiplier` applies a graded decay (full weight within 2 years, soft decay to 0.25 by year 5). |
+| Evidence linking | `lib/demo/research-engine/passes/evidence-linking.ts` | Runs retrieval with `enforceSourcePriority: true` and a higher `minScore` of 0.58 so stale passages get downgraded to `inferred` rather than attached to a claim. |
+| Prompt guidance | `lib/demo/research-engine/prompts.ts` | Source manifests include a `Published: YYYY-MM-DD (confidence)` line, and prompts are instructed to prefer recent sources and flag anything older than 3 years as historical context. |
+| UI | `components/demo/session/source-list.tsx`, `evidence-list.tsx` | Every source and every sourced evidence chip shows the publication year. Anything older than 3 years gets a red "Stale: YYYY" badge. |
+
+Tuning constants live in `lib/demo/research-engine/recency.ts` -- edit
+`RECENT_YEARS` / `HARD_FLOOR_YEARS` / `STALE_YEARS` there to make the bias
+stronger or weaker.
 
 ### Data Engine Passes
 
 | Pass | Name | Tier | Purpose |
 |---|---|---|---|
-| 0 | Narrative Design | reasoning | Design 3--5 data stories with temporal patterns |
+| 0 | Narrative Design | reasoning | Design 3--5 data stories with temporal patterns (anchored to the active `DemoDateWindow`) |
 | 1 | Schema Design | reasoning | Design dimension + fact tables from matched assets |
-| 2 | Seed Generation | sql | DDL + INSERT for dimension tables (sequential) + COMMENT ON |
-| 3 | Fact Generation | sql | CTAS for fact tables (2x concurrent) + COMMENT ON |
-| 4 | Validation | -- | Row counts, FK integrity, distribution checks (pure SQL) |
+| 2 | Seed Generation | sql | DDL + INSERT for dimension tables (sequential) + COMMENT ON; all timestamps inside the window |
+| 3 | Fact Generation | sql | CTAS for fact tables (concurrent) + COMMENT ON; rows distributed across the window with a bias toward the last 90 days |
+| 4 | Validation | -- | Row counts, FK integrity, and **date freshness** probe per fact table (MIN, MAX, rows_last_90d) |
+| 4b | Fact Freshness Auto-Fix | sql | Single-shot regeneration for any fact table whose dates fall outside the window; re-validated before the engine returns |
+
+### `DemoDateWindow` -- rolling FY + YTD anchor
+
+Every Data Engine run computes a single date window (`lib/demo/data-engine/date-window.ts`)
+that fixes the legs of all generated data in time so demos never drift into a
+stale year (the common "all data is 2024" failure mode).
+
+| Field | Example | Meaning |
+|---|---|---|
+| `startDate` | `2025-01-01` | First day of the most recently completed fiscal year |
+| `endDate` | `2026-04-17` | Today |
+| `dateRangeDays` | `471` | Inclusive span of the window |
+| `fyLabel` | `FY2025 + YTD FY2026` | Human label shown in the session chip |
+| `fiscalYearStartMonth` | `1` | 1-12; default January (calendar FY), overridable per session |
+
+Safety rail: if the current fiscal year has fewer than 60 days elapsed at run
+time (see `MIN_CURRENT_FY_DAYS`), the window is extended back one additional
+FY so narratives have more than a thin stub of YTD data to work with.
+
+The window is propagated into every generation prompt via placeholders
+(`{start_date}`, `{end_date}`, `{fy_label}`, `{date_range_days}`) inside a
+shared `DATA RECENCY` block and is persisted on the session as part of
+`dataModelJson` so the session UI can render a "Data window" chip and a
+per-fact-table MIN → MAX coverage row with a **Stale** badge when the MAX
+falls more than 60 days behind today.
 
 ### Status Tracking
 
@@ -397,11 +558,16 @@ it, the engine has less context for nomenclature and realistic values.
 
 | File | Purpose |
 |---|---|
-| `lib/demo/research-engine/engine.ts` | `runResearchEngine()` orchestrator + `normalizeIndustryId()` |
-| `lib/demo/research-engine/types.ts` | Input, deps, result, intermediate analysis types |
-| `lib/demo/research-engine/prompts.ts` | All prompt templates (incl. `ENRICHMENT_ONLY_GENERATION_PROMPT`) |
+| `lib/demo/research-engine/engine.ts` | `runResearchEngine()` orchestrator with parallel fan-outs (Phase-1 and Phase-5) + `normalizeIndustryId()` |
+| `lib/demo/research-engine/types.ts` | Input, deps, result, intermediate analysis types (`Evidence`, `ExecutiveBrief`, `PersonaTalkTrack`, `KeyQuote`, `SourceSummary`, expanded `KillerMoment`) |
+| `lib/demo/research-engine/prompts.ts` | All prompt templates (incl. `KEY_QUOTES_PROMPT`, `SOURCE_SUMMARIES_PROMPT`, `PERSONA_TALK_TRACK_PROMPT`, `ENRICHMENT_ONLY_GENERATION_PROMPT`) |
 | `lib/demo/research-engine/engine-status.ts` | In-memory status tracking (no ForgeBackgroundJob) |
-| `lib/demo/research-engine/passes/*.ts` | Individual pass implementations (incl. `runEnrichmentOnlyGeneration`) |
+| `lib/demo/research-engine/industry-cache.ts` | In-memory LRU cache (24h TTL) for `industry-landscape` outputs keyed by `industryId::subVertical` |
+| `lib/demo/research-engine/passes/key-quotes.ts` | `runKeyQuotesExtraction()` -- verbatim executive-worthy quote extraction |
+| `lib/demo/research-engine/passes/source-summaries.ts` | `runSourceSummaries()` -- per-source 2-sentence summary + 3 takeaways |
+| `lib/demo/research-engine/passes/persona-talk-track.ts` | `runPersonaTalkTrack()` -- 5-persona objection-handling talk tracks |
+| `lib/demo/research-engine/passes/evidence-linking.ts` | `runEvidenceLinking()` -- RAG-backed quote attachment via pgvector `company_research` index |
+| `lib/demo/research-engine/passes/*.ts` | Other pass implementations (incl. `runEnrichmentOnlyGeneration`) |
 
 ### Data Engine
 

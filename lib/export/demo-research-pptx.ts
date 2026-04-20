@@ -25,6 +25,83 @@ export async function generateDemoResearchPptx(
     research.industryId,
   );
 
+  // --- Executive Brief slide -------------------------------------------
+  const brief = research.executiveBrief;
+  if (brief) {
+    const slide = addSectionSlide(pptx, "Executive Brief");
+    const sections: Array<[string, string | undefined]> = [
+      ["Who they are", brief.whoTheyAre],
+      ["What they care about", brief.whatTheyCareAbout],
+      ["What's likely broken", brief.whatsLikelyBroken],
+      ["Why now", brief.whyNow],
+      ["Where we win first", brief.whereWeWin],
+    ];
+    const items: PptxGenJS.TextProps[] = [];
+    for (const [label, value] of sections) {
+      if (!value) continue;
+      items.push({
+        text: label,
+        options: {
+          fontSize: 12,
+          bold: true,
+          color: PPTX.DB_DARK,
+          breakLine: true,
+          paraSpaceAfter: 2,
+        } as PptxGenJS.TextPropsOptions,
+      });
+      items.push({
+        text: value,
+        options: {
+          fontSize: 11,
+          color: PPTX.TEXT_COLOR,
+          breakLine: true,
+          paraSpaceAfter: 6,
+          indentLevel: 1,
+        } as PptxGenJS.TextPropsOptions,
+      });
+    }
+    const scr = brief.situationComplicationResolution;
+    if (scr && (scr.situation || scr.complication || scr.resolution)) {
+      items.push({
+        text: "Situation -> Complication -> Resolution",
+        options: {
+          fontSize: 12,
+          bold: true,
+          color: PPTX.DB_DARK,
+          breakLine: true,
+          paraSpaceAfter: 2,
+        } as PptxGenJS.TextPropsOptions,
+      });
+      const scrText = [
+        scr.situation ? `Situation. ${scr.situation}` : null,
+        scr.complication ? `Complication. ${scr.complication}` : null,
+        scr.resolution ? `Resolution. ${scr.resolution}` : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      items.push({
+        text: scrText,
+        options: {
+          fontSize: 11,
+          color: PPTX.TEXT_COLOR,
+          italic: true,
+          breakLine: true,
+          paraSpaceAfter: 4,
+          indentLevel: 1,
+        } as PptxGenJS.TextPropsOptions,
+      });
+    }
+    slide.addText(items, {
+      x: PPTX.CONTENT_MARGIN + 0.3,
+      y: 1.2,
+      w: PPTX.CONTENT_W - 0.6,
+      h: 5.7,
+      valign: "top",
+      fontFace: "Calibri",
+    });
+    addFooter(slide);
+  }
+
   const companyProfile = research.companyProfile;
   if (companyProfile) {
     const slide = addSectionSlide(pptx, "Company Overview");
@@ -305,71 +382,84 @@ export async function generateDemoResearchPptx(
   }
 
   if (demoNarrative?.killerMoments && demoNarrative.killerMoments.length > 0) {
-    const moments = demoNarrative.killerMoments.slice(0, 4);
+    const moments = demoNarrative.killerMoments.slice(0, 6);
+    const heading = (text: string): PptxGenJS.TextProps => ({
+      text,
+      options: {
+        fontSize: 12,
+        bold: true,
+        color: PPTX.DB_DARK,
+        breakLine: true,
+        paraSpaceAfter: 2,
+      } as PptxGenJS.TextPropsOptions,
+    });
+    const body = (text: string, indentLevel = 1): PptxGenJS.TextProps => ({
+      text,
+      options: {
+        fontSize: 11,
+        color: PPTX.TEXT_COLOR,
+        breakLine: true,
+        paraSpaceAfter: 6,
+        indentLevel,
+      } as PptxGenJS.TextPropsOptions,
+    });
     for (const m of moments) {
       const slide = addSectionSlide(pptx, m.title);
-      const items: PptxGenJS.TextProps[] = [
-        {
-          text: "Scenario",
-          options: {
-            fontSize: 12,
-            bold: true,
-            color: PPTX.DB_DARK,
-            breakLine: true,
-            paraSpaceAfter: 2,
-          } as PptxGenJS.TextPropsOptions,
-        },
-        {
-          text: m.scenario,
-          options: {
-            fontSize: 11,
-            color: PPTX.TEXT_COLOR,
-            breakLine: true,
-            paraSpaceAfter: 8,
-            indentLevel: 1,
-          } as PptxGenJS.TextPropsOptions,
-        },
-        {
-          text: "Insight",
-          options: {
-            fontSize: 12,
-            bold: true,
-            color: PPTX.DB_DARK,
-            breakLine: true,
-            paraSpaceAfter: 2,
-          } as PptxGenJS.TextPropsOptions,
-        },
-        {
-          text: m.insightStatement,
-          options: {
-            fontSize: 11,
-            color: PPTX.TEXT_COLOR,
-            breakLine: true,
-            paraSpaceAfter: 8,
-            indentLevel: 1,
-          } as PptxGenJS.TextPropsOptions,
-        },
-        {
-          text: "Expected Reaction",
-          options: {
-            fontSize: 12,
-            bold: true,
-            color: PPTX.DB_DARK,
-            breakLine: true,
-            paraSpaceAfter: 2,
-          } as PptxGenJS.TextPropsOptions,
-        },
-        {
-          text: m.expectedReaction,
-          options: {
-            fontSize: 11,
-            color: PPTX.TEXT_COLOR,
-            breakLine: true,
-            paraSpaceAfter: 4,
-            indentLevel: 1,
-          } as PptxGenJS.TextPropsOptions,
-        },
-      ];
+      const items: PptxGenJS.TextProps[] = [];
+
+      items.push(heading("Problem Statement"));
+      items.push(body(m.problemStatement ?? m.scenario));
+
+      items.push(heading("Value Hypothesis"));
+      items.push(body(m.insightStatement));
+
+      if (m.quantifiedImpact) {
+        items.push(heading(`Quantified Impact (${m.quantifiedImpact.unit})`));
+        items.push(
+          body(
+            `Low ${m.quantifiedImpact.low} · Mid ${m.quantifiedImpact.mid} · High ${m.quantifiedImpact.high}`,
+          ),
+        );
+      }
+
+      if (m.kpiDelta) {
+        items.push(heading("KPI Delta"));
+        items.push(body(m.kpiDelta));
+      }
+
+      if (m.hypothesisTree && m.hypothesisTree.length > 0) {
+        items.push(heading("Hypothesis Tree"));
+        for (const h of m.hypothesisTree) items.push(body(`• ${h}`));
+      }
+
+      if (m.discoveryQuestions && m.discoveryQuestions.length > 0) {
+        items.push(heading("Discovery Questions"));
+        for (const q of m.discoveryQuestions) items.push(body(`• ${q}`));
+      }
+
+      if (m.riskOfInaction) {
+        items.push(heading("Risk of Inaction"));
+        items.push(body(m.riskOfInaction));
+      }
+
+      if (m.measureOfSuccess) {
+        items.push(heading("Measure of Success"));
+        items.push(body(m.measureOfSuccess));
+      }
+
+      if (m.evidence && m.evidence.length > 0) {
+        items.push(heading("Evidence"));
+        for (const e of m.evidence) {
+          const line =
+            e.tier === "sourced"
+              ? `[Sourced] ${e.quote ?? e.claim ?? ""}${e.sourceTitle ? ` — ${e.sourceTitle}` : ""}`
+              : e.tier === "benchmark"
+                ? `[Benchmark] ${e.benchmarkLabel ?? ""} ${e.benchmarkRange ?? ""}`
+                : `[Inferred] ${e.rationale ?? e.claim ?? ""}`;
+          items.push(body(line));
+        }
+      }
+
       slide.addText(items, {
         x: PPTX.CONTENT_MARGIN + 0.3,
         y: 1.2,
@@ -380,6 +470,70 @@ export async function generateDemoResearchPptx(
       });
       addFooter(slide);
     }
+  }
+
+  // --- Persona Talk Tracks (one slide per persona) ---------------------
+  const talkTracks = research.personaTalkTracks ?? [];
+  for (const track of talkTracks) {
+    const slide = addSectionSlide(pptx, `Talk Track: ${track.label}`);
+    const items: PptxGenJS.TextProps[] = [];
+    const h = (text: string): PptxGenJS.TextProps => ({
+      text,
+      options: {
+        fontSize: 12,
+        bold: true,
+        color: PPTX.DB_DARK,
+        breakLine: true,
+        paraSpaceAfter: 2,
+      } as PptxGenJS.TextPropsOptions,
+    });
+    const b = (text: string): PptxGenJS.TextProps => ({
+      text,
+      options: {
+        fontSize: 11,
+        color: PPTX.TEXT_COLOR,
+        breakLine: true,
+        paraSpaceAfter: 6,
+        indentLevel: 1,
+      } as PptxGenJS.TextPropsOptions,
+    });
+
+    if (track.caresAbout.length > 0) {
+      items.push(h("Cares about"));
+      for (const c of track.caresAbout) items.push(b(`• ${c}`));
+    }
+    if (track.provocativeOpening) {
+      items.push(h("Provocative opening"));
+      items.push(b(track.provocativeOpening));
+    }
+    if (track.whatToSay) {
+      items.push(h("What to say"));
+      items.push(b(track.whatToSay));
+    }
+    if (track.threeObjections && track.threeObjections.length > 0) {
+      items.push(h("Objections + responses"));
+      for (const o of track.threeObjections) {
+        items.push(b(`"${o.objection}"  ->  ${o.response}`));
+      }
+    }
+    if (track.discoveryTrack && track.discoveryTrack.length > 0) {
+      items.push(h("Discovery ladder"));
+      for (const q of track.discoveryTrack) items.push(b(`• ${q}`));
+    }
+    if (track.closeSignal) {
+      items.push(h("Close signal"));
+      items.push(b(track.closeSignal));
+    }
+
+    slide.addText(items, {
+      x: PPTX.CONTENT_MARGIN + 0.3,
+      y: 1.2,
+      w: PPTX.CONTENT_W - 0.6,
+      h: 5.5,
+      valign: "top",
+      fontFace: "Calibri",
+    });
+    addFooter(slide);
   }
 
   if (demoNarrative?.competitorAngles && demoNarrative.competitorAngles.length > 0) {
@@ -491,6 +645,60 @@ export async function generateDemoResearchPptx(
         y += cardH + gap;
       }
     }
+    addFooter(slide);
+  }
+
+  // --- Evidence Register -----------------------------------------------
+  const evidenceRows: Array<{ tier: string; claim: string; detail: string; source: string }> = [];
+  for (const e of research.executiveBrief?.evidence ?? []) {
+    evidenceRows.push({
+      tier: e.tier,
+      claim: e.claim ?? "Executive brief",
+      detail:
+        e.tier === "sourced"
+          ? (e.quote ?? "")
+          : e.tier === "benchmark"
+            ? `${e.benchmarkLabel ?? ""} ${e.benchmarkRange ?? ""}`.trim()
+            : (e.rationale ?? ""),
+      source: e.sourceTitle ?? e.sourceUrl ?? "",
+    });
+  }
+  for (const m of research.demoNarrative?.killerMoments ?? []) {
+    for (const e of m.evidence ?? []) {
+      evidenceRows.push({
+        tier: e.tier,
+        claim: e.claim ?? m.title,
+        detail:
+          e.tier === "sourced"
+            ? (e.quote ?? "")
+            : e.tier === "benchmark"
+              ? `${e.benchmarkLabel ?? ""} ${e.benchmarkRange ?? ""}`.trim()
+              : (e.rationale ?? ""),
+        source: e.sourceTitle ?? e.sourceUrl ?? "",
+      });
+    }
+  }
+  if (evidenceRows.length > 0) {
+    const slide = addSectionSlide(pptx, "Evidence Register");
+    const evData: PptxGenJS.TableRow[] = [
+      [headerCell("Tier"), headerCell("Claim"), headerCell("Evidence"), headerCell("Source")],
+      ...evidenceRows.slice(0, 20).map(
+        (r): PptxGenJS.TableRow => [
+          bodyCell(r.tier, { align: "center" }),
+          bodyCell(r.claim),
+          bodyCell(r.detail),
+          bodyCell(r.source),
+        ],
+      ),
+    ];
+    slide.addTable(evData, {
+      x: PPTX.CONTENT_MARGIN + 0.3,
+      y: 1.2,
+      w: PPTX.CONTENT_W - 0.6,
+      colW: [1.2, 2.8, 5.5, 1.5],
+      border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
+      autoPage: false,
+    });
     addFooter(slide);
   }
 

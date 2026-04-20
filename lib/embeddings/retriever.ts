@@ -105,6 +105,11 @@ function inferSourcePriority(result: SearchResult): SourcePriority {
     case "table_health":
     case "lineage_context":
       return "CustomerFact";
+    // Public company research is factual about the customer -- rank it
+    // alongside estate metadata so the retriever's priority weights don't
+    // down-weight it relative to platform skills.
+    case "company_research":
+      return "CustomerFact";
     case "benchmark_context":
       return "IndustryBenchmark";
     case "outcome_map":
@@ -117,18 +122,55 @@ function inferSourcePriority(result: SearchResult): SourcePriority {
   }
 }
 
+// Local recency curve, mirrors lib/demo/research-engine/recency.ts but
+// without the cross-module dependency. Two layers:
+//   1. Full weight within RECENT_YEARS_MS
+//   2. Soft decay to HARD_FLOOR_WEIGHT by HARD_FLOOR_YEARS_MS
+const ONE_YEAR_MS = 365.25 * 24 * 60 * 60 * 1000;
+const RECENT_YEARS_MS = 2 * ONE_YEAR_MS;
+const HARD_FLOOR_YEARS_MS = 5 * ONE_YEAR_MS;
+const HARD_FLOOR_WEIGHT = 0.25;
+const UNKNOWN_DATE_WEIGHT = 0.8;
+
+function dateAgeMultiplier(publishedAt: number, now: number = Date.now()): number {
+  const ageMs = Math.max(0, now - publishedAt);
+  if (ageMs <= RECENT_YEARS_MS) return 1.0;
+  if (ageMs >= HARD_FLOOR_YEARS_MS) return HARD_FLOOR_WEIGHT;
+  const t = (ageMs - RECENT_YEARS_MS) / (HARD_FLOOR_YEARS_MS - RECENT_YEARS_MS);
+  return 1.0 - t * (1.0 - 0.55);
+}
+
 function freshnessMultiplier(result: SearchResult): number {
   const md = result.metadataJson ?? {};
+
+  // Explicit validUntil takes precedence (curated content with expiry).
   const validUntil = typeof md.validUntil === "string" ? Date.parse(md.validUntil) : NaN;
   if (Number.isFinite(validUntil)) {
     return validUntil >= Date.now() ? 1 : 0.85;
   }
+
+  // Company research (and any other chunk that carries publishedAt) gets
+  // graded decay by age so that a 2016 10-K loses out to a 2024 report even
+  // when pure cosine similarity is close.
   const publishedAt = typeof md.publishedAt === "string" ? Date.parse(md.publishedAt) : NaN;
-  if (Number.isFinite(publishedAt) && typeof md.ttlDays === "number") {
-    const maxAgeMs = md.ttlDays * 24 * 60 * 60 * 1000;
-    const expiry = publishedAt + maxAgeMs;
-    return expiry >= Date.now() ? 1 : 0.85;
+  if (Number.isFinite(publishedAt)) {
+    return dateAgeMultiplier(publishedAt);
   }
+
+  const publishedYear =
+    typeof md.publishedYear === "number" && Number.isFinite(md.publishedYear)
+      ? (md.publishedYear as number)
+      : undefined;
+  if (publishedYear) {
+    const ts = Date.UTC(Math.trunc(publishedYear), 0, 1);
+    return dateAgeMultiplier(ts);
+  }
+
+  // For company_research chunks with no date at all, apply the same
+  // neutral-lean default used by the demo engine so older dated content
+  // can still beat an undated chunk.
+  if (result.kind === "company_research") return UNKNOWN_DATE_WEIGHT;
+
   return 1;
 }
 

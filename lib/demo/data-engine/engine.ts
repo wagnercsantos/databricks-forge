@@ -26,8 +26,13 @@ function adaptReviewAndFixSql(sql: string, error: string, context?: string): Pro
 import { runNarrativeDesign } from "./passes/narrative-design";
 import { runSchemaDesign } from "./passes/schema-design";
 import { runSeedGeneration } from "./passes/seed-generation";
-import { runFactGeneration } from "./passes/fact-generation";
+import {
+  runFactGeneration,
+  regenerateFactForFreshness,
+} from "./passes/fact-generation";
 import { runValidation } from "./passes/validation";
+import { runGenieDeploy } from "./passes/genie-deploy";
+import { computeDemoDateWindow } from "./date-window";
 
 export class DataEngineCancelledError extends Error {
   constructor() {
@@ -50,11 +55,24 @@ export async function runDataEngine(input: DataEngineInput): Promise<DataEngineR
 
   const progress = (msg: string, pct: number) => input.onProgress?.(msg, pct);
 
+  // =======================================================================
+  // Compute the rolling demo date window ONCE. Every prompt + validation
+  // step downstream anchors to this window so the demo can never drift
+  // into a stale year.
+  // =======================================================================
+  const dateWindow = computeDemoDateWindow(new Date(), input.fiscalYearStartMonth);
+
   log.info("Starting data engine", {
     sessionId: input.sessionId,
     catalog: input.catalog,
     schema: input.schema,
     targetRows: input.targetRowCount,
+    dateWindow: {
+      startDate: dateWindow.startDate,
+      endDate: dateWindow.endDate,
+      fyLabel: dateWindow.fyLabel,
+      dateRangeDays: dateWindow.dateRangeDays,
+    },
   });
 
   // =======================================================================
@@ -64,11 +82,12 @@ export async function runDataEngine(input: DataEngineInput): Promise<DataEngineR
   progress("Designing data narratives...", 5);
   checkCancelled(signal);
 
-  const narrativeResult = await runNarrativeDesign(input.research, input.targetRowCount, {
-    llm,
-    logger: log,
-    signal,
-  });
+  const narrativeResult = await runNarrativeDesign(
+    input.research,
+    input.targetRowCount,
+    dateWindow,
+    { llm, logger: log, signal, genieMode: input.genieMode },
+  );
 
   const narratives: DataNarrative[] = narrativeResult.narratives.map((n) => ({
     title: n.title,
@@ -91,6 +110,7 @@ export async function runDataEngine(input: DataEngineInput): Promise<DataEngineR
     llm,
     logger: log,
     signal,
+    genieMode: input.genieMode,
   });
 
   input.onTablesReady?.(tables);
@@ -139,7 +159,8 @@ export async function runDataEngine(input: DataEngineInput): Promise<DataEngineR
         nomenclature: input.research.nomenclature,
         scope: input.research.scope,
       },
-      { llm, sql, logger: log, signal, onPhase, reviewAndFixSql: reviewFn },
+      dateWindow,
+      { llm, sql, logger: log, signal, onPhase, reviewAndFixSql: reviewFn, genieMode: input.genieMode },
     );
 
     const fqn = `\`${input.catalog}\`.\`${input.schema}\`.\`${table.name}\``;
@@ -289,7 +310,8 @@ export async function runDataEngine(input: DataEngineInput): Promise<DataEngineR
             industryId: input.research.industryId,
             nomenclature: input.research.nomenclature,
           },
-          { llm, sql, logger: log, signal, onPhase, reviewAndFixSql: reviewFn },
+          dateWindow,
+          { llm, sql, logger: log, signal, onPhase, reviewAndFixSql: reviewFn, genieMode: input.genieMode },
         );
 
         const fqn = `\`${input.catalog}\`.\`${input.schema}\`.\`${table.name}\``;
@@ -322,15 +344,141 @@ export async function runDataEngine(input: DataEngineInput): Promise<DataEngineR
   }
 
   // =======================================================================
-  // Pass 4: Validation
+  // Pass 4: Validation (row counts, FK integrity, date coverage)
   // =======================================================================
   log.info("Pass 4: Validation", { totalTables: tables.length });
   progress("Validating generated data...", 90);
 
-  const validationSummary = await runValidation(tables, input.catalog, input.schema, {
+  let validationSummary = await runValidation(tables, input.catalog, input.schema, dateWindow, {
     sql,
     logger: log,
   });
+
+  // =======================================================================
+  // Pass 4b: Freshness auto-fix (single retry for stale fact tables)
+  // =======================================================================
+  const staleFactRetryNames = (validationSummary.results ?? [])
+    .filter((r) => r.dateCoverage?.stale)
+    .map((r) => r.tableName)
+    .filter((name) => factTables.some((t) => t.name === name));
+
+  if (staleFactRetryNames.length > 0) {
+    log.warn("Stale fact tables detected -- running freshness auto-fix", {
+      tables: staleFactRetryNames,
+      window: `${dateWindow.startDate}..${dateWindow.endDate}`,
+    });
+    progress(`Refreshing ${staleFactRetryNames.length} stale fact table(s)...`, 93);
+
+    for (const staleName of staleFactRetryNames) {
+      checkCancelled(signal);
+      const table = factTables.find((t) => t.name === staleName);
+      const observed = validationSummary.results?.find((r) => r.tableName === staleName)
+        ?.dateCoverage;
+      if (!table || !observed) continue;
+
+      const onPhase = (phase: TablePhase) => input.onTablePhase?.(table.name, phase);
+
+      const fixResult = await regenerateFactForFreshness(
+        table,
+        input.catalog,
+        input.schema,
+        successfulDimensions,
+        narratives,
+        {
+          customerName: input.research.customerName,
+          industryId: input.research.industryId,
+          nomenclature: input.research.nomenclature,
+        },
+        dateWindow,
+        {
+          columnName: observed.columnName,
+          minDate: observed.minDate,
+          maxDate: observed.maxDate,
+        },
+        { llm, sql, logger: log, signal, onPhase, genieMode: input.genieMode },
+      );
+
+      const existing = tableResults.find((r) => r.name === staleName);
+      if (existing) {
+        existing.status = fixResult.error ? "failed" : "completed";
+        existing.rowCount = fixResult.rowCount;
+        existing.error = fixResult.error;
+        existing.retryCount += 1;
+      }
+    }
+
+    // Re-run validation ONLY for tables that were refreshed.
+    const refreshedTables = tables.filter((t) => staleFactRetryNames.includes(t.name));
+    const revalidation = await runValidation(refreshedTables, input.catalog, input.schema, dateWindow, {
+      sql,
+      logger: log,
+    });
+
+    // Merge revalidation results back into the full summary.
+    if (validationSummary.results && revalidation.results) {
+      const updatedByName = new Map(revalidation.results.map((r) => [r.tableName, r]));
+      const mergedResults = validationSummary.results.map(
+        (r) => updatedByName.get(r.tableName) ?? r,
+      );
+      validationSummary = {
+        ...validationSummary,
+        results: mergedResults,
+        // Recompute aggregate issue list + passed count off the merged view.
+        issues: mergedResults.flatMap((r) => r.issues.map((i) => `${r.tableName}: ${i}`)),
+        passedTables: mergedResults.filter((r) => r.issues.length === 0).length,
+      };
+    }
+  }
+
+  // =======================================================================
+  // Pass 5: Genie Deploy (Genie Mode only, non-fatal)
+  // =======================================================================
+  let genieSpaceId: string | undefined;
+  let genieSpaceUrl: string | undefined;
+  let genieDeployError: string | undefined;
+
+  if (input.genieMode) {
+    const anyFactSucceeded = tableResults.some(
+      (r) => r.status === "completed" && factTables.some((t) => t.name === r.name),
+    );
+    if (!anyFactSucceeded) {
+      genieDeployError = "No fact tables succeeded -- skipping Genie Space deploy.";
+      log.warn(genieDeployError, { sessionId: input.sessionId });
+    } else {
+      log.info("Pass 5: Genie deploy", { sessionId: input.sessionId });
+      progress("Deploying Genie Space...", 95);
+      try {
+        const deployResult = await runGenieDeploy({
+          sessionId: input.sessionId,
+          catalog: input.catalog,
+          schema: input.schema,
+          tableDesigns: tables,
+          tableResults,
+          research: input.research,
+          oboToken: input.oboToken,
+          logger: log,
+          signal,
+          onProgress: (msg, pct) => {
+            // Compress 0-100 of the deploy progress into the 95-99 band
+            // of the overall data engine progress.
+            progress(msg, 95 + Math.floor(pct * 0.04));
+          },
+        });
+        genieSpaceId = deployResult.spaceId;
+        genieSpaceUrl = deployResult.spaceUrl;
+        log.info("Genie Space deploy complete", {
+          sessionId: input.sessionId,
+          spaceId: genieSpaceId,
+        });
+      } catch (err) {
+        genieDeployError = err instanceof Error ? err.message : String(err);
+        log.error("Genie Space deploy failed (non-fatal)", {
+          sessionId: input.sessionId,
+          error: genieDeployError,
+        });
+      }
+    }
+  }
 
   // =======================================================================
   // Result
@@ -348,6 +496,10 @@ export async function runDataEngine(input: DataEngineInput): Promise<DataEngineR
     totalTables: tables.length,
     validationSummary,
     durationMs,
+    dateWindow,
+    genieSpaceId,
+    genieSpaceUrl,
+    genieDeployError,
   };
 
   log.info("Data engine complete", {

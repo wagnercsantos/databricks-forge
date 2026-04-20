@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { isDemoModeEnabled } from "@/lib/demo/config";
 import { runDataEngine } from "@/lib/demo/data-engine/engine";
 import {
+  DEMO_GENIE_ROW_BAND,
+  DEMO_GENIE_TABLE_BAND,
+  DEMO_STANDARD_ROW_BAND,
+} from "@/lib/demo/types";
+import {
   startDataJob,
   completeDataJob,
   failDataJob,
@@ -11,6 +16,7 @@ import {
 } from "@/lib/demo/data-engine/engine-status";
 import {
   getDemoSessionResearch,
+  serializeDemoSessionDataModel,
   updateDemoSessionStatus,
 } from "@/lib/lakebase/demo-sessions";
 import { logActivity } from "@/lib/lakebase/activity-log";
@@ -28,13 +34,15 @@ export async function POST(request: Request) {
       catalog,
       schema,
       catalogCreated: _catalogCreated = false,
-      targetRowCount = { min: 2000, max: 10000 },
+      targetRowCount,
+      genieMode = false,
     } = body as {
       sessionId: string;
       catalog: string;
       schema: string;
       catalogCreated?: boolean;
       targetRowCount?: { min: number; max: number };
+      genieMode?: boolean;
     };
 
     if (!sessionId || !catalog || !schema) {
@@ -52,6 +60,20 @@ export async function POST(request: Request) {
       );
     }
 
+    // Genie Mode widens the default row + table bands so the resulting
+    // Genie Space has enough data to look production-grade.
+    const resolvedRowCount =
+      targetRowCount ?? (genieMode ? { ...DEMO_GENIE_ROW_BAND } : { ...DEMO_STANDARD_ROW_BAND });
+    const resolvedTableCount = genieMode ? { ...DEMO_GENIE_TABLE_BAND } : undefined;
+
+    // IMPORTANT: Capture OBO token NOW, in request context. The background
+    // closure below runs outside any request, so header access is lost.
+    // Genie Space creation REQUIRES the user's OBO token (see AGENTS.md).
+    const oboToken =
+      request.headers.get("x-forwarded-access-token") ??
+      request.headers.get("X-Forwarded-Access-Token") ??
+      undefined;
+
     await updateDemoSessionStatus(sessionId, "generating", {
       catalogName: catalog,
       schemaName: schema,
@@ -68,7 +90,10 @@ export async function POST(request: Request) {
           research,
           catalog,
           schema,
-          targetRowCount,
+          targetRowCount: resolvedRowCount,
+          targetTableCount: resolvedTableCount,
+          genieMode,
+          oboToken,
           signal: controller.signal,
           onProgress: (message, percent) => {
             updateDataJob(sessionId, message, percent);
@@ -87,7 +112,17 @@ export async function POST(request: Request) {
         const tableFqns = result.tables.map((t) => t.fqn);
 
         await updateDemoSessionStatus(sessionId, "completed", {
-          dataModelJson: JSON.stringify(result.designs),
+          dataModelJson: serializeDemoSessionDataModel(
+            result.designs,
+            result.dateWindow,
+            result.validationSummary,
+            {
+              genieMode,
+              genieSpaceId: result.genieSpaceId,
+              genieSpaceUrl: result.genieSpaceUrl,
+              genieDeployError: result.genieDeployError,
+            },
+          ),
           tablesJson: JSON.stringify(tableFqns),
           catalogName: catalog,
           schemaName: schema,
@@ -106,8 +141,20 @@ export async function POST(request: Request) {
             tables: result.totalTables,
             rows: result.totalRows,
             durationMs: result.durationMs,
+            genieMode,
           },
         });
+        if (result.genieSpaceId) {
+          await logActivity("demo_genie_space_deployed", {
+            resourceId: sessionId,
+            metadata: {
+              catalog,
+              schema,
+              spaceId: result.genieSpaceId,
+              spaceUrl: result.genieSpaceUrl,
+            },
+          });
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.error("[demo/generate] Engine failed", { sessionId, error: msg });

@@ -33,7 +33,8 @@ export type ActivityAction =
   | "rerun_business_value"
   | "demo_research"
   | "demo_generate"
-  | "demo_cleanup";
+  | "demo_cleanup"
+  | "demo_genie_space_deployed";
 
 export interface ActivityLogEntry {
   activityId: string;

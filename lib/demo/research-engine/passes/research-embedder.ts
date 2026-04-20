@@ -31,8 +31,19 @@ export interface EmbedSourceInput {
     type: string;
     title: string;
     text: string;
+    url?: string;
+    publishedAt?: string;
+    publishedYear?: number;
+    dateConfidence?: "high" | "medium" | "low" | "unknown";
   }>;
 }
+
+/**
+ * Default TTL for company research chunks. Paired with publishedAt, this
+ * unlocks the freshness multiplier in lib/embeddings/retriever.ts so older
+ * chunks are deprioritised at retrieval time.
+ */
+const RESEARCH_TTL_DAYS = 365;
 
 // ---------------------------------------------------------------------------
 // Chunking
@@ -126,6 +137,10 @@ export async function embedResearchSources(
       sourceType: string;
       sourceTitle: string;
       chunkIndex: number;
+      sourceUrl?: string;
+      publishedAt?: string;
+      publishedYear?: number;
+      dateConfidence?: "high" | "medium" | "low" | "unknown";
     }> = [];
 
     for (const source of sources) {
@@ -145,6 +160,10 @@ export async function embedResearchSources(
           sourceType: source.type,
           sourceTitle: source.title,
           chunkIndex: i + 1,
+          sourceUrl: source.url,
+          publishedAt: source.publishedAt,
+          publishedYear: source.publishedYear,
+          dateConfidence: source.dateConfidence,
         });
       }
     }
@@ -178,6 +197,13 @@ export async function embedResearchSources(
         sourceType: chunk.sourceType,
         sourceTitle: chunk.sourceTitle,
         chunkIndex: chunk.chunkIndex,
+        // Recency signals -- used by the retriever's freshness multiplier
+        // and by prompts that show Published dates in source manifests.
+        ...(chunk.sourceUrl ? { sourceUrl: chunk.sourceUrl } : {}),
+        ...(chunk.publishedAt ? { publishedAt: chunk.publishedAt } : {}),
+        ...(typeof chunk.publishedYear === "number" ? { publishedYear: chunk.publishedYear } : {}),
+        ...(chunk.dateConfidence ? { dateConfidence: chunk.dateConfidence } : {}),
+        ttlDays: RESEARCH_TTL_DAYS,
       },
       embedding: allVectors[idx],
     }));

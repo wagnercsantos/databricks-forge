@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, AlertTriangle, Loader2 } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Loader2, Sparkles, ExternalLink } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import type { ResearchEngineResult } from "@/lib/demo/research-engine/types";
 import { ResearchHeader } from "@/components/demo/session/research-header";
@@ -17,6 +18,9 @@ import { PersonaTalkTrack } from "@/components/demo/session/persona-talk-track";
 import { EvidenceList } from "@/components/demo/session/evidence-list";
 import { SourceList } from "@/components/demo/session/source-list";
 import { DataReadinessList } from "@/components/demo/session/data-readiness-list";
+import { DataWindowCard } from "@/components/demo/session/data-window-card";
+import type { DemoDateWindow } from "@/lib/demo/data-engine/date-window";
+import type { TableDesign, ValidationResult } from "@/lib/demo/types";
 
 interface SessionDetail {
   sessionId: string;
@@ -31,6 +35,13 @@ interface SessionDetail {
   durationMs: number;
   createdAt: string;
   research: ResearchEngineResult | null;
+  dateWindow: DemoDateWindow | null;
+  validationResults: ValidationResult[] | null;
+  tableDesigns: TableDesign[] | null;
+  genieMode?: boolean;
+  genieSpaceId?: string | null;
+  genieSpaceUrl?: string | null;
+  genieDeployError?: string | null;
 }
 
 export default function DemoSessionPage() {
@@ -237,6 +248,84 @@ export default function DemoSessionPage() {
       {/* ── Meeting Summary Strip ─────────────────────────────────── */}
       <MeetingSummaryStrip research={research} />
 
+      {/* ── Genie Space card (Genie Mode only) ────────────────────── */}
+      {(session.genieMode || session.genieSpaceId || session.genieDeployError) && (
+        <Card className="border-violet-200 bg-violet-50/40 dark:border-violet-900 dark:bg-violet-950/20">
+          <CardContent className="py-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-100 dark:bg-violet-900/40">
+                <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">Genie Space</p>
+                  {session.genieSpaceId ? (
+                    <span className="text-[10px] font-medium uppercase tracking-wider rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5">
+                      Deployed
+                    </span>
+                  ) : session.genieDeployError ? (
+                    <span className="text-[10px] font-medium uppercase tracking-wider rounded-full bg-destructive/10 text-destructive px-2 py-0.5">
+                      Failed
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-medium uppercase tracking-wider rounded-full bg-muted text-muted-foreground px-2 py-0.5">
+                      Pending
+                    </span>
+                  )}
+                </div>
+                {session.genieSpaceId ? (
+                  <>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Bound to{" "}
+                      <code className="font-mono text-[11px]">
+                        {session.catalogName}.{session.schemaName}
+                      </code>
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {session.genieSpaceUrl && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:text-violet-300 dark:hover:bg-violet-900/40"
+                          onClick={() => window.open(session.genieSpaceUrl!, "_blank")}
+                        >
+                          Open in Databricks
+                          <ExternalLink className="h-3 w-3" />
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1.5"
+                        onClick={() => router.push("/genie")}
+                      >
+                        View in Forge
+                      </Button>
+                    </div>
+                  </>
+                ) : session.genieDeployError ? (
+                  <p className="mt-0.5 text-xs text-destructive">
+                    Deploy failed: {session.genieDeployError}
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Finalising Genie Space...
+                  </p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Data Window + per-fact-table coverage ─────────────────── */}
+      <DataWindowCard
+        dateWindow={session.dateWindow}
+        validationResults={session.validationResults}
+        tableDesigns={session.tableDesigns}
+      />
+
       {/* ── Main content: tabs + sidebar rail ─────────────────────── */}
       <div className="flex gap-6">
         {/* Main column */}
@@ -297,7 +386,7 @@ export default function DemoSessionPage() {
             {/* ── Sources Tab ───────────────────────────────── */}
             <TabsContent value="sources" className="mt-4">
               {research?.sources?.length ? (
-                <SourceList sources={research.sources} />
+                <SourceList sources={research.sources} summaries={research.sourceSummaries} />
               ) : (
                 <EmptyTabMessage message="No sources collected." />
               )}

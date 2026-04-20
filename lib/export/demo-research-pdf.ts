@@ -80,6 +80,39 @@ export async function generateDemoResearchPdf(
 
     let y = 70;
 
+    // --- Executive Brief --------------------------------------------------
+    const brief = research.executiveBrief;
+    if (brief) {
+      y = sectionHeading(doc, y, "Executive Brief");
+      const sections: Array<[string, string | undefined]> = [
+        ["Who they are", brief.whoTheyAre],
+        ["What they care about", brief.whatTheyCareAbout],
+        ["What's likely broken", brief.whatsLikelyBroken],
+        ["Why now", brief.whyNow],
+        ["Where we win first", brief.whereWeWin],
+      ];
+      for (const [label, value] of sections) {
+        if (!value) continue;
+        doc.fontSize(11).fillColor(PDF.DB_DARK).font("Helvetica-Bold").text(label, M, y, { width: CW });
+        y = doc.y + 2;
+        doc.fontSize(10).fillColor(PDF.TEXT_COLOR).font("Helvetica").text(value, M + 10, y, { width: CW - 20, lineGap: 2 });
+        y = doc.y + 6;
+      }
+      const scr = brief.situationComplicationResolution;
+      if (scr && (scr.situation || scr.complication || scr.resolution)) {
+        doc.fontSize(11).fillColor(PDF.DB_DARK).font("Helvetica-Bold").text("Situation -> Complication -> Resolution", M, y, { width: CW });
+        y = doc.y + 2;
+        const parts = [
+          scr.situation ? `Situation. ${scr.situation}` : null,
+          scr.complication ? `Complication. ${scr.complication}` : null,
+          scr.resolution ? `Resolution. ${scr.resolution}` : null,
+        ].filter((x): x is string => Boolean(x));
+        doc.fontSize(10).fillColor(PDF.TEXT_COLOR).font("Helvetica-Oblique").text(parts.join(" "), M + 10, y, { width: CW - 20, lineGap: 2 });
+        y = doc.y + 10;
+      }
+      y += 4;
+    }
+
     const companyProfile = research.companyProfile;
     if (companyProfile) {
       y = sectionHeading(doc, y, "Company Overview");
@@ -194,19 +227,132 @@ export async function generateDemoResearchPdf(
     }
 
     if (demoNarrative?.killerMoments && demoNarrative.killerMoments.length > 0) {
-      for (const m of demoNarrative.killerMoments.slice(0, 4)) {
+      for (const m of demoNarrative.killerMoments.slice(0, 6)) {
         if (y > PAGE_H - 120) {
           doc.addPage();
           y = M;
         }
         y = sectionHeading(doc, y, m.title);
-        doc.fontSize(10).fillColor(PDF.TEXT_COLOR).font("Helvetica");
-        doc.text("Scenario: " + m.scenario, M, y, { width: CW });
-        y = doc.y + 6;
-        doc.text("Insight: " + m.insightStatement, M, y, { width: CW });
-        y = doc.y + 6;
-        doc.text("Expected Reaction: " + m.expectedReaction, M, y, { width: CW });
-        y = doc.y + 12;
+
+        const writeLine = (label: string, value: string) => {
+          doc.fontSize(10).fillColor(PDF.DB_DARK).font("Helvetica-Bold").text(label, M, y);
+          y = doc.y + 2;
+          doc.fontSize(10).fillColor(PDF.TEXT_COLOR).font("Helvetica").text(value, M + 10, y, { width: CW - 20, lineGap: 1 });
+          y = doc.y + 6;
+        };
+
+        writeLine("Problem", m.problemStatement ?? m.scenario);
+        writeLine("Value Hypothesis", m.insightStatement);
+
+        if (m.quantifiedImpact) {
+          writeLine(
+            `Quantified Impact (${m.quantifiedImpact.unit})`,
+            `Low ${m.quantifiedImpact.low} · Mid ${m.quantifiedImpact.mid} · High ${m.quantifiedImpact.high}`,
+          );
+        }
+        if (m.kpiDelta) writeLine("KPI Delta", m.kpiDelta);
+
+        if (m.hypothesisTree && m.hypothesisTree.length > 0) {
+          doc.fontSize(10).fillColor(PDF.DB_DARK).font("Helvetica-Bold").text("Hypothesis Tree", M, y);
+          y = doc.y + 2;
+          for (const h of m.hypothesisTree) {
+            doc.fontSize(10).fillColor(PDF.TEXT_COLOR).font("Helvetica").text(`• ${h}`, M + 10, y, { width: CW - 20 });
+            y = doc.y + 2;
+          }
+          y += 4;
+        }
+
+        if (m.discoveryQuestions && m.discoveryQuestions.length > 0) {
+          doc.fontSize(10).fillColor(PDF.DB_DARK).font("Helvetica-Bold").text("Discovery Questions", M, y);
+          y = doc.y + 2;
+          for (const q of m.discoveryQuestions) {
+            doc.fontSize(10).fillColor(PDF.TEXT_COLOR).font("Helvetica").text(`• ${q}`, M + 10, y, { width: CW - 20 });
+            y = doc.y + 2;
+          }
+          y += 4;
+        }
+
+        if (m.riskOfInaction) writeLine("Risk of Inaction", m.riskOfInaction);
+        if (m.measureOfSuccess) writeLine("Measure of Success", m.measureOfSuccess);
+
+        if (m.evidence && m.evidence.length > 0) {
+          doc.fontSize(10).fillColor(PDF.DB_DARK).font("Helvetica-Bold").text("Evidence", M, y);
+          y = doc.y + 2;
+          for (const e of m.evidence) {
+            const line =
+              e.tier === "sourced"
+                ? `[Sourced] ${e.quote ?? e.claim ?? ""}${e.sourceTitle ? ` — ${e.sourceTitle}` : ""}`
+                : e.tier === "benchmark"
+                  ? `[Benchmark] ${e.benchmarkLabel ?? ""} ${e.benchmarkRange ?? ""}`
+                  : `[Inferred] ${e.rationale ?? e.claim ?? ""}`;
+            doc.fontSize(9).fillColor(PDF.TEXT_COLOR).font("Helvetica-Oblique").text(line, M + 10, y, { width: CW - 20 });
+            y = doc.y + 2;
+          }
+          y += 4;
+        }
+
+        y += 8;
+      }
+    }
+
+    const talkTracks = research.personaTalkTracks ?? [];
+    if (talkTracks.length > 0) {
+      for (const track of talkTracks) {
+        if (y > PAGE_H - 150) {
+          doc.addPage();
+          y = M;
+        }
+        y = sectionHeading(doc, y, `Talk Track: ${track.label}`);
+
+        if (track.caresAbout.length > 0) {
+          doc.fontSize(10).fillColor(PDF.DB_DARK).font("Helvetica-Bold").text("Cares about", M, y);
+          y = doc.y + 2;
+          for (const c of track.caresAbout) {
+            doc.fontSize(10).fillColor(PDF.TEXT_COLOR).font("Helvetica").text(`• ${c}`, M + 10, y, { width: CW - 20 });
+            y = doc.y + 2;
+          }
+          y += 4;
+        }
+        if (track.provocativeOpening) {
+          doc.fontSize(10).fillColor(PDF.DB_DARK).font("Helvetica-Bold").text("Provocative opening", M, y);
+          y = doc.y + 2;
+          doc.fontSize(10).fillColor(PDF.TEXT_COLOR).font("Helvetica-Oblique").text(track.provocativeOpening, M + 10, y, { width: CW - 20 });
+          y = doc.y + 6;
+        }
+        if (track.whatToSay) {
+          doc.fontSize(10).fillColor(PDF.DB_DARK).font("Helvetica-Bold").text("What to say", M, y);
+          y = doc.y + 2;
+          doc.fontSize(10).fillColor(PDF.TEXT_COLOR).font("Helvetica").text(track.whatToSay, M + 10, y, { width: CW - 20 });
+          y = doc.y + 6;
+        }
+        if (track.threeObjections.length > 0) {
+          doc.fontSize(10).fillColor(PDF.DB_DARK).font("Helvetica-Bold").text("Objections + responses", M, y);
+          y = doc.y + 2;
+          for (const o of track.threeObjections) {
+            doc
+              .fontSize(10)
+              .fillColor(PDF.TEXT_COLOR)
+              .font("Helvetica")
+              .text(`"${o.objection}"  ->  ${o.response}`, M + 10, y, { width: CW - 20 });
+            y = doc.y + 4;
+          }
+          y += 4;
+        }
+        if (track.discoveryTrack.length > 0) {
+          doc.fontSize(10).fillColor(PDF.DB_DARK).font("Helvetica-Bold").text("Discovery ladder", M, y);
+          y = doc.y + 2;
+          for (const q of track.discoveryTrack) {
+            doc.fontSize(10).fillColor(PDF.TEXT_COLOR).font("Helvetica").text(`• ${q}`, M + 10, y, { width: CW - 20 });
+            y = doc.y + 2;
+          }
+          y += 4;
+        }
+        if (track.closeSignal) {
+          doc.fontSize(10).fillColor(PDF.DB_DARK).font("Helvetica-Bold").text("Close signal", M, y);
+          y = doc.y + 2;
+          doc.fontSize(10).fillColor(PDF.TEXT_COLOR).font("Helvetica").text(track.closeSignal, M + 10, y, { width: CW - 20 });
+          y = doc.y + 8;
+        }
       }
     }
 
@@ -247,6 +393,52 @@ export async function generateDemoResearchPdf(
         y = doc.y + 10;
       }
       y += 4;
+    }
+
+    // --- Evidence Register -----------------------------------------------
+    const evidenceRows: Array<{ tier: string; claim: string; detail: string; source: string }> = [];
+    for (const e of research.executiveBrief?.evidence ?? []) {
+      evidenceRows.push({
+        tier: e.tier,
+        claim: e.claim ?? "Executive brief",
+        detail:
+          e.tier === "sourced"
+            ? (e.quote ?? "")
+            : e.tier === "benchmark"
+              ? `${e.benchmarkLabel ?? ""} ${e.benchmarkRange ?? ""}`.trim()
+              : (e.rationale ?? ""),
+        source: e.sourceTitle ?? e.sourceUrl ?? "",
+      });
+    }
+    for (const m of research.demoNarrative?.killerMoments ?? []) {
+      for (const e of m.evidence ?? []) {
+        evidenceRows.push({
+          tier: e.tier,
+          claim: e.claim ?? m.title,
+          detail:
+            e.tier === "sourced"
+              ? (e.quote ?? "")
+              : e.tier === "benchmark"
+                ? `${e.benchmarkLabel ?? ""} ${e.benchmarkRange ?? ""}`.trim()
+                : (e.rationale ?? ""),
+          source: e.sourceTitle ?? e.sourceUrl ?? "",
+        });
+      }
+    }
+    if (evidenceRows.length > 0) {
+      y = sectionHeading(doc, y, "Evidence Register");
+      const w = [CW * 0.12, CW * 0.28, CW * 0.45, CW * 0.15];
+      doc.save().rect(M, y, CW, 22).fill(PDF.DB_DARK).restore();
+      doc.fontSize(9).fillColor(PDF.WHITE).font("Helvetica-Bold");
+      doc.text("Tier", M + 8, y + 6, { width: w[0] - 16 });
+      doc.text("Claim", M + 8 + w[0], y + 6, { width: w[1] - 16 });
+      doc.text("Evidence", M + 8 + w[0] + w[1], y + 6, { width: w[2] - 16 });
+      doc.text("Source", M + 8 + w[0] + w[1] + w[2], y + 6, { width: w[3] - 16 });
+      y += 22;
+      evidenceRows.slice(0, 25).forEach((r, i) => {
+        y = tableRow(doc, y, [r.tier, r.claim, r.detail, r.source], w, i % 2 === 1);
+      });
+      y += 8;
     }
 
     if (research.sources && research.sources.length > 0) {

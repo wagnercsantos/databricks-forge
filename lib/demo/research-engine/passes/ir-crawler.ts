@@ -7,6 +7,7 @@
 
 import type { Logger } from "@/lib/ports/logger";
 import type { ResearchSource, DemoScope } from "../../types";
+import { fromStructuredDate, fromUrl, fromTextBody } from "../date-extraction";
 
 const IR_PATHS = [
   "/investor-relations",
@@ -144,6 +145,9 @@ export async function runIRDiscovery(
       url: link.url,
       charCount: 0,
       status: "fetching",
+      publishedAt: link.publishedAt,
+      publishedYear: link.publishedYear,
+      dateConfidence: link.dateConfidence,
     };
     sources.push(source);
 
@@ -165,6 +169,10 @@ export async function runIRDiscovery(
       const buffer = Buffer.from(await resp.arrayBuffer());
       const text = await parsePdf(buffer);
       const truncated = text.slice(0, MAX_TEXT_PER_DOC);
+
+      // Upgrade date info from the PDF body if we only have a weak URL match.
+      const lastModified = resp.headers.get("last-modified") ?? undefined;
+      applyPdfDateSignals(source, { lastModifiedHeader: lastModified, body: truncated });
 
       source.charCount = truncated.length;
       source.status = "ready";
@@ -191,12 +199,16 @@ interface PdfLink {
   url: string;
   title: string;
   score: number;
+  publishedAt?: string;
+  publishedYear?: number;
+  dateConfidence?: "high" | "medium" | "low" | "unknown";
 }
 
 function extractPdfLinks(html: string, pageUrl: string): PdfLink[] {
   const links: PdfLink[] = [];
   const hrefRegex = /href=["']([^"']*\.pdf[^"']*?)["']/gi;
   let match: RegExpExecArray | null;
+  const currentYear = new Date().getUTCFullYear();
 
   while ((match = hrefRegex.exec(html)) !== null) {
     const href = match[1];
@@ -209,7 +221,27 @@ function extractPdfLinks(html: string, pageUrl: string): PdfLink[] {
     }
 
     if (score > 0) {
-      links.push({ url, title: filename.replace(/\.pdf$/i, "").replace(/[-_]/g, " "), score });
+      // Apply URL/filename year regex and fold recency into the ranking
+      // so annual-report-2024.pdf beats annual-report-2016.pdf.
+      const dateResult = fromUrl(url) ?? fromUrl(href);
+      let recencyBoost = 0;
+      if (dateResult?.publishedYear) {
+        const age = currentYear - dateResult.publishedYear;
+        // Younger-than-2y = +12, 2-3y = +6, 3-5y = +0, older = -8.
+        if (age <= 2) recencyBoost = 12;
+        else if (age <= 3) recencyBoost = 6;
+        else if (age <= 5) recencyBoost = 0;
+        else recencyBoost = -8;
+      }
+
+      links.push({
+        url,
+        title: filename.replace(/\.pdf$/i, "").replace(/[-_]/g, " "),
+        score: score + recencyBoost,
+        publishedAt: dateResult?.publishedAt,
+        publishedYear: dateResult?.publishedYear,
+        dateConfidence: dateResult?.dateConfidence,
+      });
     }
   }
 
@@ -265,28 +297,60 @@ async function trySecEdgar(
 
     const submissions = (await subResp.json()) as {
       filings: {
-        recent: { form: string[]; accessionNumber: string[]; primaryDocument: string[] };
+        recent: {
+          form: string[];
+          accessionNumber: string[];
+          primaryDocument: string[];
+          filingDate?: string[];
+          reportDate?: string[];
+        };
       };
     };
 
-    // Find most recent 10-K
-    const forms = submissions.filings.recent.form;
-    const tenKIdx = forms.findIndex((f) => f === "10-K");
+    // Find the MOST RECENT 10-K (parallel arrays are usually newest-first,
+    // but we pick by filingDate/reportDate defensively).
+    const recent = submissions.filings.recent;
+    const forms = recent.form;
+    let tenKIdx = -1;
+    let tenKTimestamp = -Infinity;
+    for (let i = 0; i < forms.length; i++) {
+      if (forms[i] !== "10-K") continue;
+      const candidate =
+        (recent.reportDate && recent.reportDate[i]) ||
+        (recent.filingDate && recent.filingDate[i]) ||
+        "";
+      const ts = Date.parse(candidate);
+      const effective = Number.isFinite(ts) ? ts : 0;
+      if (effective > tenKTimestamp) {
+        tenKTimestamp = effective;
+        tenKIdx = i;
+      }
+    }
     if (tenKIdx === -1) {
       log.debug("No 10-K filing found", { cik });
       return { text: "", sources };
     }
 
-    const accession = submissions.filings.recent.accessionNumber[tenKIdx].replace(/-/g, "");
-    const primaryDoc = submissions.filings.recent.primaryDocument[tenKIdx];
+    const accession = recent.accessionNumber[tenKIdx].replace(/-/g, "");
+    const primaryDoc = recent.primaryDocument[tenKIdx];
     const filingUrl = `https://www.sec.gov/Archives/edgar/data/${match.cik_str}/${accession}/${primaryDoc}`;
+    const filingDate =
+      (recent.reportDate && recent.reportDate[tenKIdx]) ||
+      (recent.filingDate && recent.filingDate[tenKIdx]) ||
+      undefined;
+    const filingDateResult = fromStructuredDate(filingDate);
 
     const source: ResearchSource = {
       type: "sec-filing",
-      title: `10-K: ${match.title}`,
+      title: filingDateResult?.publishedYear
+        ? `10-K ${filingDateResult.publishedYear}: ${match.title}`
+        : `10-K: ${match.title}`,
       url: filingUrl,
       charCount: 0,
       status: "fetching",
+      publishedAt: filingDateResult?.publishedAt,
+      publishedYear: filingDateResult?.publishedYear,
+      dateConfidence: filingDateResult?.dateConfidence ?? "unknown",
     };
     sources.push(source);
 
@@ -401,6 +465,35 @@ async function timedFetch(
   } catch {
     return null;
   }
+}
+
+function applyPdfDateSignals(
+  source: ResearchSource,
+  signals: { lastModifiedHeader?: string; body?: string },
+): void {
+  // Prefer high-confidence signals if we don't already have one.
+  if (source.dateConfidence === "high") return;
+
+  const structured = fromStructuredDate(signals.lastModifiedHeader);
+  if (structured) {
+    source.publishedAt = structured.publishedAt;
+    source.publishedYear = structured.publishedYear;
+    source.dateConfidence = "high";
+    return;
+  }
+
+  // Only fall through to body scan if URL regex failed.
+  if (source.dateConfidence === "medium" || source.dateConfidence === "low") return;
+
+  const fromBody = fromTextBody(signals.body);
+  if (fromBody) {
+    source.publishedAt = fromBody.publishedAt;
+    source.publishedYear = fromBody.publishedYear;
+    source.dateConfidence = "low";
+    return;
+  }
+
+  if (!source.dateConfidence) source.dateConfidence = "unknown";
 }
 
 async function defaultParsePdf(buffer: Buffer): Promise<string> {

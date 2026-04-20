@@ -56,6 +56,7 @@ export function DemoWizard({ open, onOpenChange }: DemoWizardProps) {
   const [scope, setScope] = useState<DemoScope>({});
   const [uploadedDocs, setUploadedDocs] = useState<ParsedDocument[]>([]);
   const [pastedContext, setPastedContext] = useState("");
+  const [genieMode, setGenieMode] = useState(false);
 
   // Step 2 state
   const [research, setResearch] = useState<ResearchEngineResult | null>(null);
@@ -110,6 +111,7 @@ export function DemoWizard({ open, onOpenChange }: DemoWizardProps) {
           catalog,
           schema,
           catalogCreated,
+          genieMode,
         }),
       });
       const data = await resp.json();
@@ -119,7 +121,7 @@ export function DemoWizard({ open, onOpenChange }: DemoWizardProps) {
     } catch {
       // handled in step component
     }
-  }, [sessionId, catalog, schema, catalogCreated]);
+  }, [sessionId, catalog, schema, catalogCreated, genieMode]);
 
   const handleRetryFailedTables = useCallback(
     async (_failedTables: string[]) => {
@@ -149,6 +151,7 @@ export function DemoWizard({ open, onOpenChange }: DemoWizardProps) {
       setCatalogCreated(false);
       setWizardStartTime(0);
       setRetryCount(0);
+      setGenieMode(false);
     }, 300);
   };
 
@@ -202,6 +205,8 @@ export function DemoWizard({ open, onOpenChange }: DemoWizardProps) {
               onUploadedDocsChange={setUploadedDocs}
               pastedContext={pastedContext}
               onPastedContextChange={setPastedContext}
+              genieMode={genieMode}
+              onGenieModeChange={setGenieMode}
             />
           )}
 
@@ -246,6 +251,7 @@ export function DemoWizard({ open, onOpenChange }: DemoWizardProps) {
               customerName={customerName}
               industryId={industryId}
               wizardStartTime={wizardStartTime}
+              genieMode={genieMode}
             />
           )}
         </div>

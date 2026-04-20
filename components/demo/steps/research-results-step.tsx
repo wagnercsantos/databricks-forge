@@ -14,6 +14,10 @@ import {
   Map,
   Sparkles,
   CircleDot,
+  Quote,
+  BookOpen,
+  Users,
+  Link2,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -38,10 +42,14 @@ const PHASE_LABELS: Record<string, { label: string; icon: React.ReactNode }> = {
   "outcome-map-generation": { label: "Industry Knowledge", icon: <Map className="h-4 w-4" /> },
   "quick-synthesis": { label: "Quick Synthesis", icon: <Sparkles className="h-4 w-4" /> },
   "industry-landscape": { label: "Industry Landscape", icon: <BarChart3 className="h-4 w-4" /> },
+  "key-quotes-extraction": { label: "Extracting Key Quotes", icon: <Quote className="h-4 w-4" /> },
+  "source-summaries": { label: "Summarising Sources", icon: <BookOpen className="h-4 w-4" /> },
   "strategy-and-narrative": { label: "Strategy & Narrative", icon: <Building2 className="h-4 w-4" /> },
   "company-deep-dive": { label: "Company Deep-Dive", icon: <Building2 className="h-4 w-4" /> },
   "data-strategy-mapping": { label: "Data Strategy Mapping", icon: <Map className="h-4 w-4" /> },
   "demo-narrative": { label: "Demo Narrative Design", icon: <Sparkles className="h-4 w-4" /> },
+  "persona-talk-track": { label: "Persona Talk Tracks", icon: <Users className="h-4 w-4" /> },
+  "evidence-linking": { label: "Linking Evidence", icon: <Link2 className="h-4 w-4" /> },
   complete: { label: "Complete", icon: <CheckCircle2 className="h-4 w-4" /> },
 };
 
@@ -55,10 +63,14 @@ const PHASE_ORDER: ResearchPhase[] = [
   "outcome-map-generation",
   "quick-synthesis",
   "industry-landscape",
+  "key-quotes-extraction",
+  "source-summaries",
   "strategy-and-narrative",
   "company-deep-dive",
   "data-strategy-mapping",
   "demo-narrative",
+  "persona-talk-track",
+  "evidence-linking",
   "complete",
 ];
 

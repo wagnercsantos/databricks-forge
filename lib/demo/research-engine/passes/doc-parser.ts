@@ -7,6 +7,7 @@
 
 import type { Logger } from "@/lib/ports/logger";
 import type { ParsedDocument, ResearchSource } from "../../types";
+import { fromUrl, fromTextBody } from "../date-extraction";
 
 export function runDocParsing(
   uploadedDocuments: ParsedDocument[] | undefined,
@@ -28,6 +29,7 @@ export function runDocParsing(
         charCount: doc.charCount,
         status: "ready",
       };
+      applyDocDateSignals(source, doc);
       sources.push(source);
       texts.push(`[UPLOADED: ${doc.filename} (${doc.category})]\n${doc.text}`);
       onSourceReady?.(source);
@@ -46,6 +48,14 @@ export function runDocParsing(
       charCount: pastedContext.length,
       status: "ready",
     };
+    const fromPasteBody = fromTextBody(pastedContext);
+    if (fromPasteBody) {
+      source.publishedAt = fromPasteBody.publishedAt;
+      source.publishedYear = fromPasteBody.publishedYear;
+      source.dateConfidence = fromPasteBody.dateConfidence;
+    } else {
+      source.dateConfidence = "unknown";
+    }
     sources.push(source);
     texts.push(`[PASTED]\n${pastedContext}`);
     onSourceReady?.(source);
@@ -54,4 +64,26 @@ export function runDocParsing(
   }
 
   return { text: texts.join("\n\n---\n\n"), sources };
+}
+
+/**
+ * Attribute a publication year to an uploaded document.
+ * Priority: filename year regex (medium) > text body scan (low).
+ */
+function applyDocDateSignals(source: ResearchSource, doc: ParsedDocument): void {
+  const fromFilename = fromUrl(doc.filename);
+  if (fromFilename) {
+    source.publishedAt = fromFilename.publishedAt;
+    source.publishedYear = fromFilename.publishedYear;
+    source.dateConfidence = fromFilename.dateConfidence;
+    return;
+  }
+  const fromBody = fromTextBody(doc.text);
+  if (fromBody) {
+    source.publishedAt = fromBody.publishedAt;
+    source.publishedYear = fromBody.publishedYear;
+    source.dateConfidence = fromBody.dateConfidence;
+    return;
+  }
+  source.dateConfidence = "unknown";
 }

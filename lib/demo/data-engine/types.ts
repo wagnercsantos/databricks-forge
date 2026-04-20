@@ -15,6 +15,7 @@ import type {
   ValidationSummary,
 } from "../types";
 import type { ResearchEngineResult } from "../research-engine/types";
+import type { DemoDateWindow } from "./date-window";
 
 // ---------------------------------------------------------------------------
 // Engine Input & Deps
@@ -26,6 +27,28 @@ export interface DataEngineInput {
   catalog: string;
   schema: string;
   targetRowCount: { min: number; max: number };
+  /**
+   * Target number of tables the schema designer should produce. When omitted,
+   * standard bands (8-12) are used. Genie Mode raises this to 12-18.
+   */
+  targetTableCount?: { min: number; max: number };
+  /**
+   * Fiscal-year start month (1-12). Defaults to January (calendar FY).
+   * Controls the DemoDateWindow anchor -- e.g. set to 4 for April FY start.
+   */
+  fiscalYearStartMonth?: number;
+  /**
+   * When true, bias every pass toward a Genie-Space-optimal schema and, after
+   * validation, run the ad-hoc Genie Engine + create a Genie Space bound to
+   * the generated `catalog.schema`.
+   */
+  genieMode?: boolean;
+  /**
+   * OBO token captured from the originating request (e.g. the API route).
+   * Required when `genieMode=true` so the Genie create call runs as the user,
+   * not the app service principal. See .cursor/rules/genie-obo-auth.mdc.
+   */
+  oboToken?: string;
   signal?: AbortSignal;
   onProgress?: (message: string, percent: number) => void;
   onTablePhase?: (tableName: string, phase: TablePhase) => void;
@@ -54,6 +77,7 @@ export type DataPhase =
   | "seed-generation"
   | "fact-generation"
   | "validation"
+  | "genie-deploy"
   | "complete";
 
 // ---------------------------------------------------------------------------
@@ -80,6 +104,24 @@ export interface DataEngineResult {
   totalTables: number;
   validationSummary: ValidationSummary;
   durationMs: number;
+  /** Date window the data was anchored to (rolling FY + YTD). */
+  dateWindow: DemoDateWindow;
+  /**
+   * When Genie Mode auto-deployed a Genie Space, the Databricks space_id.
+   * Only populated when `DataEngineInput.genieMode === true` and the deploy
+   * pass succeeded.
+   */
+  genieSpaceId?: string;
+  /**
+   * Deep link to the deployed Genie Space (when Genie Mode is on). Built as
+   * `${DATABRICKS_HOST}/genie/rooms/${space_id}`.
+   */
+  genieSpaceUrl?: string;
+  /**
+   * Recorded reason when Genie Mode was requested but the deploy pass did not
+   * run (e.g. validation failed) or failed partway. Omitted on success.
+   */
+  genieDeployError?: string;
 }
 
 // ---------------------------------------------------------------------------

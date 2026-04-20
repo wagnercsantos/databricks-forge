@@ -11,7 +11,8 @@ import type { LLMClient } from "@/lib/ports/llm-client";
 import type { Logger } from "@/lib/ports/logger";
 import type { DataNarrative } from "../../types";
 import type { ResearchEngineResult } from "../../research-engine/types";
-import { NARRATIVE_DESIGN_PROMPT } from "../prompts";
+import { GENIE_NARRATIVE_BIAS, NARRATIVE_DESIGN_PROMPT } from "../prompts";
+import type { DemoDateWindow } from "../date-window";
 
 interface NarrativeDesignOutput {
   narratives: Array<
@@ -31,13 +32,15 @@ interface NarrativeDesignOutput {
 export async function runNarrativeDesign(
   research: ResearchEngineResult,
   targetRowCount: { min: number; max: number },
+  dateWindow: DemoDateWindow,
   opts: {
     llm: LLMClient;
     logger: Logger;
     signal?: AbortSignal;
+    genieMode?: boolean;
   },
 ): Promise<NarrativeDesignOutput> {
-  const { llm, logger: log, signal } = opts;
+  const { llm, logger: log, signal, genieMode = false } = opts;
 
   const researchSummary = JSON.stringify({
     companyProfile: research.companyProfile,
@@ -49,6 +52,8 @@ export async function runNarrativeDesign(
     ? JSON.stringify(research.dataNarratives)
     : "None from research -- generate fresh narratives.";
 
+  const dateRangeMonths = Math.max(1, Math.ceil(dateWindow.dateRangeDays / 30));
+
   const prompt = NARRATIVE_DESIGN_PROMPT
     .replace("{customer_name}", research.customerName)
     .replace("{industry_name}", research.industryId)
@@ -57,7 +62,13 @@ export async function runNarrativeDesign(
     .replace("{division}", research.scope?.division ?? "Full Enterprise")
     .replace("{min_rows}", String(targetRowCount.min))
     .replace("{max_rows}", String(targetRowCount.max))
-    .replace("{nomenclature}", JSON.stringify(research.nomenclature));
+    .replace("{nomenclature}", JSON.stringify(research.nomenclature))
+    .replace(/{start_date}/g, dateWindow.startDate)
+    .replace(/{end_date}/g, dateWindow.endDate)
+    .replace(/{fy_label}/g, dateWindow.fyLabel)
+    .replace(/{date_range_days}/g, String(dateWindow.dateRangeDays))
+    .replace(/{date_range_months}/g, String(dateRangeMonths))
+    .replace("{genie_bias}", genieMode ? GENIE_NARRATIVE_BIAS : "");
 
   const endpoint = resolveEndpoint("reasoning");
 

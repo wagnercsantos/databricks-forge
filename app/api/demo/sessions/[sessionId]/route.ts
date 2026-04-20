@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { isDemoModeEnabled } from "@/lib/demo/config";
-import { getDemoSession, getDemoSessionResearch } from "@/lib/lakebase/demo-sessions";
+import {
+  getDemoSession,
+  getDemoSessionDataModel,
+  getDemoSessionResearch,
+} from "@/lib/lakebase/demo-sessions";
 import { cleanupDemoSession } from "@/lib/demo/cleanup";
 import { databricksSqlExecutor } from "@/lib/ports/defaults/databricks-sql-executor";
 import { logger } from "@/lib/logger";
@@ -20,9 +24,22 @@ export async function GET(
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
-  const research = await getDemoSessionResearch(sessionId);
+  const [research, dataModel] = await Promise.all([
+    getDemoSessionResearch(sessionId),
+    getDemoSessionDataModel(sessionId),
+  ]);
 
-  return NextResponse.json({ ...session, research });
+  return NextResponse.json({
+    ...session,
+    research,
+    dateWindow: dataModel?.dateWindow ?? null,
+    validationResults: dataModel?.validationResults ?? null,
+    tableDesigns: dataModel?.designs ?? null,
+    genieMode: dataModel?.genieMode ?? false,
+    genieSpaceId: dataModel?.genieSpaceId ?? null,
+    genieSpaceUrl: dataModel?.genieSpaceUrl ?? null,
+    genieDeployError: dataModel?.genieDeployError ?? null,
+  });
 }
 
 export async function DELETE(

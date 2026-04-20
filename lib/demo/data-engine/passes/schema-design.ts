@@ -11,7 +11,7 @@ import type { LLMClient } from "@/lib/ports/llm-client";
 import type { Logger } from "@/lib/ports/logger";
 import type { TableDesign, DataNarrative } from "../../types";
 import type { ResearchEngineResult } from "../../research-engine/types";
-import { SCHEMA_DESIGN_PROMPT } from "../prompts";
+import { GENIE_SCHEMA_BIAS, SCHEMA_DESIGN_PROMPT } from "../prompts";
 
 interface SchemaDesignOutput {
   tables: TableDesign[];
@@ -25,9 +25,10 @@ export async function runSchemaDesign(
     llm: LLMClient;
     logger: Logger;
     signal?: AbortSignal;
+    genieMode?: boolean;
   },
 ): Promise<TableDesign[]> {
-  const { llm, logger: log, signal } = opts;
+  const { llm, logger: log, signal, genieMode = false } = opts;
 
   const dataAssetsContext = JSON.stringify(research.matchedDataAssetIds);
 
@@ -39,7 +40,8 @@ export async function runSchemaDesign(
     .replace("{nomenclature}", JSON.stringify(research.nomenclature))
     .replace("{division}", research.scope?.division ?? "Full Enterprise")
     .replace("{min_rows}", String(targetRowCount.min))
-    .replace("{max_rows}", String(targetRowCount.max));
+    .replace("{max_rows}", String(targetRowCount.max))
+    .replace("{genie_bias}", genieMode ? GENIE_SCHEMA_BIAS : "");
 
   const endpoint = resolveEndpoint("generation");
 

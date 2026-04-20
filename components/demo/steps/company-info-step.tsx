@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Upload, Globe, Building2, Zap, Scale, Flame } from "lucide-react";
+import { Upload, Globe, Building2, Zap, Scale, Flame, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,6 +31,8 @@ interface CompanyInfoStepProps {
   onUploadedDocsChange: (v: ParsedDocument[]) => void;
   pastedContext: string;
   onPastedContextChange: (v: string) => void;
+  genieMode: boolean;
+  onGenieModeChange: (v: boolean) => void;
 }
 
 const PRESETS: { value: ResearchPreset; label: string; icon: React.ReactNode; desc: string }[] = [
@@ -69,6 +71,8 @@ export function CompanyInfoStep({
   onUploadedDocsChange,
   pastedContext,
   onPastedContextChange,
+  genieMode,
+  onGenieModeChange,
 }: CompanyInfoStepProps) {
   const [uploading, setUploading] = useState(false);
   const [industries, setIndustries] = useState<Array<{ id: string; name: string }>>([]);
@@ -201,6 +205,50 @@ export function CompanyInfoStep({
           onChange={(e) => onScopeChange({ ...scope, demoObjective: e.target.value || undefined })}
           rows={2}
         />
+      </div>
+
+      {/* Genie Mode */}
+      <div className="space-y-2">
+        <Label>Genie Mode</Label>
+        <button
+          type="button"
+          onClick={() => onGenieModeChange(!genieMode)}
+          aria-pressed={genieMode}
+          className={`w-full rounded-lg border p-3 text-left transition-all ${
+            genieMode
+              ? "border-violet-500 bg-violet-50 ring-1 ring-violet-500 dark:bg-violet-950/30"
+              : "border-border hover:border-primary/50"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <Sparkles
+                className={`h-4 w-4 mt-0.5 ${
+                  genieMode ? "text-violet-600 dark:text-violet-400" : "text-muted-foreground"
+                }`}
+              />
+              <div>
+                <div className="text-sm font-medium">
+                  Bias for Genie Space demos
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Wider row counts, more fact tables, richer dimensions. Auto-deploys a Genie Space bound to the generated schema.
+                </p>
+              </div>
+            </div>
+            <div
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                genieMode ? "bg-violet-600" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  genieMode ? "translate-x-4" : "translate-x-0.5"
+                }`}
+              />
+            </div>
+          </div>
+        </button>
       </div>
 
       {/* Document Upload */}
