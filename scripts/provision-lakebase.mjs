@@ -111,14 +111,122 @@ async function api(method, path, body) {
 }
 
 // ---------------------------------------------------------------------------
+// Cost governance (optional)
+//
+// Reads FORGE_BUDGET_POLICY_ID (string) and FORGE_CUSTOM_TAGS (JSON array)
+// from the environment. Both are optional. When unset, the create spec is
+// left untouched and no reconcile PATCH is issued. Invalid tag JSON is
+// logged and ignored -- a malformed value must not block startup.
+// ---------------------------------------------------------------------------
+
+function getCostGovernance() {
+  const budgetPolicyId = (process.env.FORGE_BUDGET_POLICY_ID || "").trim() || undefined;
+
+  let customTags;
+  const raw = (process.env.FORGE_CUSTOM_TAGS || "").trim();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) throw new Error("FORGE_CUSTOM_TAGS must be a JSON array");
+      customTags = parsed.map((entry) => {
+        if (
+          !entry ||
+          typeof entry !== "object" ||
+          typeof entry.key !== "string" ||
+          typeof entry.value !== "string"
+        ) {
+          throw new Error("each tag must be {key: string, value: string}");
+        }
+        return { key: entry.key, value: entry.value };
+      });
+    } catch (err) {
+      log(`WARNING: Invalid FORGE_CUSTOM_TAGS, ignoring: ${err.message}`);
+      customTags = undefined;
+    }
+  }
+
+  return { budgetPolicyId, customTags };
+}
+
+function tagsEqual(a, b) {
+  if (a.length !== b.length) return false;
+  const sortByKey = (arr) => [...arr].sort((x, y) => x.key.localeCompare(y.key));
+  const sa = sortByKey(a);
+  const sb = sortByKey(b);
+  for (let i = 0; i < sa.length; i += 1) {
+    if (sa[i].key !== sb[i].key || sa[i].value !== sb[i].value) return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Reconcile cost-governance fields on an existing project (idempotent PATCH).
+// Reads desired values from env; skips when neither is set. Reads current
+// values from `spec` first and falls back to `status` so we don't mistake
+// "not returned by GET" for "not configured" and PATCH the same value on
+// every boot.
+// ---------------------------------------------------------------------------
+
+async function reconcileCostGovernance(projectId, currentProject) {
+  const { budgetPolicyId, customTags } = getCostGovernance();
+  if (budgetPolicyId === undefined && customTags === undefined) return;
+
+  const currentBudget =
+    currentProject.spec?.budget_policy_id ?? currentProject.status?.budget_policy_id;
+  const currentTags = currentProject.spec?.custom_tags ?? currentProject.status?.custom_tags;
+
+  if (budgetPolicyId !== undefined && budgetPolicyId !== currentBudget) {
+    log(`Reconciling budget_policy_id...`);
+    const resp = await api(
+      "PATCH",
+      `projects/${encodeURIComponent(projectId)}?update_mask=spec.budget_policy_id`,
+      { spec: { budget_policy_id: budgetPolicyId } },
+    );
+    if (resp.ok) {
+      const op = await resp.json();
+      if (op.name && !op.done) await pollOp(op.name);
+      log(`budget_policy_id reconciled.`);
+    } else {
+      const text = await resp.text();
+      log(`WARNING: Failed to reconcile budget_policy_id (${resp.status}): ${text}`);
+    }
+  }
+
+  if (customTags !== undefined && !tagsEqual(currentTags || [], customTags)) {
+    log(`Reconciling custom_tags (${customTags.length} tag(s))...`);
+    const resp = await api(
+      "PATCH",
+      `projects/${encodeURIComponent(projectId)}?update_mask=spec.custom_tags`,
+      { spec: { custom_tags: customTags } },
+    );
+    if (resp.ok) {
+      const op = await resp.json();
+      if (op.name && !op.done) await pollOp(op.name);
+      log(`custom_tags reconciled.`);
+    } else {
+      const text = await resp.text();
+      log(`WARNING: Failed to reconcile custom_tags (${resp.status}): ${text}`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Project check / create
 // ---------------------------------------------------------------------------
 
 async function ensureProject() {
   const projectId = getProjectId();
+  const { budgetPolicyId, customTags } = getCostGovernance();
+
   const getResp = await api("GET", `projects/${projectId}`);
   if (getResp.ok) {
     log(`Project '${projectId}' exists.`);
+    try {
+      const project = await getResp.json();
+      await reconcileCostGovernance(projectId, project);
+    } catch (err) {
+      log(`WARNING: Cost-governance reconcile failed (non-fatal): ${err.message}`);
+    }
     return;
   }
   if (getResp.status !== 404) {
@@ -126,9 +234,16 @@ async function ensureProject() {
     throw new Error(`Check project failed (${getResp.status}): ${text}`);
   }
 
-  log(`Creating Lakebase project '${projectId}'...`);
+  log(
+    `Creating Lakebase project '${projectId}' ` +
+      `(budget_policy=${Boolean(budgetPolicyId)}, custom_tags=${customTags?.length ?? 0})...`,
+  );
+  const spec = { display_name: DISPLAY_NAME, pg_version: PG_VERSION };
+  if (budgetPolicyId) spec.budget_policy_id = budgetPolicyId;
+  if (customTags && customTags.length > 0) spec.custom_tags = customTags;
+
   const createResp = await api("POST", `projects?project_id=${encodeURIComponent(projectId)}`, {
-    spec: { display_name: DISPLAY_NAME, pg_version: PG_VERSION },
+    spec,
   });
 
   if (createResp.status === 409) {
