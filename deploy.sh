@@ -545,7 +545,7 @@ APP_YAML_BACKUP=""
 # -------------------------------------------------------------------------
 build_custom_tags_json() {
   CUSTOM_TAGS_JSON=""
-  if [[ ${#ARG_TAGS[@]-0} -eq 0 ]]; then
+  if [[ ${#ARG_TAGS[@]} -eq 0 ]]; then
     return
   fi
 
