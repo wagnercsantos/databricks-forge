@@ -747,12 +747,20 @@ async function reconcileCostGovernance(): Promise<void> {
     return;
   }
 
+  // The Postgres projects API may populate either `spec` (declared intent)
+  // or `status` (observed state) for these fields depending on the endpoint
+  // version. Read from `spec` first and fall back to `status` so we don't
+  // mistake "not returned" for "not set" and PATCH the same value on every
+  // boot — which would also produce recurring warnings when the caller
+  // lacks PATCH permission.
   const project = (await getResp.json()) as {
+    spec?: { budget_policy_id?: string; custom_tags?: ProjectCustomTag[] };
     status?: { budget_policy_id?: string; custom_tags?: ProjectCustomTag[] };
   };
-  const current = project.status ?? {};
+  const currentBudget = project.spec?.budget_policy_id ?? project.status?.budget_policy_id;
+  const currentTags = project.spec?.custom_tags ?? project.status?.custom_tags;
 
-  if (budgetPolicyId !== undefined && budgetPolicyId !== current.budget_policy_id) {
+  if (budgetPolicyId !== undefined && budgetPolicyId !== currentBudget) {
     const resp = await lakebaseApi(
       "PATCH",
       `projects/${encodeURIComponent(projectId)}?update_mask=spec.budget_policy_id`,
@@ -770,7 +778,7 @@ async function reconcileCostGovernance(): Promise<void> {
     }
   }
 
-  if (customTags !== undefined && !tagsEqual(current.custom_tags ?? [], customTags)) {
+  if (customTags !== undefined && !tagsEqual(currentTags ?? [], customTags)) {
     const resp = await lakebaseApi(
       "PATCH",
       `projects/${encodeURIComponent(projectId)}?update_mask=spec.custom_tags`,

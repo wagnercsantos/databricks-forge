@@ -364,14 +364,14 @@ Both options below are optional and independent. Leave them unset to keep the cu
 ./deploy.sh --budget-policy-id "<policy-id>" --tag env=prod
 ```
 
-**Default tags.** Two tags are always applied to the Lakebase project unless overridden via `--tag`:
+**Default tags.** Passing `--tag` at least once opts in to tag management. In that case, two default tags are injected unless overridden with `--tag <same-key>=<value>`:
 
 | Key | Value |
 | --- | --- |
 | `project` | `databricks_forge` |
 | `owner` | email of the user running the deploy (skipped when unresolvable) |
 
-Passing `--tag project=<other>` or `--tag owner=<other>` overrides the default for that key.
+When `--tag` is not passed, no tags are applied and existing tags on the Lakebase project are left untouched (neither the create spec nor the reconcile PATCH fires).
 
 - **First deploy**: values are included in the initial `createProject` spec and the `apps create`/`apps update` calls.
 - **Redeploys**: `deploy.sh` re-applies `budget_policy_id` on the App; on the Lakebase side, the app reconciles `spec.budget_policy_id` and `spec.custom_tags` via PATCH on the next boot (non-fatal on failure). Updating `custom_tags` fully replaces the existing list.

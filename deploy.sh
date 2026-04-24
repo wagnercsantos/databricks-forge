@@ -176,10 +176,15 @@ Options:
   --tag KEY=VALUE             Optional custom tag (repeatable) applied to the
                              Lakebase project for cost attribution. Example:
                              --tag team=data-eng --tag cost-center=1234
-                             Two default tags are always injected unless
-                             overridden with --tag <same-key>=<value>:
+                             Passing --tag at least once opts in to tag
+                             management. In that case, two default tags
+                             are injected unless overridden with --tag
+                             <same-key>=<value>:
                                project=databricks_forge
                                owner=<user running the deploy>
+                             When --tag is not passed at all, no tags are
+                             applied and existing tags on the Lakebase
+                             project are left untouched.
                              Note: the Databricks Apps API does not accept
                              tags on the App resource itself; tags are only
                              applied to the Lakebase project.
@@ -529,12 +534,23 @@ APP_YAML_BACKUP=""
 # Merge default tags (project, owner) with user-provided --tag values and
 # serialize to CUSTOM_TAGS_JSON. User-provided tags override defaults on
 # key collision. The owner tag is skipped when USER_EMAIL is empty.
+#
+# Opt-in contract: this function is a no-op unless the user passed at
+# least one --tag flag. A plain `./deploy.sh` run (or one with only
+# --budget-policy-id) leaves CUSTOM_TAGS_JSON empty, which keeps
+# FORGE_CUSTOM_TAGS unset in app.yaml and tells the Lakebase runtime
+# to skip both create-time and reconcile-time tag operations.
 # Call order: after check_prerequisites (which sets USER_EMAIL) and
 # before prepare_app_yaml (which consumes CUSTOM_TAGS_JSON).
 # -------------------------------------------------------------------------
 build_custom_tags_json() {
+  CUSTOM_TAGS_JSON=""
+  if [[ ${#ARG_TAGS[@]-0} -eq 0 ]]; then
+    return
+  fi
+
   CUSTOM_TAGS_JSON=$(USER_EMAIL="$USER_EMAIL" \
-    ARG_TAGS_RAW="$(printf '%s\n' "${ARG_TAGS[@]-}")" python3 - <<'PY'
+    ARG_TAGS_RAW="$(printf '%s\n' "${ARG_TAGS[@]}")" python3 - <<'PY'
 import json, os
 
 user_email = os.environ.get("USER_EMAIL", "").strip()
