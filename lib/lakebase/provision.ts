@@ -108,6 +108,79 @@ function getProjectId(): string {
   return PROJECT_ID_BASE;
 }
 
+// ---------------------------------------------------------------------------
+// Cost governance (optional)
+//
+// Reads FORGE_BUDGET_POLICY_ID (string) and FORGE_CUSTOM_TAGS (JSON array)
+// from the environment. Both are optional: when unset, the Lakebase project
+// spec is left untouched and no reconcile is performed. Invalid tag JSON is
+// logged and treated as empty — a malformed value must not block startup.
+// ---------------------------------------------------------------------------
+
+interface ProjectCustomTag {
+  key: string;
+  value: string;
+}
+
+interface CostGovernance {
+  budgetPolicyId: string | undefined;
+  customTags: ProjectCustomTag[] | undefined;
+}
+
+function getCostGovernance(): CostGovernance {
+  const budgetPolicyId = process.env.FORGE_BUDGET_POLICY_ID?.trim() || undefined;
+
+  let customTags: ProjectCustomTag[] | undefined;
+  const raw = process.env.FORGE_CUSTOM_TAGS?.trim();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) {
+        throw new Error("FORGE_CUSTOM_TAGS must be a JSON array");
+      }
+      const normalized: ProjectCustomTag[] = [];
+      for (const entry of parsed) {
+        if (
+          entry &&
+          typeof entry === "object" &&
+          "key" in entry &&
+          "value" in entry &&
+          typeof (entry as { key: unknown }).key === "string" &&
+          typeof (entry as { value: unknown }).value === "string"
+        ) {
+          normalized.push({
+            key: (entry as ProjectCustomTag).key,
+            value: (entry as ProjectCustomTag).value,
+          });
+        } else {
+          throw new Error("each tag must be {key: string, value: string}");
+        }
+      }
+      customTags = normalized;
+    } catch (err) {
+      log.warn("Invalid FORGE_CUSTOM_TAGS, ignoring", {
+        error: err instanceof Error ? err.message : String(err),
+        errorCategory: "config_invalid",
+      });
+      customTags = undefined;
+    }
+  }
+
+  return { budgetPolicyId, customTags };
+}
+
+function tagsEqual(a: ProjectCustomTag[], b: ProjectCustomTag[]): boolean {
+  if (a.length !== b.length) return false;
+  const sort = (arr: ProjectCustomTag[]) =>
+    [...arr].sort((x, y) => x.key.localeCompare(y.key));
+  const sa = sort(a);
+  const sb = sort(b);
+  for (let i = 0; i < sa.length; i += 1) {
+    if (sa[i].key !== sb[i].key || sa[i].value !== sb[i].value) return false;
+  }
+  return true;
+}
+
 const LAKEBASE_API_TIMEOUT = 30_000;
 const PROJECT_CREATION_TIMEOUT = 120_000;
 const LRO_POLL_INTERVAL = 5_000;
@@ -219,13 +292,22 @@ async function projectExists(): Promise<boolean> {
 
 async function createProject(): Promise<void> {
   const projectId = getProjectId();
-  log.info("Creating Lakebase Autoscale project...", { projectId });
+  const { budgetPolicyId, customTags } = getCostGovernance();
+  log.info("Creating Lakebase Autoscale project...", {
+    projectId,
+    budgetPolicyAttached: Boolean(budgetPolicyId),
+    customTagCount: customTags?.length ?? 0,
+  });
+
+  const spec: Record<string, unknown> = {
+    display_name: DISPLAY_NAME,
+    pg_version: PG_VERSION,
+  };
+  if (budgetPolicyId) spec.budget_policy_id = budgetPolicyId;
+  if (customTags && customTags.length > 0) spec.custom_tags = customTags;
 
   const resp = await lakebaseApi("POST", `projects?project_id=${encodeURIComponent(projectId)}`, {
-    spec: {
-      display_name: DISPLAY_NAME,
-      pg_version: PG_VERSION,
-    },
+    spec,
   });
 
   if (resp.status === 409) {
@@ -641,6 +723,76 @@ export function canAutoProvision(): boolean {
 }
 
 /**
+ * Reconcile cost-governance fields (budget_policy_id, custom_tags) on an
+ * existing Lakebase project. No-op when the env vars are unset or already
+ * match the current project state. Idempotent; safe to run on every boot.
+ * Non-fatal on failure -- the app must start even if the governance PATCH
+ * is rejected (e.g., missing permissions on the policy).
+ */
+async function reconcileCostGovernance(): Promise<void> {
+  const { budgetPolicyId, customTags } = getCostGovernance();
+  if (budgetPolicyId === undefined && customTags === undefined) {
+    return;
+  }
+
+  const projectId = getProjectId();
+  const getResp = await lakebaseApi("GET", `projects/${encodeURIComponent(projectId)}`);
+  if (!getResp.ok) {
+    const text = await getResp.text();
+    log.warn("Skipping cost-governance reconcile: GET project failed", {
+      status: getResp.status,
+      body: text.slice(0, 200),
+      errorCategory: "non_fatal",
+    });
+    return;
+  }
+
+  const project = (await getResp.json()) as {
+    status?: { budget_policy_id?: string; custom_tags?: ProjectCustomTag[] };
+  };
+  const current = project.status ?? {};
+
+  if (budgetPolicyId !== undefined && budgetPolicyId !== current.budget_policy_id) {
+    const resp = await lakebaseApi(
+      "PATCH",
+      `projects/${encodeURIComponent(projectId)}?update_mask=spec.budget_policy_id`,
+      { spec: { budget_policy_id: budgetPolicyId } },
+    );
+    if (resp.ok) {
+      log.info("Reconciled Lakebase budget_policy_id", { projectId });
+    } else {
+      const text = await resp.text();
+      log.warn("Failed to reconcile Lakebase budget_policy_id", {
+        status: resp.status,
+        body: text.slice(0, 200),
+        errorCategory: "non_fatal",
+      });
+    }
+  }
+
+  if (customTags !== undefined && !tagsEqual(current.custom_tags ?? [], customTags)) {
+    const resp = await lakebaseApi(
+      "PATCH",
+      `projects/${encodeURIComponent(projectId)}?update_mask=spec.custom_tags`,
+      { spec: { custom_tags: customTags } },
+    );
+    if (resp.ok) {
+      log.info("Reconciled Lakebase custom_tags", {
+        projectId,
+        tagCount: customTags.length,
+      });
+    } else {
+      const text = await resp.text();
+      log.warn("Failed to reconcile Lakebase custom_tags", {
+        status: resp.status,
+        body: text.slice(0, 200),
+        errorCategory: "non_fatal",
+      });
+    }
+  }
+}
+
+/**
  * Ensure the Lakebase Autoscale project exists, creating it on first boot.
  * Also enforces scale-to-zero configuration on the production endpoint.
  * Idempotent -- subsequent calls are near-instant.
@@ -648,6 +800,14 @@ export function canAutoProvision(): boolean {
 export async function ensureLakebaseProject(): Promise<void> {
   if (await projectExists()) {
     log.info("Lakebase project exists", { projectId: getProjectId() });
+    try {
+      await reconcileCostGovernance();
+    } catch (err) {
+      log.warn("Cost-governance reconcile failed (non-fatal)", {
+        error: err instanceof Error ? err.message : String(err),
+        errorCategory: "non_fatal",
+      });
+    }
   } else {
     await createProject();
   }

@@ -346,6 +346,36 @@ These map to the form fields on the `/configure` page:
 | **AI Model** | No | databricks-claude-opus-4-6 | Model Serving endpoint for LLM calls (chat completions) |
 | **Languages** | No | English | Target languages for generated documentation |
 
+### Cost governance (optional)
+
+Both options below are optional and independent. Leave them unset to keep the current behaviour.
+
+```bash
+# Attach a serverless budget policy to the Databricks App and the
+# Lakebase project for cost attribution.
+./deploy.sh --budget-policy-id "<policy-id>"
+
+# Tag the Lakebase project (repeatable). The Databricks Apps API does
+# not accept tags on the App resource, so these tags apply only to the
+# Lakebase project. On redeploys the tags are reconciled via PATCH.
+./deploy.sh --tag team=data-eng --tag cost-center=1234
+
+# Both flags can be combined.
+./deploy.sh --budget-policy-id "<policy-id>" --tag env=prod
+```
+
+**Default tags.** Two tags are always applied to the Lakebase project unless overridden via `--tag`:
+
+| Key | Value |
+| --- | --- |
+| `project` | `databricks_forge` |
+| `owner` | email of the user running the deploy (skipped when unresolvable) |
+
+Passing `--tag project=<other>` or `--tag owner=<other>` overrides the default for that key.
+
+- **First deploy**: values are included in the initial `createProject` spec and the `apps create`/`apps update` calls.
+- **Redeploys**: `deploy.sh` re-applies `budget_policy_id` on the App; on the Lakebase side, the app reconciles `spec.budget_policy_id` and `spec.custom_tags` via PATCH on the next boot (non-fatal on failure). Updating `custom_tags` fully replaces the existing list.
+
 ---
 
 ## Development
