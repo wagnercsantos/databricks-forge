@@ -26,6 +26,16 @@
 #   LAKEBASE_AUTH_MODE=native_password (default) OR oauth
 # In native_password mode, deploy.sh also injects:
 #   LAKEBASE_NATIVE_USER, LAKEBASE_NATIVE_PASSWORD
+#
+# Optional cost-governance env vars (injected by deploy.sh when set):
+#   FORGE_BUDGET_POLICY_ID -- serverless budget policy attached to the
+#     Lakebase project for cost attribution. The same policy is also
+#     attached to the Databricks App itself via the Apps API. Unset by
+#     default; no effect when missing.
+#   FORGE_CUSTOM_TAGS -- JSON array of {"key","value"} objects applied
+#     to the Lakebase project only. The Databricks Apps API does not
+#     accept tags on the App resource, so this variable does not affect
+#     the App. Unset by default; no effect when missing.
 
 command:
   - "sh"

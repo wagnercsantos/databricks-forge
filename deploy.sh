@@ -39,6 +39,9 @@
 #   ./deploy.sh --enable-fabric
 # Optional Demo Mode for Field Engineering / Sales (disabled by default):
 #   ./deploy.sh --enable-demo-mode
+# Optional cost governance (both fields are optional; applied only when set):
+#   ./deploy.sh --budget-policy-id "<policy-id>"
+#               --tag team=data-eng --tag cost-center=1234
 # =========================================================================
 
 set -euo pipefail
@@ -102,6 +105,8 @@ ARG_SKIP_PROBE=false
 ARG_ZERO_EGRESS=false
 ARG_FULL_SYNC=false
 ARG_DESTROY=false
+ARG_BUDGET_POLICY_ID=""
+ARG_TAGS=()
 
 print_usage() {
   cat <<'USAGE'
@@ -164,6 +169,25 @@ Options:
   --enable-metric-views      Enable metric view generation (off by default)
   --enable-fabric            Enable Fabric / Power BI features (off by default)
   --enable-demo-mode         Enable Demo Mode for FE/Sales (off by default)
+  --budget-policy-id ID      Optional serverless budget policy ID to attach
+                             to the Databricks App and the Lakebase project
+                             for cost attribution. Applied at create time
+                             and reconciled on every subsequent deploy.
+  --tag KEY=VALUE             Optional custom tag (repeatable) applied to the
+                             Lakebase project for cost attribution. Example:
+                             --tag team=data-eng --tag cost-center=1234
+                             Passing --tag at least once opts in to tag
+                             management. In that case, two default tags
+                             are injected unless overridden with --tag
+                             <same-key>=<value>:
+                               project=databricks_forge
+                               owner=<user running the deploy>
+                             When --tag is not passed at all, no tags are
+                             applied and existing tags on the Lakebase
+                             project are left untouched.
+                             Note: the Databricks Apps API does not accept
+                             tags on the App resource itself; tags are only
+                             applied to the Lakebase project.
   --skip-probe                Skip model availability probing (use defaults without checking).
                              Useful for air-gapped workspaces or when probing is slow.
   --zero-egress               Build locally and package as a split archive.
@@ -211,6 +235,8 @@ while [[ $# -gt 0 ]]; do
     --enable-metric-views) ARG_ENABLE_METRIC_VIEWS=true; shift ;;
     --enable-fabric)       ARG_ENABLE_FABRIC=true; shift ;;
     --enable-demo-mode)    ARG_ENABLE_DEMO_MODE=true; shift ;;
+    --budget-policy-id)    ARG_BUDGET_POLICY_ID="$2"; shift 2 ;;
+    --tag)                 ARG_TAGS+=("$2"); shift 2 ;;
     --skip-probe)          ARG_SKIP_PROBE=true; shift ;;
     --zero-egress)         ARG_ZERO_EGRESS=true; shift ;;
     --full)                ARG_FULL_SYNC=true; shift ;;
@@ -255,6 +281,49 @@ BENCHMARK_ADMINS="${ARG_BENCHMARK_ADMINS:-}"
 ENABLE_METRIC_VIEWS="${ARG_ENABLE_METRIC_VIEWS}"
 ENABLE_FABRIC="${ARG_ENABLE_FABRIC}"
 ENABLE_DEMO_MODE="${ARG_ENABLE_DEMO_MODE}"
+
+# -------------------------------------------------------------------------
+# Cost governance (all optional). BUDGET_POLICY_ID is applied to the
+# Databricks App and propagated to the Lakebase project. CUSTOM_TAGS_JSON
+# is a JSON array of {key, value} objects applied only to the Lakebase
+# project (the Databricks Apps API does not accept tags on the App).
+#
+# Two default tags are injected unless overridden by --tag with the same
+# key: project=databricks_forge and owner=<user running the deploy>.
+# The owner tag is skipped when USER_EMAIL could not be resolved. The
+# JSON is built inside build_custom_tags_json() after USER_EMAIL is
+# populated by check_prerequisites; here we only validate the raw input.
+# -------------------------------------------------------------------------
+BUDGET_POLICY_ID="${ARG_BUDGET_POLICY_ID:-}"
+CUSTOM_TAGS_JSON=""
+if [[ ${#ARG_TAGS[@]} -gt 0 ]]; then
+  ARG_TAGS_RAW="$(printf '%s\n' "${ARG_TAGS[@]}")" python3 - <<'PY'
+import os, sys
+
+raw = os.environ.get("ARG_TAGS_RAW", "").splitlines()
+seen = set()
+for entry in raw:
+    entry = entry.strip()
+    if not entry:
+        continue
+    if "=" not in entry:
+        sys.stderr.write(f"ERROR: --tag expects KEY=VALUE, got: {entry!r}\n")
+        sys.exit(1)
+    key, _ = entry.split("=", 1)
+    key = key.strip()
+    if not key:
+        sys.stderr.write(f"ERROR: --tag has empty key in: {entry!r}\n")
+        sys.exit(1)
+    if key in seen:
+        sys.stderr.write(f"ERROR: duplicate --tag key: {key}\n")
+        sys.exit(1)
+    seen.add(key)
+PY
+  if [[ $? -ne 0 ]]; then
+    printf "\n  ERROR: Failed to parse --tag arguments. Expected KEY=VALUE per flag.\n\n" >&2
+    exit 1
+  fi
+fi
 
 if [[ "$SEED_BENCHMARKS_ALL_INDUSTRIES" = "true" && "$SEED_BENCHMARKS" != "true" ]]; then
   SEED_BENCHMARKS=true
@@ -461,6 +530,51 @@ wait_for_app_absent() {
 
 APP_YAML_BACKUP=""
 
+# -------------------------------------------------------------------------
+# Merge default tags (project, owner) with user-provided --tag values and
+# serialize to CUSTOM_TAGS_JSON. User-provided tags override defaults on
+# key collision. The owner tag is skipped when USER_EMAIL is empty.
+#
+# Opt-in contract: this function is a no-op unless the user passed at
+# least one --tag flag. A plain `./deploy.sh` run (or one with only
+# --budget-policy-id) leaves CUSTOM_TAGS_JSON empty, which keeps
+# FORGE_CUSTOM_TAGS unset in app.yaml and tells the Lakebase runtime
+# to skip both create-time and reconcile-time tag operations.
+# Call order: after check_prerequisites (which sets USER_EMAIL) and
+# before prepare_app_yaml (which consumes CUSTOM_TAGS_JSON).
+# -------------------------------------------------------------------------
+build_custom_tags_json() {
+  CUSTOM_TAGS_JSON=""
+  if [[ ${#ARG_TAGS[@]} -eq 0 ]]; then
+    return
+  fi
+
+  CUSTOM_TAGS_JSON=$(USER_EMAIL="$USER_EMAIL" \
+    ARG_TAGS_RAW="$(printf '%s\n' "${ARG_TAGS[@]}")" python3 - <<'PY'
+import json, os
+
+user_email = os.environ.get("USER_EMAIL", "").strip()
+raw = os.environ.get("ARG_TAGS_RAW", "").splitlines()
+
+# Defaults are inserted first so user --tag with the same key overrides them.
+defaults = [{"key": "project", "value": "databricks_forge"}]
+if user_email:
+    defaults.append({"key": "owner", "value": user_email})
+
+merged = {t["key"]: t["value"] for t in defaults}
+for entry in raw:
+    entry = entry.strip()
+    if not entry or "=" not in entry:
+        continue
+    key, value = entry.split("=", 1)
+    merged[key.strip()] = value.strip()
+
+tags = [{"key": k, "value": v} for k, v in merged.items()]
+print(json.dumps(tags, separators=(",", ":")))
+PY
+)
+}
+
 prepare_app_yaml() {
   # Back up and patch app.yaml with instance-specific env vars for syncing.
   # Reads from the ORIGINAL repo file (git version) to avoid contamination
@@ -492,6 +606,8 @@ prepare_app_yaml() {
   export SQL_ENDPOINT
   export LIGHTWEIGHT_ENDPOINT
   export ALLOWED_MODELS
+  export BUDGET_POLICY_ID
+  export CUSTOM_TAGS_JSON
   python3 - <<'PY'
 import os
 from pathlib import Path
@@ -517,6 +633,8 @@ generation_endpoint = os.environ.get("GENERATION_ENDPOINT", "").strip()
 sql_endpoint = os.environ.get("SQL_ENDPOINT", "").strip()
 lightweight_endpoint = os.environ.get("LIGHTWEIGHT_ENDPOINT", "").strip()
 allowed_models = os.environ.get("ALLOWED_MODELS", "").strip()
+budget_policy_id = os.environ.get("BUDGET_POLICY_ID", "").strip()
+custom_tags_json = os.environ.get("CUSTOM_TAGS_JSON", "").strip()
 
 path = Path("app.yaml")
 lines = path.read_text().splitlines()
@@ -548,6 +666,8 @@ def is_managed_name_line(s: str) -> bool:
         or "DATABRICKS_SERVING_ENDPOINT_SQL" in t
         or "DATABRICKS_SERVING_ENDPOINT_LIGHTWEIGHT" in t
         or "DATABRICKS_ALLOWED_MODELS" in t
+        or "FORGE_BUDGET_POLICY_ID" in t
+        or "FORGE_CUSTOM_TAGS" in t
     )
 
 while i < len(lines):
@@ -623,6 +743,15 @@ if lightweight_endpoint:
 if allowed_models:
     out.append("  - name: DATABRICKS_ALLOWED_MODELS")
     out.append(f'    value: "{allowed_models}"')
+if budget_policy_id:
+    out.append("  - name: FORGE_BUDGET_POLICY_ID")
+    out.append(f'    value: "{budget_policy_id}"')
+if custom_tags_json:
+    # Serialize as a single-line JSON value; escape any embedded double quotes
+    # so the YAML remains valid. Consumed at runtime by provision.ts.
+    escaped = custom_tags_json.replace('"', '\\"')
+    out.append("  - name: FORGE_CUSTOM_TAGS")
+    out.append(f'    value: "{escaped}"')
 path.write_text("\n".join(out) + "\n")
 PY
 }
@@ -1082,13 +1211,17 @@ create_app() {
 
   if [ "$existing_state" = "MISSING" ] || [ "$existing_state" = "DELETING" ]; then
     local create_json
-    create_json=$(python3 -c "
-import json
-print(json.dumps({
-    'name': '''$APP_NAME''',
-    'description': '''$APP_DESC''',
-    'user_api_scopes': ['sql','catalog.tables:read','catalog.schemas:read','catalog.catalogs:read','files.files','dashboards.genie']
-}))
+    create_json=$(APP_NAME="$APP_NAME" APP_DESC="$APP_DESC" BUDGET_POLICY_ID="$BUDGET_POLICY_ID" python3 -c "
+import json, os
+body = {
+    'name': os.environ['APP_NAME'],
+    'description': os.environ['APP_DESC'],
+    'user_api_scopes': ['sql','catalog.tables:read','catalog.schemas:read','catalog.catalogs:read','files.files','dashboards.genie'],
+}
+budget_policy_id = os.environ.get('BUDGET_POLICY_ID', '').strip()
+if budget_policy_id:
+    body['budget_policy_id'] = budget_policy_id
+print(json.dumps(body))
 ")
     local create_err
     if ! create_err=$(databricks apps create --json "$create_json" --no-compute --no-wait 2>&1); then
@@ -1136,24 +1269,34 @@ configure_app() {
   info "Configuring resources and scopes..."
 
   local update_json
-  update_json=$(python3 -c "
-import json
+  update_json=$(WAREHOUSE_ID="$WAREHOUSE_ID" \
+    ENDPOINT="$ENDPOINT" FAST_ENDPOINT="$FAST_ENDPOINT" \
+    EMBEDDING_ENDPOINT="$EMBEDDING_ENDPOINT" REVIEW_ENDPOINT="$REVIEW_ENDPOINT" \
+    REASONING_ENDPOINT_2="$REASONING_ENDPOINT_2" GENERATION_ENDPOINT="$GENERATION_ENDPOINT" \
+    SQL_ENDPOINT="$SQL_ENDPOINT" LIGHTWEIGHT_ENDPOINT="$LIGHTWEIGHT_ENDPOINT" \
+    BUDGET_POLICY_ID="$BUDGET_POLICY_ID" \
+    python3 -c "
+import json, os
 resources = [
-    {'name': 'sql-warehouse', 'sql_warehouse': {'id': '$WAREHOUSE_ID', 'permission': 'CAN_USE'}},
-    {'name': 'serving-endpoint', 'serving_endpoint': {'name': '$ENDPOINT', 'permission': 'CAN_QUERY'}},
-    {'name': 'serving-endpoint-fast', 'serving_endpoint': {'name': '$FAST_ENDPOINT', 'permission': 'CAN_QUERY'}},
-    {'name': 'serving-endpoint-embedding', 'serving_endpoint': {'name': '$EMBEDDING_ENDPOINT', 'permission': 'CAN_QUERY'}},
-    {'name': 'serving-endpoint-review', 'serving_endpoint': {'name': '$REVIEW_ENDPOINT', 'permission': 'CAN_QUERY'}},
+    {'name': 'sql-warehouse', 'sql_warehouse': {'id': os.environ['WAREHOUSE_ID'], 'permission': 'CAN_USE'}},
+    {'name': 'serving-endpoint', 'serving_endpoint': {'name': os.environ['ENDPOINT'], 'permission': 'CAN_QUERY'}},
+    {'name': 'serving-endpoint-fast', 'serving_endpoint': {'name': os.environ['FAST_ENDPOINT'], 'permission': 'CAN_QUERY'}},
+    {'name': 'serving-endpoint-embedding', 'serving_endpoint': {'name': os.environ['EMBEDDING_ENDPOINT'], 'permission': 'CAN_QUERY'}},
+    {'name': 'serving-endpoint-review', 'serving_endpoint': {'name': os.environ['REVIEW_ENDPOINT'], 'permission': 'CAN_QUERY'}},
 ]
-if '$REASONING_ENDPOINT_2':
-    resources.append({'name': 'serving-endpoint-reasoning-2', 'serving_endpoint': {'name': '$REASONING_ENDPOINT_2', 'permission': 'CAN_QUERY'}})
-if '$GENERATION_ENDPOINT':
-    resources.append({'name': 'serving-endpoint-generation', 'serving_endpoint': {'name': '$GENERATION_ENDPOINT', 'permission': 'CAN_QUERY'}})
-if '$SQL_ENDPOINT':
-    resources.append({'name': 'serving-endpoint-sql', 'serving_endpoint': {'name': '$SQL_ENDPOINT', 'permission': 'CAN_QUERY'}})
-if '$LIGHTWEIGHT_ENDPOINT':
-    resources.append({'name': 'serving-endpoint-lightweight', 'serving_endpoint': {'name': '$LIGHTWEIGHT_ENDPOINT', 'permission': 'CAN_QUERY'}})
-print(json.dumps({'resources': resources, 'user_api_scopes': ['sql','catalog.tables:read','catalog.schemas:read','catalog.catalogs:read','files.files','dashboards.genie']}))
+if os.environ.get('REASONING_ENDPOINT_2', ''):
+    resources.append({'name': 'serving-endpoint-reasoning-2', 'serving_endpoint': {'name': os.environ['REASONING_ENDPOINT_2'], 'permission': 'CAN_QUERY'}})
+if os.environ.get('GENERATION_ENDPOINT', ''):
+    resources.append({'name': 'serving-endpoint-generation', 'serving_endpoint': {'name': os.environ['GENERATION_ENDPOINT'], 'permission': 'CAN_QUERY'}})
+if os.environ.get('SQL_ENDPOINT', ''):
+    resources.append({'name': 'serving-endpoint-sql', 'serving_endpoint': {'name': os.environ['SQL_ENDPOINT'], 'permission': 'CAN_QUERY'}})
+if os.environ.get('LIGHTWEIGHT_ENDPOINT', ''):
+    resources.append({'name': 'serving-endpoint-lightweight', 'serving_endpoint': {'name': os.environ['LIGHTWEIGHT_ENDPOINT'], 'permission': 'CAN_QUERY'}})
+body = {'resources': resources, 'user_api_scopes': ['sql','catalog.tables:read','catalog.schemas:read','catalog.catalogs:read','files.files','dashboards.genie']}
+budget_policy_id = os.environ.get('BUDGET_POLICY_ID', '').strip()
+if budget_policy_id:
+    body['budget_policy_id'] = budget_policy_id
+print(json.dumps(body))
 ")
 
   local update_err
@@ -1338,6 +1481,12 @@ print_success() {
   printf "      Fabric / PBI:    %s\n" "$( [ "$ENABLE_FABRIC" = "true" ] && echo "enabled" || echo "disabled" )"
   printf "      Demo mode:       %s\n" "$( [ "$ENABLE_DEMO_MODE" = "true" ] && echo "enabled" || echo "disabled" )"
   printf "      Benchmark admins: %s\n" "${BENCHMARK_ADMINS:-all authenticated users}"
+  printf "      Budget policy:    %s\n" "${BUDGET_POLICY_ID:-none}"
+  if [ -n "$CUSTOM_TAGS_JSON" ]; then
+    printf "      Custom tags:      %s\n" "$CUSTOM_TAGS_JSON"
+  else
+    printf "      Custom tags:      none\n"
+  fi
   if [ "$GENERATED_NATIVE_PASSWORD" = "true" ] && [ "$PRINT_GENERATED_NATIVE_PASSWORD" = "true" ]; then
     printf "      Generated native password: %s\n" "$LAKEBASE_NATIVE_PASSWORD"
   fi
@@ -1419,6 +1568,7 @@ main() {
     exit 0
   fi
 
+  build_custom_tags_json
   probe_and_resolve_endpoints
   select_warehouse
   create_app
