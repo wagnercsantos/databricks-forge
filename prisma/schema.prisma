@@ -1417,3 +1417,76 @@ model ForgeUsage {
   @@index([day])
   @@map("forge_usage")
 }
+
+// ---------------------------------------------------------------------------
+// WAF (Well-Architected Framework) Assessment
+// ---------------------------------------------------------------------------
+
+// Curated catalog of WAF controls (seeded from waf-controls-catalog.csv).
+// One row per control (e.g. DG-01-03), shared across all assessment runs.
+model ForgeWafControl {
+  wafId                  String   @id @map("waf_id")
+  pillar                 String                                       // governance | reliability | cost_optimisation | performance_efficiency
+  pillarName             String   @map("pillar_name")                 // verbatim from CSV (e.g. "01 - Data And AI Governance")
+  principle              String
+  bestPractice           String   @map("best_practice")
+  capabilities           String?
+  details                String?
+  thresholdPercentage    Float    @map("threshold_percentage")
+  metricDefinition       String?  @map("metric_definition")
+  recommendationIfNotMet String?  @map("recommendation_if_not_met")
+  fixActionEngine        String?  @map("fix_action_engine")           // e.g. comment-engine | tag-engine | estate-scan
+  fixActionParamsJson    String?  @map("fix_action_params_json")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  results ForgeWafControlResult[]
+
+  @@index([pillar])
+  @@map("forge_waf_controls")
+}
+
+// Assessment run header — one per execution of the assessment engine.
+model ForgeWafAssessment {
+  assessmentId      String    @id @map("assessment_id")
+  status            String    @default("pending")                     // pending | running | completed | failed
+  scope             String?                                           // optional UC scope label
+  triggeredBy       String?   @map("triggered_by")
+  governanceScore   Float?    @map("governance_score")
+  reliabilityScore  Float?    @map("reliability_score")
+  costScore         Float?    @map("cost_score")
+  performanceScore  Float?    @map("performance_score")
+  overallScore      Float?    @map("overall_score")
+  totalControls     Int       @default(0) @map("total_controls")
+  metControls       Int       @default(0) @map("met_controls")
+  errorMessage      String?   @map("error_message")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  completedAt       DateTime? @map("completed_at")
+
+  results ForgeWafControlResult[]
+
+  @@index([createdAt])
+  @@index([status])
+  @@map("forge_waf_assessments")
+}
+
+// Per-control result for a single assessment run.
+model ForgeWafControlResult {
+  id                  String   @id @default(uuid())
+  assessmentId        String   @map("assessment_id")
+  wafId               String   @map("waf_id")
+  pillar              String
+  scorePercentage     Float    @map("score_percentage")
+  thresholdPercentage Float    @map("threshold_percentage")
+  thresholdMet        Boolean  @map("threshold_met")
+  evaluatedAt         DateTime @default(now()) @map("evaluated_at")
+
+  assessment ForgeWafAssessment @relation(fields: [assessmentId], references: [assessmentId], onDelete: Cascade)
+  control    ForgeWafControl    @relation(fields: [wafId], references: [wafId])
+
+  @@unique([assessmentId, wafId])
+  @@index([assessmentId])
+  @@index([wafId])
+  @@index([pillar])
+  @@map("forge_waf_control_results")
+}
