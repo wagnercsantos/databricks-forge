@@ -365,7 +365,10 @@ export async function generatePortfolioPptx(
       w: 8,
       colW: [4, 2, 2],
       border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-      autoPage: false,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageSlideStartY: 1.3,
+      autoPageCharWeight: -0.5,
     });
 
     // Quick wins call-out
@@ -403,8 +406,11 @@ export async function generatePortfolioPptx(
         w: PPTX.CONTENT_W - 0.6,
         colW: [5, 2.5, 2, 1.5],
         border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-        autoPage: false,
         fontSize: 11,
+        autoPage: true,
+        autoPageRepeatHeader: true,
+        autoPageSlideStartY: 1.3,
+        autoPageCharWeight: -0.5,
       });
     }
 
@@ -457,8 +463,11 @@ export async function generatePortfolioPptx(
       w: PPTX.CONTENT_W - 0.6,
       colW: [5, 1.5, 2.5, 2],
       border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-      autoPage: false,
       fontSize: 12,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageSlideStartY: 1.3,
+      autoPageCharWeight: -0.5,
     });
 
     addFooter(slide);
@@ -526,8 +535,11 @@ export async function generatePortfolioPptx(
       w: PPTX.CONTENT_W - 0.6,
       colW: [3.5, 2.5, 1.5, 2, 1.5],
       border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-      autoPage: false,
       fontSize: 11,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageSlideStartY: 1.3,
+      autoPageCharWeight: -0.5,
     });
 
     addFooter(slide);

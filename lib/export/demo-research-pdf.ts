@@ -19,20 +19,58 @@ function sectionHeading(doc: PDFKit.PDFDocument, y: number, title: string): numb
   return doc.y + 12;
 }
 
+const ROW_PADDING_Y = 5;
+const ROW_MIN_H = 20;
+const HEADER_H = 22;
+const PAGE_BOTTOM_MARGIN = 60;
+
+function drawTableHeader(
+  doc: PDFKit.PDFDocument,
+  y: number,
+  headers: string[],
+  widths: number[],
+): number {
+  doc.save().rect(M, y, CW, HEADER_H).fill(PDF.DB_DARK).restore();
+  doc.fontSize(9).fillColor(PDF.WHITE).font("Helvetica-Bold");
+  let x = M + 8;
+  for (let i = 0; i < headers.length; i++) {
+    doc.text(headers[i], x, y + 6, { width: widths[i] - 16 });
+    x += widths[i];
+  }
+  return y + HEADER_H;
+}
+
 function tableRow(
   doc: PDFKit.PDFDocument,
   y: number,
   cells: string[],
   widths: number[],
   altRow: boolean,
+  context?: { headers: string[] },
 ): number {
+  doc.fontSize(9).font("Helvetica");
+  let maxTextH = 0;
+  for (let i = 0; i < cells.length; i++) {
+    const h = doc.heightOfString(cells[i] ?? "", { width: widths[i] - 16 });
+    if (h > maxTextH) maxTextH = h;
+  }
+  const rowH = Math.max(ROW_MIN_H, Math.ceil(maxTextH + ROW_PADDING_Y * 2));
+
+  if (y + rowH > PAGE_H - PAGE_BOTTOM_MARGIN) {
+    doc.addPage();
+    y = M;
+    if (context) {
+      y = drawTableHeader(doc, y, context.headers, widths);
+    }
+  }
+
   if (altRow) {
-    doc.save().rect(M, y, CW, 20).fill(PDF.WARM_WHITE).restore();
+    doc.save().rect(M, y, CW, rowH).fill(PDF.WARM_WHITE).restore();
   }
   doc
     .save()
-    .moveTo(M, y + 20)
-    .lineTo(M + CW, y + 20)
+    .moveTo(M, y + rowH)
+    .lineTo(M + CW, y + rowH)
     .strokeColor(PDF.BORDER_COLOR)
     .lineWidth(0.5)
     .stroke()
@@ -40,10 +78,10 @@ function tableRow(
   let x = M + 8;
   doc.fontSize(9).fillColor(PDF.TEXT_COLOR).font("Helvetica");
   for (let i = 0; i < cells.length; i++) {
-    doc.text(cells[i], x, y + 5, { width: widths[i] - 16 });
+    doc.text(cells[i] ?? "", x, y + ROW_PADDING_Y, { width: widths[i] - 16 });
     x += widths[i];
   }
-  return y + 20;
+  return y + rowH;
 }
 
 export async function generateDemoResearchPdf(
@@ -163,14 +201,12 @@ export async function generateDemoResearchPdf(
       y = sectionHeading(doc, y, "Industry Landscape");
       if (industryLandscape.marketForces?.length) {
         const w = [CW * 0.25, CW * 0.55, CW * 0.2];
-        doc.save().rect(M, y, CW, 22).fill(PDF.DB_DARK).restore();
-        doc.fontSize(9).fillColor(PDF.WHITE).font("Helvetica-Bold");
-        doc.text("Force", M + 8, y + 6, { width: w[0] - 16 });
-        doc.text("Description", M + 8 + w[0], y + 6, { width: w[1] - 16 });
-        doc.text("Urgency", M + 8 + w[0] + w[1], y + 6, { width: w[2] - 16 });
-        y += 22;
+        const headers = ["Force", "Description", "Urgency"];
+        y = drawTableHeader(doc, y, headers, w);
         industryLandscape.marketForces.forEach((f, i) => {
-          y = tableRow(doc, y, [f.force, f.description, f.urgency], w, i % 2 === 1);
+          y = tableRow(doc, y, [f.force, f.description, f.urgency], w, i % 2 === 1, {
+            headers,
+          });
         });
         y += 8;
       }
@@ -185,14 +221,12 @@ export async function generateDemoResearchPdf(
     if (industryLandscape?.keyBenchmarks?.length) {
       y = sectionHeading(doc, y, "Key Benchmarks");
       const w = [CW / 3, CW / 3, CW / 3];
-      doc.save().rect(M, y, CW, 22).fill(PDF.DB_DARK).restore();
-      doc.fontSize(9).fillColor(PDF.WHITE).font("Helvetica-Bold");
-      doc.text("Metric", M + 8, y + 6, { width: w[0] - 16 });
-      doc.text("Impact", M + 8 + w[0], y + 6, { width: w[1] - 16 });
-      doc.text("Source", M + 8 + w[0] + w[1], y + 6, { width: w[2] - 16 });
-      y += 22;
+      const headers = ["Metric", "Impact", "Source"];
+      y = drawTableHeader(doc, y, headers, w);
       industryLandscape.keyBenchmarks.forEach((b, i) => {
-        y = tableRow(doc, y, [b.metric, b.impact, b.source], w, i % 2 === 1);
+        y = tableRow(doc, y, [b.metric, b.impact, b.source], w, i % 2 === 1, {
+          headers,
+        });
       });
       y += 8;
     }
@@ -201,15 +235,17 @@ export async function generateDemoResearchPdf(
     if (dataStrategy?.assetDetails?.length) {
       y = sectionHeading(doc, y, "Data Strategy");
       const w = [CW * 0.15, CW * 0.15, CW * 0.5, CW * 0.2];
-      doc.save().rect(M, y, CW, 22).fill(PDF.DB_DARK).restore();
-      doc.fontSize(9).fillColor(PDF.WHITE).font("Helvetica-Bold");
-      doc.text("ID", M + 8, y + 6, { width: w[0] - 16 });
-      doc.text("Relevance", M + 8 + w[0], y + 6, { width: w[1] - 16 });
-      doc.text("Rationale", M + 8 + w[0] + w[1], y + 6, { width: w[2] - 16 });
-      doc.text("Quick Win", M + 8 + w[0] + w[1] + w[2], y + 6, { width: w[3] - 16 });
-      y += 22;
+      const headers = ["ID", "Relevance", "Rationale", "Quick Win"];
+      y = drawTableHeader(doc, y, headers, w);
       dataStrategy.assetDetails.forEach((a, i) => {
-        y = tableRow(doc, y, [a.id, String(a.relevance), a.rationale, a.quickWin ? "Yes" : "No"], w, i % 2 === 1);
+        y = tableRow(
+          doc,
+          y,
+          [a.id, String(a.relevance), a.rationale, a.quickWin ? "Yes" : "No"],
+          w,
+          i % 2 === 1,
+          { headers },
+        );
       });
       y += 8;
     }
@@ -359,14 +395,12 @@ export async function generateDemoResearchPdf(
     if (demoNarrative?.competitorAngles && demoNarrative.competitorAngles.length > 0) {
       y = sectionHeading(doc, y, "Competitive Positioning");
       const w = [CW * 0.25, CW * 0.375, CW * 0.375];
-      doc.save().rect(M, y, CW, 22).fill(PDF.DB_DARK).restore();
-      doc.fontSize(9).fillColor(PDF.WHITE).font("Helvetica-Bold");
-      doc.text("Competitor", M + 8, y + 6, { width: w[0] - 16 });
-      doc.text("Their Move", M + 8 + w[0], y + 6, { width: w[1] - 16 });
-      doc.text("Your Opportunity", M + 8 + w[0] + w[1], y + 6, { width: w[2] - 16 });
-      y += 22;
+      const headers = ["Competitor", "Their Move", "Your Opportunity"];
+      y = drawTableHeader(doc, y, headers, w);
       demoNarrative.competitorAngles.forEach((c, i) => {
-        y = tableRow(doc, y, [c.competitor, c.theirMove, c.yourOpportunity], w, i % 2 === 1);
+        y = tableRow(doc, y, [c.competitor, c.theirMove, c.yourOpportunity], w, i % 2 === 1, {
+          headers,
+        });
       });
       y += 8;
     }
@@ -428,15 +462,12 @@ export async function generateDemoResearchPdf(
     if (evidenceRows.length > 0) {
       y = sectionHeading(doc, y, "Evidence Register");
       const w = [CW * 0.12, CW * 0.28, CW * 0.45, CW * 0.15];
-      doc.save().rect(M, y, CW, 22).fill(PDF.DB_DARK).restore();
-      doc.fontSize(9).fillColor(PDF.WHITE).font("Helvetica-Bold");
-      doc.text("Tier", M + 8, y + 6, { width: w[0] - 16 });
-      doc.text("Claim", M + 8 + w[0], y + 6, { width: w[1] - 16 });
-      doc.text("Evidence", M + 8 + w[0] + w[1], y + 6, { width: w[2] - 16 });
-      doc.text("Source", M + 8 + w[0] + w[1] + w[2], y + 6, { width: w[3] - 16 });
-      y += 22;
+      const headers = ["Tier", "Claim", "Evidence", "Source"];
+      y = drawTableHeader(doc, y, headers, w);
       evidenceRows.slice(0, 25).forEach((r, i) => {
-        y = tableRow(doc, y, [r.tier, r.claim, r.detail, r.source], w, i % 2 === 1);
+        y = tableRow(doc, y, [r.tier, r.claim, r.detail, r.source], w, i % 2 === 1, {
+          headers,
+        });
       });
       y += 8;
     }
@@ -444,15 +475,12 @@ export async function generateDemoResearchPdf(
     if (research.sources && research.sources.length > 0) {
       y = sectionHeading(doc, y, "Sources");
       const w = [CW * 0.2, CW * 0.45, CW * 0.2, CW * 0.15];
-      doc.save().rect(M, y, CW, 22).fill(PDF.DB_DARK).restore();
-      doc.fontSize(9).fillColor(PDF.WHITE).font("Helvetica-Bold");
-      doc.text("Type", M + 8, y + 6, { width: w[0] - 16 });
-      doc.text("URL", M + 8 + w[0], y + 6, { width: w[1] - 16 });
-      doc.text("Status", M + 8 + w[0] + w[1], y + 6, { width: w[2] - 16 });
-      doc.text("Characters", M + 8 + w[0] + w[1] + w[2], y + 6, { width: w[3] - 16 });
-      y += 22;
+      const headers = ["Type", "URL", "Status", "Characters"];
+      y = drawTableHeader(doc, y, headers, w);
       research.sources.forEach((s, i) => {
-        y = tableRow(doc, y, [s.type, s.title, s.status, String(s.charCount)], w, i % 2 === 1);
+        y = tableRow(doc, y, [s.type, s.title, s.status, String(s.charCount)], w, i % 2 === 1, {
+          headers,
+        });
       });
     }
 

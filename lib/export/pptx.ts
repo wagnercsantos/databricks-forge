@@ -611,7 +611,10 @@ export async function generatePptx(
       fontSize: 14,
       colW: [4.5, 1.5, 2],
       border: { type: "solid", pt: 0.5, color: BORDER_COLOR },
-      autoPage: false,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageSlideStartY: 1.3,
+      autoPageCharWeight: -0.5,
     });
 
     addFooter(tocSlide);

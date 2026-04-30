@@ -344,7 +344,10 @@ export async function generateWorkshopPptx(
       w: 10,
       colW: [3, 2, 2.5, 2.5],
       border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-      autoPage: false,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageSlideStartY: 1.3,
+      autoPageCharWeight: -0.5,
     });
 
     // Top quick wins
@@ -387,8 +390,11 @@ export async function generateWorkshopPptx(
         w: PPTX.CONTENT_W - 0.6,
         colW: [5, 2.5, 2, 1.5],
         border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-        autoPage: false,
         fontSize: 11,
+        autoPage: true,
+        autoPageRepeatHeader: true,
+        autoPageSlideStartY: 1.3,
+        autoPageCharWeight: -0.5,
       });
     }
 
@@ -443,7 +449,10 @@ export async function generateWorkshopPptx(
       w: 8,
       colW: [4, 2.5, 1.5],
       border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-      autoPage: false,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageSlideStartY: 1.6,
+      autoPageCharWeight: -0.5,
     });
 
     addFooter(slide);

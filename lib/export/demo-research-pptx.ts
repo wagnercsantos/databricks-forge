@@ -98,6 +98,7 @@ export async function generateDemoResearchPptx(
       h: 5.7,
       valign: "top",
       fontFace: "Calibri",
+      fit: "shrink",
     });
     addFooter(slide);
   }
@@ -195,6 +196,7 @@ export async function generateDemoResearchPptx(
         h: 5.5,
         valign: "top",
         fontFace: "Calibri",
+        fit: "shrink",
       });
     }
     addFooter(slide);
@@ -248,51 +250,46 @@ export async function generateDemoResearchPptx(
   }
 
   const industryLandscape = research.industryLandscape;
-  if (industryLandscape) {
+  if (industryLandscape?.marketForces?.length) {
     const slide = addSectionSlide(pptx, "Industry Landscape");
-    if (industryLandscape.marketForces?.length) {
-      const forceData: PptxGenJS.TableRow[] = [
-        [headerCell("Force"), headerCell("Description"), headerCell("Urgency")],
-        ...(industryLandscape.marketForces ?? []).map(
-          (f): PptxGenJS.TableRow => [
-            bodyCell(f.force, { bold: true }),
-            bodyCell(f.description),
-            bodyCell(f.urgency, { align: "center" }),
-          ],
-        ),
-      ];
-      slide.addTable(forceData, {
-        x: PPTX.CONTENT_MARGIN + 0.3,
-        y: 1.2,
-        w: PPTX.CONTENT_W - 0.6,
-        colW: [2.5, 6, 1.5],
-        border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-        autoPage: false,
-      });
-      let compY = 3.8;
-      if (industryLandscape.competitiveDynamics) {
-        slide.addText("Competitive Dynamics", {
-          x: PPTX.CONTENT_MARGIN + 0.3,
-          y: compY,
-          w: PPTX.CONTENT_W - 0.6,
-          fontSize: 14,
-          bold: true,
-          color: PPTX.DB_DARK,
-          fontFace: "Calibri",
-        });
-        compY += 0.35;
-        slide.addText(industryLandscape.competitiveDynamics, {
-          x: PPTX.CONTENT_MARGIN + 0.3,
-          y: compY,
-          w: PPTX.CONTENT_W - 0.6,
-          h: 2,
-          fontSize: 11,
-          color: PPTX.TEXT_COLOR,
-          fontFace: "Calibri",
-          valign: "top",
-        });
-      }
-    }
+    const forceData: PptxGenJS.TableRow[] = [
+      [headerCell("Force"), headerCell("Description"), headerCell("Urgency")],
+      ...industryLandscape.marketForces.map(
+        (f): PptxGenJS.TableRow => [
+          bodyCell(f.force, { bold: true }),
+          bodyCell(f.description),
+          bodyCell(f.urgency, { align: "center" }),
+        ],
+      ),
+    ];
+    slide.addTable(forceData, {
+      x: PPTX.CONTENT_MARGIN + 0.3,
+      y: 1.2,
+      w: PPTX.CONTENT_W - 0.6,
+      colW: [2.5, 6, 1.5],
+      border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
+      fontSize: 10,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageSlideStartY: 1.2,
+      autoPageCharWeight: -0.5,
+    });
+    addFooter(slide);
+  }
+
+  if (industryLandscape?.competitiveDynamics) {
+    const slide = addSectionSlide(pptx, "Competitive Dynamics");
+    slide.addText(industryLandscape.competitiveDynamics, {
+      x: PPTX.CONTENT_MARGIN + 0.3,
+      y: 1.2,
+      w: PPTX.CONTENT_W - 0.6,
+      h: 5.5,
+      fontSize: 13,
+      color: PPTX.TEXT_COLOR,
+      fontFace: "Calibri",
+      valign: "top",
+      fit: "shrink",
+    });
     addFooter(slide);
   }
 
@@ -314,7 +311,11 @@ export async function generateDemoResearchPptx(
       w: PPTX.CONTENT_W - 0.6,
       colW: [4, 4, 4],
       border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-      autoPage: false,
+      fontSize: 11,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageSlideStartY: 1.2,
+      autoPageCharWeight: -0.5,
     });
     addFooter(slide);
   }
@@ -339,7 +340,11 @@ export async function generateDemoResearchPptx(
       w: PPTX.CONTENT_W - 0.6,
       colW: [2, 1.5, 6, 1.5],
       border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-      autoPage: false,
+      fontSize: 10,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageSlideStartY: 1.2,
+      autoPageCharWeight: -0.5,
     });
     addFooter(slide);
   }
@@ -377,6 +382,7 @@ export async function generateDemoResearchPptx(
       h: 5.5,
       valign: "top",
       fontFace: "Calibri",
+      fit: "shrink",
     });
     addFooter(slide);
   }
@@ -467,6 +473,7 @@ export async function generateDemoResearchPptx(
         h: 5.5,
         valign: "top",
         fontFace: "Calibri",
+        fit: "shrink",
       });
       addFooter(slide);
     }
@@ -532,6 +539,7 @@ export async function generateDemoResearchPptx(
       h: 5.5,
       valign: "top",
       fontFace: "Calibri",
+      fit: "shrink",
     });
     addFooter(slide);
   }
@@ -554,7 +562,11 @@ export async function generateDemoResearchPptx(
       w: PPTX.CONTENT_W - 0.6,
       colW: [2.5, 4.5, 4.5],
       border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-      autoPage: false,
+      fontSize: 10,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageSlideStartY: 1.2,
+      autoPageCharWeight: -0.5,
     });
     addFooter(slide);
   }
@@ -591,6 +603,7 @@ export async function generateDemoResearchPptx(
       h: 5.5,
       valign: "top",
       fontFace: "Calibri",
+      fit: "shrink",
     });
     addFooter(slide);
   }
@@ -697,7 +710,11 @@ export async function generateDemoResearchPptx(
       w: PPTX.CONTENT_W - 0.6,
       colW: [1.2, 2.8, 5.5, 1.5],
       border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-      autoPage: false,
+      fontSize: 10,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageSlideStartY: 1.2,
+      autoPageCharWeight: -0.5,
     });
     addFooter(slide);
   }
@@ -721,7 +738,11 @@ export async function generateDemoResearchPptx(
       w: PPTX.CONTENT_W - 0.6,
       colW: [2, 6, 1.5, 1.5],
       border: { type: "solid", pt: 0.5, color: PPTX.BORDER_COLOR },
-      autoPage: false,
+      fontSize: 10,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageSlideStartY: 1.2,
+      autoPageCharWeight: -0.5,
     });
     addFooter(slide);
   }
