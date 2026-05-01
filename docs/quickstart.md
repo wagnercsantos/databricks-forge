@@ -27,7 +27,7 @@ cd databricks-forge
 The script discovers your SQL Warehouses, lets you pick one, and handles
 everything else automatically -- resource bindings, user authorization scopes,
 code upload, and deployment. The premium model defaults to
-`databricks-claude-opus-4-6` and the fast model to `databricks-claude-sonnet-4-6`.
+`databricks-claude-opus-4-7` and the fast model to `databricks-claude-sonnet-4-6`.
 
 No manual configuration steps. Zero UI clicks.
 
@@ -60,7 +60,7 @@ All flags are optional. Combine as needed.
 
 | Flag | Default |
 |------|---------|
-| `--endpoint "name"` | `databricks-claude-opus-4-6` (premium/reasoning) |
+| `--endpoint "name"` | `databricks-claude-opus-4-7` (premium/reasoning) |
 | `--fast-endpoint "name"` | `databricks-claude-sonnet-4-6` (fast/classification) |
 | `--embedding-endpoint "name"` | `databricks-qwen3-embedding-0-6b` (1024-dim) |
 | `--review-endpoint "name"` | `databricks-gpt-5-4` (SQL quality review) |

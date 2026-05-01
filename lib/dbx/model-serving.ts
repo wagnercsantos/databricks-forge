@@ -36,7 +36,7 @@ export interface ChatMessage {
 
 /** Options for a chat completion request. */
 export interface ChatCompletionOptions {
-  /** Model serving endpoint name (e.g. "databricks-claude-opus-4-6"). */
+  /** Model serving endpoint name (e.g. "databricks-claude-opus-4-7"). */
   endpoint: string;
   /** Messages to send (system + user). */
   messages: ChatMessage[];

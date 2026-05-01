@@ -159,7 +159,7 @@ Engines use a dual-endpoint strategy to balance quality and cost:
 
 | Tier | Endpoint | Default Model | Used By |
 |------|----------|---------------|---------|
-| **Premium** | `serving-endpoint` | `databricks-claude-opus-4-6` | SQL generation, scoring, creative generation |
+| **Premium** | `serving-endpoint` | `databricks-claude-opus-4-7` | SQL generation, scoring, creative generation |
 | **Fast** | `serving-endpoint-fast` | `databricks-claude-sonnet-4-6` | Classification, enrichment, structured extraction |
 | **Review** | `serving-endpoint-review` | `databricks-gpt-5-4` | SQL quality review (LLM-as-reviewer) |
 | **Embedding** | `serving-endpoint-embedding` | `databricks-qwen3-embedding-0-6b` | Vector embeddings for RAG |

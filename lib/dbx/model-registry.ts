@@ -8,7 +8,7 @@
  * Pool discovery order:
  *   1. Dedicated env vars (DATABRICKS_SERVING_ENDPOINT_REASONING_2, etc.)
  *   2. Legacy env vars (DATABRICKS_SERVING_ENDPOINT, _FAST, _REVIEW)
- *   3. Hardcoded default (databricks-claude-opus-4-6)
+ *   3. Hardcoded default (databricks-claude-opus-4-7)
  *
  * When only legacy env vars are set, behavior is identical to the pre-pool era.
  */
@@ -26,7 +26,7 @@ import { logger } from "@/lib/logger";
 export type TaskTier = "reasoning" | "generation" | "classification" | "sql" | "lightweight";
 
 export interface ModelEndpoint {
-  /** Serving endpoint name (e.g. "databricks-claude-opus-4-6"). */
+  /** Serving endpoint name (e.g. "databricks-claude-opus-4-7"). */
   name: string;
   /** Task tiers this endpoint is suitable for (ordered by preference). */
   tiers: TaskTier[];
@@ -77,17 +77,24 @@ interface ModelTemplate {
  * available via AI Gateway (beta). They are intentionally excluded.
  */
 const KNOWN_MODELS: Record<string, ModelTemplate> = {
-  "databricks-claude-opus-4-6": {
+  "databricks-claude-opus-4-7": {
     tiers: ["reasoning"],
     maxConcurrent: 6,
     priority: 1,
     supportsJsonMode: false,
     maxOutputTokens: 32_000,
   },
-  "databricks-claude-opus-4-5": {
+  "databricks-claude-opus-4-6": {
     tiers: ["reasoning"],
     maxConcurrent: 6,
     priority: 2,
+    supportsJsonMode: false,
+    maxOutputTokens: 32_000,
+  },
+  "databricks-claude-opus-4-5": {
+    tiers: ["reasoning"],
+    maxConcurrent: 6,
+    priority: 3,
     supportsJsonMode: false,
     maxOutputTokens: 32_000,
   },
@@ -191,7 +198,7 @@ function buildPool(): ModelEndpoint[] {
   add(process.env.DATABRICKS_SERVING_ENDPOINT_LIGHTWEIGHT);
 
   if (pool.length === 0) {
-    const def = "databricks-claude-opus-4-6";
+    const def = "databricks-claude-opus-4-7";
     pool.push({ name: def, ...KNOWN_MODELS[def]!, available: true });
   }
 

@@ -76,7 +76,7 @@ describe("model-registry", () => {
     it("when no env vars set, pool has 1 endpoint (hardcoded default)", () => {
       const pool = getModelPool();
       expect(pool).toHaveLength(1);
-      expect(pool[0].name).toBe("databricks-claude-opus-4-6");
+      expect(pool[0].name).toBe("databricks-claude-opus-4-7");
     });
   });
 

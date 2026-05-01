@@ -898,7 +898,7 @@ These values control pipeline behaviour and can be adjusted in the source code:
 
 | Parameter | Value | Notes |
 | --- | --- | --- |
-| Default model | `databricks-claude-opus-4-6` | Configurable per run |
+| Default model | `databricks-claude-opus-4-7` | Configurable per run |
 | SQL rejection threshold | 20 chars | Responses shorter than this are treated as failures |
 | Sample rows range | 0 -- 50 | 0 = disabled, configurable in Settings |
 

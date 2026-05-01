@@ -52,7 +52,7 @@ Native password rotation and rollback examples:
 
 The deploy script discovers your SQL Warehouses, lets you pick one, creates
 the app, uploads the code, and deploys. The premium model defaults to
-`databricks-claude-opus-4-6` and the fast model to `databricks-claude-sonnet-4-6`.
+`databricks-claude-opus-4-7` and the fast model to `databricks-claude-sonnet-4-6`.
 The whole process takes 3-5 minutes.
 
 ### Step 2: Deploy completes
@@ -135,7 +135,7 @@ for full details and troubleshooting.
 | `DATABRICKS_CLIENT_ID` | Service principal OAuth client ID | Auto-injected by platform |
 | `DATABRICKS_CLIENT_SECRET` | Service principal OAuth client secret | Auto-injected by platform |
 | `DATABRICKS_WAREHOUSE_ID` | SQL Warehouse ID | Set by `deploy.sh` in `app.yaml` |
-| `DATABRICKS_SERVING_ENDPOINT` | Premium Model Serving endpoint name | Set by `deploy.sh` (default: `databricks-claude-opus-4-6`) |
+| `DATABRICKS_SERVING_ENDPOINT` | Premium Model Serving endpoint name | Set by `deploy.sh` (default: `databricks-claude-opus-4-7`) |
 | `DATABRICKS_SERVING_ENDPOINT_FAST` | Fast Model Serving endpoint name | Set by `deploy.sh` (default: `databricks-claude-sonnet-4-6`) |
 | `DATABRICKS_EMBEDDING_ENDPOINT` | Embedding Model Serving endpoint name | Set by `deploy.sh` (default: `databricks-qwen3-embedding-0-6b`) |
 | `LAKEBASE_ENDPOINT_NAME` | Lakebase endpoint resource name | Auto-generated at startup by `scripts/provision-lakebase.mjs` |
@@ -343,7 +343,7 @@ These map to the form fields on the `/configure` page:
 | **Business Priorities** | No | Increase Revenue | Multi-select from 10 predefined priorities |
 | **Strategic Goals** | No | Auto-generated | Custom goals for scoring alignment |
 | **Business Domains** | No | Auto-detected | Focus domains (e.g. "Risk, Finance, Marketing") |
-| **AI Model** | No | databricks-claude-opus-4-6 | Model Serving endpoint for LLM calls (chat completions) |
+| **AI Model** | No | databricks-claude-opus-4-7 | Model Serving endpoint for LLM calls (chat completions) |
 | **Languages** | No | English | Target languages for generated documentation |
 
 ### Cost governance (optional)

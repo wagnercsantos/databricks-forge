@@ -60,7 +60,7 @@ with other flags as normal:
   --warehouse "My SQL Warehouse" \
   --enable-demo-mode \
   --enable-metric-views \
-  --reasoning-endpoint-2 "databricks-claude-opus-4-5"
+  --reasoning-endpoint-2 "databricks-claude-opus-4-6"
 ```
 
 ### Verification

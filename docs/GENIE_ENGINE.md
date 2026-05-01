@@ -90,7 +90,7 @@ on a faster model (Claude Sonnet) at 3-5x lower latency.
 
 | Env Variable | Resource Key | Default | Purpose |
 |---|---|---|---|
-| `DATABRICKS_SERVING_ENDPOINT` | `serving-endpoint` | `databricks-claude-opus-4-6` | Premium model for SQL generation and quality-critical passes |
+| `DATABRICKS_SERVING_ENDPOINT` | `serving-endpoint` | `databricks-claude-opus-4-7` | Premium model for SQL generation and quality-critical passes |
 | `DATABRICKS_SERVING_ENDPOINT_FAST` | `serving-endpoint-fast` | Falls back to premium | Fast model for classification and enrichment tasks |
 
 The fast endpoint is **opt-in**: if `serving-endpoint-fast` is not configured

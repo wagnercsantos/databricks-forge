@@ -10,8 +10,8 @@ import { getModelPool } from "@/lib/dbx/model-registry";
 import { resolveEndpoint } from "@/lib/dbx/client";
 import type { TaskTier } from "@/lib/dbx/model-registry";
 
-const PREFERRED = "databricks-claude-opus-4-6";
-const FALLBACK = "databricks-gpt-5-4";
+const PREFERRED = "databricks-claude-opus-4-7";
+const FALLBACKS = ["databricks-claude-opus-4-6", "databricks-gpt-5-4"] as const;
 
 let _reasoningCached: string | null = null;
 
@@ -34,10 +34,9 @@ export function resolveResearchEndpoint(tier?: TaskTier): string {
 
   if (poolNames.has(PREFERRED)) {
     _reasoningCached = PREFERRED;
-  } else if (poolNames.has(FALLBACK)) {
-    _reasoningCached = FALLBACK;
   } else {
-    _reasoningCached = resolveEndpoint("reasoning");
+    const matched = FALLBACKS.find((name) => poolNames.has(name));
+    _reasoningCached = matched ?? resolveEndpoint("reasoning");
   }
 
   return _reasoningCached;
