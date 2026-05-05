@@ -36,12 +36,10 @@ const FIX_ACTIONS: Record<string, { engine: string; params?: Record<string, unkn
   "DG-01-03": { engine: "estate-scan", params: { reason: "lineage" } },
   "DG-01-04": { engine: "comment-engine", params: { mode: "tables-and-columns" } },
   "DG-01-05": { engine: "estate-scan", params: { reason: "tags" } },
+  "DG-02-01": { engine: "estate-scan", params: { reason: "access-control" } },
+  "DG-03-02": { engine: "estate-scan", params: { reason: "quality" } },
   "DG-03-03": { engine: "estate-scan", params: { reason: "format" } },
   // Governance — admin / external docs
-  "DG-02-01": {
-    engine: "docs",
-    params: { href: "https://docs.databricks.com/aws/en/data-governance/unity-catalog/filters-and-masks/" },
-  },
   "DG-02-02": {
     engine: "docs",
     params: { href: "https://docs.databricks.com/aws/en/admin/system-tables/audit-logs" },
@@ -50,17 +48,11 @@ const FIX_ACTIONS: Record<string, { engine: string; params?: Record<string, unkn
     engine: "docs",
     params: { href: "https://docs.databricks.com/aws/en/admin/system-tables/" },
   },
-  "DG-03-02": {
-    engine: "docs",
-    params: { href: "https://docs.databricks.com/aws/en/admin/system-tables/" },
-  },
 
   // Reliability
   "R-01-01": { engine: "estate-scan", params: { reason: "format" } },
-  "R-01-03": {
-    engine: "docs",
-    params: { href: "https://docs.databricks.com/aws/en/ldp/serverless" },
-  },
+  "R-01-03": { engine: "estate-scan", params: { reason: "dlt-expectations" } },
+  "R-02-04": { engine: "estate-scan", params: { reason: "constraints" } },
   "R-01-05": {
     engine: "docs",
     params: { href: "https://docs.databricks.com/aws/en/machine-learning/model-serving/" },
@@ -68,10 +60,6 @@ const FIX_ACTIONS: Record<string, { engine: string; params?: Record<string, unkn
   "R-01-06": {
     engine: "docs",
     params: { href: "https://docs.databricks.com/aws/en/admin/sql/serverless" },
-  },
-  "R-02-04": {
-    engine: "docs",
-    params: { href: "https://docs.databricks.com/aws/en/ldp/serverless" },
   },
   "R-03-01": {
     engine: "docs",
@@ -99,14 +87,8 @@ const FIX_ACTIONS: Record<string, { engine: string; params?: Record<string, unkn
     engine: "docs",
     params: { href: "https://docs.databricks.com/aws/en/compute/configure" },
   },
-  "PE-02-05": {
-    engine: "docs",
-    params: { href: "https://spark.apache.org/docs/latest/api/sql/" },
-  },
-  "PE-02-06": {
-    engine: "docs",
-    params: { href: "https://docs.databricks.com/aws/en/compute/photon" },
-  },
+  "PE-02-05": { engine: "ask-forge", params: { persona: "tech" } },
+  "PE-02-06": { engine: "estate-scan", params: { reason: "photon" } },
   "PE-02-07": {
     engine: "docs",
     params: { href: "https://docs.databricks.com/aws/en/compute/clusters-manage#cluster-policy" },
@@ -118,30 +100,15 @@ const FIX_ACTIONS: Record<string, { engine: string; params?: Record<string, unkn
     engine: "docs",
     params: { href: "https://docs.databricks.com/aws/en/compute/sql-warehouse/warehouse-types" },
   },
-  "CO-01-04": {
-    engine: "docs",
-    params: { href: "https://docs.databricks.com/aws/en/admin/clusters/policies" },
-  },
+  "CO-01-04": { engine: "estate-scan", params: { reason: "runtime-versions" } },
   "CO-01-06": {
     engine: "docs",
     params: { href: "https://docs.databricks.com/aws/en/admin/sql/serverless" },
   },
-  "CO-01-09": {
-    engine: "docs",
-    params: { href: "https://docs.databricks.com/aws/en/compute/photon" },
-  },
-  "CO-02-03": {
-    engine: "docs",
-    params: { href: "https://docs.databricks.com/aws/en/admin/clusters/policies" },
-  },
-  "CO-03-01": {
-    engine: "docs",
-    params: { href: "https://docs.databricks.com/aws/en/admin/usage/system-tables" },
-  },
-  "CO-03-02": {
-    engine: "docs",
-    params: { href: "https://docs.databricks.com/aws/en/admin/account-settings/usage-detail-tags" },
-  },
+  "CO-01-09": { engine: "estate-scan", params: { reason: "photon" } },
+  "CO-02-03": { engine: "ask-forge", params: { persona: "tech" } },
+  "CO-03-01": { engine: "ask-forge", params: { persona: "tech" } },
+  "CO-03-02": { engine: "estate-scan", params: { reason: "tagging-cost-attribution" } },
 };
 
 /** Map raw `pillar_name` from the CSV to our internal pillar key. */

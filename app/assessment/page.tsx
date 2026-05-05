@@ -116,10 +116,19 @@ function fixAction(engine: string | null, paramsJson: string | null): FixAction 
   switch (engine) {
     case "comment-engine":
       return { kind: "engine", href: "/environment/comments", label: "Fix with Forge" };
-    case "estate-scan":
-      return { kind: "engine", href: "/environment", label: "Open Estate" };
+    case "estate-scan": {
+      const reasonRaw = typeof params.reason === "string" ? params.reason : "";
+      const reason = /^[a-z][a-z0-9-]{0,40}$/.test(reasonRaw) ? reasonRaw : "";
+      const href = reason ? `/environment?reason=${reason}` : "/environment";
+      return { kind: "engine", href, label: "Open Estate" };
+    }
     case "tag-engine":
       return { kind: "engine", href: "/environment?tab=governance", label: "Fix with Forge" };
+    case "ask-forge": {
+      const personaRaw = typeof params.persona === "string" ? params.persona : "";
+      const persona = /^[a-z-]{1,32}$/.test(personaRaw) ? personaRaw : "tech";
+      return { kind: "engine", href: `/ask-forge?persona=${persona}`, label: "Ask Forge" };
+    }
     case "docs":
     default: {
       const href = safeDocHref(params.href);

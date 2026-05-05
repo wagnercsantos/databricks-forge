@@ -11,6 +11,7 @@
  */
 
 import React, { useCallback, useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -72,11 +73,35 @@ const ERDViewer = dynamic(
 // Component
 // ---------------------------------------------------------------------------
 
+/**
+ * Map a WAF assessment `reason` (passed via `?reason=...`) to a default tab
+ * and a short human-readable label. Used to deep-link from the WAF assessment
+ * "Fix with Forge" CTAs into the most relevant Estate panel.
+ */
+const WAF_REASON_TO_TAB: Record<string, { tab: string; label: string }> = {
+  lineage: { tab: "tables", label: "lineage coverage" },
+  tags: { tab: "governance", label: "table tagging" },
+  format: { tab: "tables", label: "table formats" },
+  "managed-tables": { tab: "tables", label: "managed tables" },
+  "access-control": { tab: "governance", label: "access control" },
+  quality: { tab: "governance", label: "data quality" },
+  "dlt-expectations": { tab: "tables", label: "DLT expectations" },
+  constraints: { tab: "tables", label: "table constraints" },
+  "runtime-versions": { tab: "tables", label: "runtime versions" },
+  photon: { tab: "tables", label: "Photon usage" },
+  "tagging-cost-attribution": { tab: "governance", label: "cost-attribution tagging" },
+};
+
 export default function EstatePage() {
   const searchParams = useSearchParams();
   const highlightFqn = useMemo(() => searchParams.get("highlight") ?? "", [searchParams]);
   const tabParam = useMemo(() => searchParams.get("tab") ?? "", [searchParams]);
   const scanParam = useMemo(() => searchParams.get("scan") ?? "", [searchParams]);
+  const reasonParam = useMemo(() => searchParams.get("reason") ?? "", [searchParams]);
+  const wafReason = useMemo(
+    () => (reasonParam ? WAF_REASON_TO_TAB[reasonParam] ?? null : null),
+    [reasonParam],
+  );
 
   const [viewMode, setViewMode] = useState<ViewMode>("aggregate");
   const [aggregate, setAggregate] = useState<AggregateData | null>(null);
@@ -92,7 +117,8 @@ export default function EstatePage() {
 
   useEffect(() => {
     if (tabParam) setActiveTab(tabParam);
-  }, [tabParam]);
+    else if (wafReason) setActiveTab(wafReason.tab);
+  }, [tabParam, wafReason]);
 
   useEffect(() => {
     if (highlightFqn) {
@@ -541,6 +567,24 @@ export default function EstatePage() {
           </Button>
         </div>
       </div>
+
+      {/* WAF assessment context — shown when navigated here from /assessment */}
+      {wafReason && (
+        <div className="rounded-md border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <span>
+              Focused on <span className="font-medium">{wafReason.label}</span> — from your latest
+              WAF assessment.
+            </span>
+            <Link
+              href="/assessment"
+              className="text-primary underline-offset-2 hover:underline"
+            >
+              Back to assessment
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* New Scan Form with Catalog Browser (hidden while a scan is running) */}
       {viewMode === "new-scan" && !scanning && (
