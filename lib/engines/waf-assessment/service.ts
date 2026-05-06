@@ -22,9 +22,24 @@ import type {
   WafAssessmentDetail,
   WafAssessmentSummary,
   WafControl,
+  WafControlResult,
+  WafIgnoredResource,
   WafPillar,
+  WafQualitativeAnswer,
+  WafQualitativeResponse,
 } from "./types";
-import { WAF_PILLARS } from "./types";
+import {
+  QUALITATIVE_SCORE,
+  QUALITATIVE_THRESHOLD,
+  WAF_PILLARS,
+} from "./types";
+
+const QUALITATIVE_ANSWERS: ReadonlySet<WafQualitativeAnswer> = new Set([
+  "yes",
+  "partial",
+  "no",
+  "not_applicable",
+]);
 
 function toSummary(row: {
   assessmentId: string;
@@ -94,27 +109,65 @@ export async function runAssessment(opts: {
   try {
     const { results, errors } = await runAllPillars();
 
-    if (results.length === 0) {
+    // Catalog is the source of truth: pull pillar+evaluationType once and use
+    // it both to filter unknown waf_ids and to materialize qualitative results.
+    const catalogRows = await withPrisma((prisma) =>
+      prisma.forgeWafControl.findMany({
+        select: { wafId: true, pillar: true, evaluationType: true },
+      }),
+    );
+    const catalogIndex = new Map(
+      catalogRows.map((r: { wafId: string; pillar: string; evaluationType: string }) => [
+        r.wafId,
+        { pillar: r.pillar as WafPillar, evaluationType: r.evaluationType },
+      ]),
+    );
+
+    // Materialize qualitative results from saved responses. Only "yes/partial/no"
+    // produce a row; "not_applicable" excludes the control from totals.
+    const qualitativeResults: WafControlResult[] = [];
+    const responses = await withPrisma((prisma) =>
+      prisma.forgeWafQualitativeResponse.findMany(),
+    );
+    for (const r of responses) {
+      const meta = catalogIndex.get(r.wafId);
+      if (!meta || meta.evaluationType !== "qualitative") continue;
+      const score = QUALITATIVE_SCORE[r.response as WafQualitativeAnswer];
+      if (score == null) continue;
+      qualitativeResults.push({
+        wafId: r.wafId,
+        pillar: meta.pillar,
+        scorePercentage: score,
+        thresholdPercentage: QUALITATIVE_THRESHOLD,
+        thresholdMet: score >= QUALITATIVE_THRESHOLD,
+      });
+    }
+
+    // Workspace-level control exclusions. Only entries with both resourceType
+    // and resourceId NULL skip the entire control; resource-level entries are
+    // reserved for a future iteration (will be honored inside SQL queries).
+    const ignored = await withPrisma((prisma) =>
+      prisma.forgeWafIgnoredResource.findMany({
+        where: { resourceType: null, resourceId: null },
+        select: { wafId: true },
+      }),
+    );
+    const ignoredControlIds = new Set(ignored.map((i: { wafId: string }) => i.wafId));
+
+    const automaticResults = results.filter(
+      (r) => catalogIndex.has(r.wafId) && !ignoredControlIds.has(r.wafId),
+    );
+    const valid: WafControlResult[] = [
+      ...automaticResults,
+      ...qualitativeResults.filter((r) => !ignoredControlIds.has(r.wafId)),
+    ];
+
+    if (valid.length === 0) {
       throw new Error(
         errors.length > 0
           ? `All pillar queries failed: ${errors.map((e) => `${e.pillar}: ${e.message}`).join("; ")}`
           : "No control results returned",
       );
-    }
-
-    // Filter to controls present in catalog (avoid FK violation if a query
-    // returns an unknown waf_id — the catalog is the source of truth).
-    const knownIds = new Set(
-      await withPrisma(async (prisma) =>
-        (await prisma.forgeWafControl.findMany({ select: { wafId: true } })).map(
-          (r: { wafId: string }) => r.wafId,
-        ),
-      ),
-    );
-    const valid = results.filter((r) => knownIds.has(r.wafId));
-
-    if (valid.length === 0) {
-      throw new Error("No control results matched the catalog");
     }
 
     await withPrisma((prisma) =>
@@ -332,3 +385,157 @@ export async function listControls(): Promise<WafControl[]> {
 }
 
 export { WAF_PILLARS };
+
+function toQualitativeResponse(row: {
+  wafId: string;
+  response: string;
+  notes: string | null;
+  respondedBy: string | null;
+  updatedAt: Date;
+}): WafQualitativeResponse {
+  return {
+    wafId: row.wafId,
+    response: row.response as WafQualitativeAnswer,
+    notes: row.notes,
+    respondedBy: row.respondedBy,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/** List all saved qualitative responses (one row per waf_id). */
+export async function listQualitativeResponses(): Promise<WafQualitativeResponse[]> {
+  const rows = await withPrisma((prisma) =>
+    prisma.forgeWafQualitativeResponse.findMany({ orderBy: { wafId: "asc" } }),
+  );
+  return rows.map(toQualitativeResponse);
+}
+
+/** Upsert a qualitative response. Throws if wafId is unknown or non-qualitative. */
+export async function saveQualitativeResponse(input: {
+  wafId: string;
+  response: WafQualitativeAnswer;
+  notes?: string | null;
+  respondedBy?: string | null;
+}): Promise<WafQualitativeResponse> {
+  if (!QUALITATIVE_ANSWERS.has(input.response)) {
+    throw new Error(`Invalid response: ${input.response}`);
+  }
+  await ensureCatalogSeeded();
+  const control = await withPrisma((prisma) =>
+    prisma.forgeWafControl.findUnique({
+      where: { wafId: input.wafId },
+      select: { wafId: true, evaluationType: true },
+    }),
+  );
+  if (!control) throw new Error(`Unknown waf_id: ${input.wafId}`);
+  if (control.evaluationType !== "qualitative") {
+    throw new Error(`Control ${input.wafId} is not qualitative`);
+  }
+  const row = await withPrisma((prisma) =>
+    prisma.forgeWafQualitativeResponse.upsert({
+      where: { wafId: input.wafId },
+      create: {
+        wafId: input.wafId,
+        response: input.response,
+        notes: input.notes ?? null,
+        respondedBy: input.respondedBy ?? null,
+      },
+      update: {
+        response: input.response,
+        notes: input.notes ?? null,
+        respondedBy: input.respondedBy ?? null,
+      },
+    }),
+  );
+  return toQualitativeResponse(row);
+}
+
+/** Delete a qualitative response (returns to "Pending response" state). */
+export async function deleteQualitativeResponse(wafId: string): Promise<void> {
+  await withPrisma((prisma) =>
+    prisma.forgeWafQualitativeResponse.deleteMany({ where: { wafId } }),
+  );
+}
+
+function toIgnoredResource(row: {
+  id: string;
+  wafId: string;
+  resourceType: string | null;
+  resourceId: string | null;
+  reason: string;
+  ignoredBy: string | null;
+  createdAt: Date;
+}): WafIgnoredResource {
+  return {
+    id: row.id,
+    wafId: row.wafId,
+    resourceType: row.resourceType,
+    resourceId: row.resourceId,
+    reason: row.reason,
+    ignoredBy: row.ignoredBy,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/** List all workspace exclusions (control-level + resource-level). */
+export async function listIgnoredResources(): Promise<WafIgnoredResource[]> {
+  const rows = await withPrisma((prisma) =>
+    prisma.forgeWafIgnoredResource.findMany({
+      orderBy: [{ wafId: "asc" }, { createdAt: "desc" }],
+    }),
+  );
+  return rows.map(toIgnoredResource);
+}
+
+/** Add a workspace exclusion. Idempotent on (wafId, resourceType, resourceId). */
+export async function addIgnoredResource(input: {
+  wafId: string;
+  resourceType?: string | null;
+  resourceId?: string | null;
+  reason: string;
+  ignoredBy?: string | null;
+}): Promise<WafIgnoredResource> {
+  if (!input.reason || input.reason.trim().length === 0) {
+    throw new Error("reason is required");
+  }
+  await ensureCatalogSeeded();
+  const exists = await withPrisma((prisma) =>
+    prisma.forgeWafControl.findUnique({ where: { wafId: input.wafId } }),
+  );
+  if (!exists) throw new Error(`Unknown waf_id: ${input.wafId}`);
+  const resourceType = input.resourceType ?? null;
+  const resourceId = input.resourceId ?? null;
+  // Manual find-then-update/create: Postgres treats NULL as distinct in
+  // unique indexes, so the @@unique compound key cannot match NULL legs.
+  const row = await withPrisma(async (prisma) => {
+    const existing = await prisma.forgeWafIgnoredResource.findFirst({
+      where: { wafId: input.wafId, resourceType, resourceId },
+    });
+    if (existing) {
+      return prisma.forgeWafIgnoredResource.update({
+        where: { id: existing.id },
+        data: {
+          reason: input.reason.trim(),
+          ignoredBy: input.ignoredBy ?? null,
+        },
+      });
+    }
+    return prisma.forgeWafIgnoredResource.create({
+      data: {
+        wafId: input.wafId,
+        resourceType,
+        resourceId,
+        reason: input.reason.trim(),
+        ignoredBy: input.ignoredBy ?? null,
+      },
+    });
+  });
+  return toIgnoredResource(row);
+}
+
+/** Remove a workspace exclusion by primary key. */
+export async function deleteIgnoredResource(id: string): Promise<void> {
+  await withPrisma((prisma) =>
+    prisma.forgeWafIgnoredResource.deleteMany({ where: { id } }),
+  );
+}

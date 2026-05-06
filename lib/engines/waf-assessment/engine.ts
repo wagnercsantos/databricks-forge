@@ -21,6 +21,9 @@ type WafPillarWithQuery = (typeof WAF_PILLARS_WITH_QUERIES)[number];
 
 const QUERY_FILES: Record<WafPillarWithQuery, string> = {
   governance: "governance.sql",
+  interoperability_usability: "interoperability-usability.sql",
+  operational_excellence: "operational-excellence.sql",
+  security_compliance_privacy: "security-compliance-privacy.sql",
   reliability: "reliability.sql",
   cost_optimisation: "cost-optimisation.sql",
   performance_efficiency: "performance-efficiency.sql",

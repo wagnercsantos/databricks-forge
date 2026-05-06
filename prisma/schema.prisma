@@ -1494,3 +1494,35 @@ model ForgeWafControlResult {
   @@index([pillar])
   @@map("forge_waf_control_results")
 }
+
+// Workspace-level qualitative answer for a WAF control. One row per waf_id;
+// reused across assessment runs (configuration-like, not run-scoped).
+//   response: yes (100) | partial (50) | no (0) | not_applicable (excluded)
+model ForgeWafQualitativeResponse {
+  wafId        String   @id @map("waf_id")
+  response     String                                       // yes | partial | no | not_applicable
+  notes        String?
+  respondedBy  String?  @map("responded_by")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("forge_waf_qualitative_responses")
+}
+
+// Workspace-level exclusion for a WAF control or a specific resource.
+//   resourceType + resourceId NULL  -> the whole control is ignored across runs
+//   resourceType + resourceId set   -> only that resource is ignored (e.g. an
+//                                       idle warehouse intentionally kept warm)
+// V1 honors the control-level case; resource-level is reserved for a follow-up.
+model ForgeWafIgnoredResource {
+  id            String   @id @default(uuid())
+  wafId         String   @map("waf_id")
+  resourceType  String?  @map("resource_type")              // e.g. "warehouse" | "table" | "job" | null
+  resourceId    String?  @map("resource_id")
+  reason        String
+  ignoredBy     String?  @map("ignored_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([wafId, resourceType, resourceId])
+  @@index([wafId])
+  @@map("forge_waf_ignored_resources")
+}

@@ -13,7 +13,7 @@
  *   5. History table with one-click compare against the latest run
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,29 +34,50 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
 import {
   AlertCircle,
   ArrowLeftRight,
   BookOpen,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Download,
+  EyeOff,
   Loader2,
   Play,
+  RotateCcw,
   Sparkles,
   Wrench,
 } from "lucide-react";
 import { PILLAR_LABEL } from "@/lib/engines/waf-assessment/types";
+import { getCrossReference } from "@/lib/engines/waf-assessment/cross-references";
 import type {
   WafAssessmentDetail,
   WafAssessmentSummary,
+  WafControl,
+  WafIgnoredResource,
   WafPillar,
+  WafQualitativeAnswer,
+  WafQualitativeResponse,
 } from "@/lib/engines/waf-assessment/types";
 
 interface ApiState {
   latest: WafAssessmentDetail | null;
   history: WafAssessmentSummary[];
+  qualitativeControls: WafControl[];
+  qualitativeResponses: WafQualitativeResponse[];
+  ignored: WafIgnoredResource[];
 }
+
+const QUALITATIVE_LABEL: Record<WafQualitativeAnswer, string> = {
+  yes: "Yes",
+  partial: "Partial",
+  no: "No",
+  not_applicable: "N/A",
+};
 
 const PILLAR_ORDER: WafPillar[] = [
   "governance",
@@ -141,6 +162,32 @@ function fixAction(engine: string | null, paramsJson: string | null): FixAction 
       return href ? { kind: "docs", href, label: "Open docs" } : null;
     }
   }
+}
+
+function CrossRefBadges({ wafId, pillar }: { wafId: string; pillar: WafPillar }) {
+  const refs = getCrossReference(wafId, pillar);
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      <a
+        href={refs.awsHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        title={refs.awsLabel}
+      >
+        {refs.awsLabel}
+      </a>
+      <a
+        href={refs.azureHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        title={refs.azureLabel}
+      >
+        {refs.azureLabel}
+      </a>
+    </div>
+  );
 }
 
 function pillarScoreFor(s: WafAssessmentSummary | null, p: WafPillar): number | null {
@@ -251,6 +298,62 @@ export default function AssessmentPage() {
     }
   }, [refresh]);
 
+  const saveQualitative = useCallback(
+    async (input: { wafId: string; response: WafQualitativeAnswer; notes: string | null }) => {
+      const res = await fetch("/api/assessment/qualitative", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Save failed (${res.status})`);
+      }
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const ignoreControl = useCallback(
+    async (wafId: string) => {
+      const reason = window.prompt(
+        `Why is ${wafId} not applicable to this workspace? (this will be persisted as an audit trail)`,
+      );
+      if (!reason || !reason.trim()) return;
+      const res = await fetch("/api/assessment/ignored", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wafId, reason: reason.trim() }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body.error ?? `Failed to ignore ${wafId}`);
+        return;
+      }
+      toast.success(`${wafId} will be excluded from the next run`);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const restoreIgnored = useCallback(
+    async (id: string, wafId: string) => {
+      const res = await fetch("/api/assessment/ignored", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body.error ?? `Failed to restore ${wafId}`);
+        return;
+      }
+      toast.success(`${wafId} restored`);
+      await refresh();
+    },
+    [refresh],
+  );
+
   const latest = data?.latest ?? null;
 
   const notMet = useMemo(() => {
@@ -345,18 +448,43 @@ export default function AssessmentPage() {
         </Card>
       ) : (
         <>
-          <ScoreOverview summary={latest} />
+          <ScoreOverview
+            summary={latest}
+            qualitativeAnswered={data?.qualitativeResponses.length ?? 0}
+            qualitativeTotal={data?.qualitativeControls.length ?? 0}
+          />
+
+          {latest.errorMessage && (
+            <Card className="border-amber-500/40 bg-amber-50/50 dark:bg-amber-950/20">
+              <CardContent className="flex items-start gap-3 py-4 text-sm">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                <div>
+                  <p className="font-medium">Partial run</p>
+                  <p className="mt-1 text-muted-foreground">{latest.errorMessage}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Tabs defaultValue="failing">
-            <TabsList className="flex-wrap">
-              <TabsTrigger value="failing">Failing ({notMet.length})</TabsTrigger>
-              {PILLAR_ORDER.map((p) => (
-                <TabsTrigger key={p} value={p}>
-                  {SHORT_PILLAR_LABEL[p]} ({pillarStats[p].met}/{pillarStats[p].total})
+            <ScrollableTabsRow>
+              <TabsList className="w-max min-w-full justify-start [&>button]:flex-none">
+                <TabsTrigger value="failing">Failing ({notMet.length})</TabsTrigger>
+                {PILLAR_ORDER.map((p) => (
+                  <TabsTrigger key={p} value={p}>
+                    {SHORT_PILLAR_LABEL[p]} ({pillarStats[p].met}/{pillarStats[p].total})
+                  </TabsTrigger>
+                ))}
+                <TabsTrigger value="qualitative">
+                  Qualitative ({data?.qualitativeResponses.length ?? 0}/
+                  {data?.qualitativeControls.length ?? 0})
                 </TabsTrigger>
-              ))}
-              <TabsTrigger value="history">History ({data?.history.length ?? 0})</TabsTrigger>
-            </TabsList>
+                <TabsTrigger value="ignored">
+                  Ignored ({data?.ignored.length ?? 0})
+                </TabsTrigger>
+                <TabsTrigger value="history">History ({data?.history.length ?? 0})</TabsTrigger>
+              </TabsList>
+            </ScrollableTabsRow>
 
             <TabsContent value="failing" className="mt-4">
               {notMet.length === 0 ? (
@@ -367,7 +495,7 @@ export default function AssessmentPage() {
                   </CardContent>
                 </Card>
               ) : (
-                <ResultsTable rows={notMet} showPillar />
+                <ResultsTable rows={notMet} showPillar onIgnore={ignoreControl} />
               )}
             </TabsContent>
 
@@ -379,9 +507,21 @@ export default function AssessmentPage() {
                   met={pillarStats[p].met}
                   total={pillarStats[p].total}
                 />
-                <ResultsTable rows={byPillar[p]} />
+                <ResultsTable rows={byPillar[p]} onIgnore={ignoreControl} />
               </TabsContent>
             ))}
+
+            <TabsContent value="qualitative" className="mt-4">
+              <QualitativeTab
+                controls={data?.qualitativeControls ?? []}
+                responses={data?.qualitativeResponses ?? []}
+                onSave={saveQualitative}
+              />
+            </TabsContent>
+
+            <TabsContent value="ignored" className="mt-4">
+              <IgnoredTab ignored={data?.ignored ?? []} onRestore={restoreIgnored} />
+            </TabsContent>
 
             <TabsContent value="history" className="mt-4">
               <HistoryTable
@@ -396,7 +536,85 @@ export default function AssessmentPage() {
   );
 }
 
-function ScoreOverview({ summary }: { summary: WafAssessmentSummary }) {
+function ScrollableTabsRow({ children }: { children: React.ReactNode }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+
+  const updateState = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanLeft(el.scrollLeft > 4);
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    updateState();
+    const onScroll = () => updateState();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    const ro = new ResizeObserver(updateState);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      ro.disconnect();
+    };
+  }, [updateState]);
+
+  const scrollBy = (dir: "left" | "right") => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir === "left" ? -240 : 240, behavior: "smooth" });
+  };
+
+  return (
+    <div className="relative">
+      <div ref={scrollRef} className="overflow-x-auto">
+        {children}
+      </div>
+      <div
+        aria-hidden
+        className={`pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-background to-transparent transition-opacity ${canLeft ? "opacity-100" : "opacity-0"}`}
+      />
+      <div
+        aria-hidden
+        className={`pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-background to-transparent transition-opacity ${canRight ? "opacity-100" : "opacity-0"}`}
+      />
+      {canLeft && (
+        <button
+          type="button"
+          aria-label="Scroll tabs left"
+          onClick={() => scrollBy("left")}
+          className="absolute left-1 top-1/2 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-border/50 bg-background/80 text-foreground/80 shadow-sm backdrop-blur-sm transition hover:bg-background hover:text-foreground"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+      )}
+      {canRight && (
+        <button
+          type="button"
+          aria-label="Scroll tabs right"
+          onClick={() => scrollBy("right")}
+          className="absolute right-1 top-1/2 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-border/50 bg-background/80 text-foreground/80 shadow-sm backdrop-blur-sm transition hover:bg-background hover:text-foreground"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ScoreOverview({
+  summary,
+  qualitativeAnswered,
+  qualitativeTotal,
+}: {
+  summary: WafAssessmentSummary;
+  qualitativeAnswered: number;
+  qualitativeTotal: number;
+}) {
+  const qualitativePending = qualitativeTotal - qualitativeAnswered;
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
       <Card>
@@ -428,6 +646,28 @@ function ScoreOverview({ summary }: { summary: WafAssessmentSummary }) {
           </Card>
         );
       })}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardDescription>Qualitative</CardDescription>
+          <CardTitle className="text-3xl tabular-nums">
+            {qualitativeAnswered}/{qualitativeTotal || "—"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {qualitativeTotal === 0 ? (
+            <Badge variant="secondary">No controls</Badge>
+          ) : qualitativePending === 0 ? (
+            <Badge variant="default">Complete</Badge>
+          ) : (
+            <Badge variant="destructive">{qualitativePending} pending</Badge>
+          )}
+          <p className="mt-2 text-xs text-muted-foreground">
+            {qualitativePending > 0
+              ? "Answer the manual controls in the Qualitative tab."
+              : "All manual controls answered."}
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -469,9 +709,11 @@ function PillarHeader({
 function ResultsTable({
   rows,
   showPillar = false,
+  onIgnore,
 }: {
   rows: WafAssessmentDetail["results"];
   showPillar?: boolean;
+  onIgnore?: (wafId: string) => Promise<void>;
 }) {
   return (
     <Card>
@@ -509,6 +751,7 @@ function ResultsTable({
                       </pre>
                     </details>
                   )}
+                  <CrossRefBadges wafId={r.wafId} pillar={r.pillar} />
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {r.scorePercentage.toFixed(1)}
@@ -528,27 +771,39 @@ function ResultsTable({
                   )}
                 </TableCell>
                 <TableCell>
-                  {!r.thresholdMet && action ? (
-                    <Button size="sm" variant="outline" asChild>
-                      {action.kind === "docs" ? (
-                        <a href={action.href} target="_blank" rel="noopener noreferrer">
-                          <BookOpen className="mr-1.5 h-3.5 w-3.5" /> {action.label}
-                        </a>
-                      ) : (
-                        <Link href={action.href}>
-                          <Wrench className="mr-1.5 h-3.5 w-3.5" /> {action.label}
+                  <div className="flex flex-wrap items-center gap-1">
+                    {!r.thresholdMet && action ? (
+                      <Button size="sm" variant="outline" asChild>
+                        {action.kind === "docs" ? (
+                          <a href={action.href} target="_blank" rel="noopener noreferrer">
+                            <BookOpen className="mr-1.5 h-3.5 w-3.5" /> {action.label}
+                          </a>
+                        ) : (
+                          <Link href={action.href}>
+                            <Wrench className="mr-1.5 h-3.5 w-3.5" /> {action.label}
+                          </Link>
+                        )}
+                      </Button>
+                    ) : !r.thresholdMet ? (
+                      <Button size="sm" variant="ghost" asChild>
+                        <Link href="/ask-forge">
+                          <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Ask Forge
                         </Link>
-                      )}
-                    </Button>
-                  ) : !r.thresholdMet ? (
-                    <Button size="sm" variant="ghost" asChild>
-                      <Link href="/ask-forge">
-                        <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Ask Forge
-                      </Link>
-                    </Button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  )}
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                    {!r.thresholdMet && onIgnore && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="Mark this control as not applicable to this workspace"
+                        onClick={() => void onIgnore(r.wafId)}
+                      >
+                        <EyeOff className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             );
@@ -658,6 +913,218 @@ function HistoryTable({
           })}
         </TableBody>
       </Table>
+    </Card>
+  );
+}
+
+function IgnoredTab({
+  ignored,
+  onRestore,
+}: {
+  ignored: WafIgnoredResource[];
+  onRestore: (id: string, wafId: string) => Promise<void>;
+}) {
+  if (ignored.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          No controls or resources are currently excluded from scoring.
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[120px]">Control</TableHead>
+            <TableHead className="w-[140px]">Scope</TableHead>
+            <TableHead>Reason</TableHead>
+            <TableHead className="w-[160px]">Ignored at</TableHead>
+            <TableHead className="w-[160px]">By</TableHead>
+            <TableHead className="w-[100px]">Restore</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {ignored.map((row) => {
+            const scope =
+              row.resourceType && row.resourceId
+                ? `${row.resourceType}: ${row.resourceId}`
+                : "Whole control";
+            return (
+              <TableRow key={row.id}>
+                <TableCell className="font-mono text-xs">{row.wafId}</TableCell>
+                <TableCell className="text-xs">{scope}</TableCell>
+                <TableCell className="text-sm whitespace-pre-wrap">{row.reason}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {fmtDate(row.createdAt)}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {row.ignoredBy ?? "—"}
+                </TableCell>
+                <TableCell>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void onRestore(row.id, row.wafId)}
+                  >
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Restore
+                  </Button>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </Card>
+  );
+}
+
+function QualitativeTab({
+  controls,
+  responses,
+  onSave,
+}: {
+  controls: WafControl[];
+  responses: WafQualitativeResponse[];
+  onSave: (input: {
+    wafId: string;
+    response: WafQualitativeAnswer;
+    notes: string | null;
+  }) => Promise<void>;
+}) {
+  const responseByWafId = useMemo(() => {
+    const map = new Map<string, WafQualitativeResponse>();
+    for (const r of responses) map.set(r.wafId, r);
+    return map;
+  }, [responses]);
+
+  if (controls.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          No qualitative controls in the catalog.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardContent className="py-4 text-xs text-muted-foreground">
+          Answer each best practice with <strong>Yes</strong> (100), <strong>Partial</strong> (50),{" "}
+          <strong>No</strong> (0), or <strong>N/A</strong> (excluded). Saved responses feed every
+          future assessment run — re-run the assessment to see the updated pillar scores.
+        </CardContent>
+      </Card>
+      {controls.map((control) => (
+        <QualitativeRow
+          key={control.wafId}
+          control={control}
+          response={responseByWafId.get(control.wafId) ?? null}
+          onSave={onSave}
+        />
+      ))}
+    </div>
+  );
+}
+
+function QualitativeRow({
+  control,
+  response,
+  onSave,
+}: {
+  control: WafControl;
+  response: WafQualitativeResponse | null;
+  onSave: (input: {
+    wafId: string;
+    response: WafQualitativeAnswer;
+    notes: string | null;
+  }) => Promise<void>;
+}) {
+  const [answer, setAnswer] = useState<WafQualitativeAnswer | "">(response?.response ?? "");
+  const [notes, setNotes] = useState<string>(response?.notes ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const dirty = answer !== (response?.response ?? "") || notes !== (response?.notes ?? "");
+
+  const handleSave = useCallback(async () => {
+    if (!answer) {
+      toast.error("Pick an answer first");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave({ wafId: control.wafId, response: answer, notes: notes.trim() || null });
+      toast.success(`Saved ${control.wafId}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save response";
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  }, [answer, notes, control.wafId, onSave]);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs text-muted-foreground">{control.wafId}</span>
+            <Badge variant="outline" className="text-xs">
+              {PILLAR_LABEL[control.pillar]}
+            </Badge>
+            {response ? (
+              <Badge variant="default" className="text-xs">
+                Answered
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="text-xs">
+                Pending response
+              </Badge>
+            )}
+          </div>
+          <CardTitle className="text-base">{control.bestPractice}</CardTitle>
+          <CardDescription className="text-xs">{control.principle}</CardDescription>
+          <CrossRefBadges wafId={control.wafId} pillar={control.pillar} />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {control.details && (
+          <p className="text-xs text-muted-foreground whitespace-pre-wrap">{control.details}</p>
+        )}
+        <ToggleGroup
+          type="single"
+          value={answer}
+          onValueChange={(v: string) => v && setAnswer(v as WafQualitativeAnswer)}
+          className="justify-start"
+        >
+          {(["yes", "partial", "no", "not_applicable"] as WafQualitativeAnswer[]).map((opt) => (
+            <ToggleGroupItem key={opt} value={opt} className="px-3 text-xs">
+              {QUALITATIVE_LABEL[opt]}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <Textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional notes (evidence, owner, expected remediation date)..."
+          className="min-h-[60px] text-xs"
+        />
+        <div className="flex items-center justify-end gap-2">
+          {response && (
+            <span className="text-xs text-muted-foreground">
+              Last updated {fmtDate(response.updatedAt)}
+            </span>
+          )}
+          <Button size="sm" onClick={handleSave} disabled={!dirty || saving || !answer}>
+            {saving && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+            Save
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   );
 }
