@@ -32,6 +32,9 @@ function toSummary(row: {
   scope: string | null;
   triggeredBy: string | null;
   governanceScore: number | null;
+  iuScore: number | null;
+  oeScore: number | null;
+  scpScore: number | null;
   reliabilityScore: number | null;
   costScore: number | null;
   performanceScore: number | null;
@@ -48,6 +51,9 @@ function toSummary(row: {
     scope: row.scope,
     triggeredBy: row.triggeredBy,
     governanceScore: row.governanceScore,
+    iuScore: row.iuScore,
+    oeScore: row.oeScore,
+    scpScore: row.scpScore,
     reliabilityScore: row.reliabilityScore,
     costScore: row.costScore,
     performanceScore: row.performanceScore,
@@ -137,12 +143,21 @@ export async function runAssessment(opts: {
     }
 
     const governanceScore = pillarScore(totals, "governance");
+    const iuScore = pillarScore(totals, "interoperability_usability");
+    const oeScore = pillarScore(totals, "operational_excellence");
+    const scpScore = pillarScore(totals, "security_compliance_privacy");
     const reliabilityScore = pillarScore(totals, "reliability");
     const costScore = pillarScore(totals, "cost_optimisation");
     const performanceScore = pillarScore(totals, "performance_efficiency");
-    const available = [governanceScore, reliabilityScore, costScore, performanceScore].filter(
-      (n): n is number => n != null,
-    );
+    const available = [
+      governanceScore,
+      iuScore,
+      oeScore,
+      scpScore,
+      reliabilityScore,
+      costScore,
+      performanceScore,
+    ].filter((n): n is number => n != null);
     const overallScore =
       available.length === 0
         ? null
@@ -154,6 +169,9 @@ export async function runAssessment(opts: {
         data: {
           status: "completed",
           governanceScore,
+          iuScore,
+          oeScore,
+          scpScore,
           reliabilityScore,
           costScore,
           performanceScore,
@@ -238,11 +256,12 @@ export async function getAssessmentDetail(
           bestPractice: string;
           capabilities: string | null;
           details: string | null;
-          thresholdPercentage: number;
+          thresholdPercentage: number | null;
           metricDefinition: string | null;
           recommendationIfNotMet: string | null;
           fixActionEngine: string | null;
           fixActionParamsJson: string | null;
+          evaluationType: string;
         };
       }) => ({
         wafId: r.wafId,
@@ -263,6 +282,8 @@ export async function getAssessmentDetail(
           recommendationIfNotMet: r.control.recommendationIfNotMet,
           fixActionEngine: r.control.fixActionEngine,
           fixActionParamsJson: r.control.fixActionParamsJson,
+          evaluationType:
+            r.control.evaluationType === "qualitative" ? "qualitative" : "automatic",
         },
       }),
     ),
@@ -286,11 +307,12 @@ export async function listControls(): Promise<WafControl[]> {
       bestPractice: string;
       capabilities: string | null;
       details: string | null;
-      thresholdPercentage: number;
+      thresholdPercentage: number | null;
       metricDefinition: string | null;
       recommendationIfNotMet: string | null;
       fixActionEngine: string | null;
       fixActionParamsJson: string | null;
+      evaluationType: string;
     }) => ({
       wafId: r.wafId,
       pillar: r.pillar as WafPillar,
@@ -304,6 +326,7 @@ export async function listControls(): Promise<WafControl[]> {
       recommendationIfNotMet: r.recommendationIfNotMet,
       fixActionEngine: r.fixActionEngine,
       fixActionParamsJson: r.fixActionParamsJson,
+      evaluationType: r.evaluationType === "qualitative" ? "qualitative" : "automatic",
     }),
   );
 }

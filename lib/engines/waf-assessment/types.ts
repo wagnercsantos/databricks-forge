@@ -2,29 +2,53 @@
  * WAF (Well-Architected Framework) Assessment — types.
  *
  * The assessment engine evaluates a Databricks workspace against the
- * Databricks WAF using deterministic SQL queries over `system.*` tables.
- * Each pillar has a single SQL query that returns a row per control.
+ * Databricks WAF (7 pillars). Four pillars (governance, reliability,
+ * cost, performance) have deterministic SQL queries over `system.*`.
+ * The other three (interoperability/usability, operational excellence,
+ * security/compliance/privacy) are catalog-only today and will gain
+ * automatic + qualitative evaluation in a follow-up phase.
  */
 
 export type WafPillar =
   | "governance"
+  | "interoperability_usability"
+  | "operational_excellence"
+  | "security_compliance_privacy"
   | "reliability"
-  | "cost_optimisation"
-  | "performance_efficiency";
+  | "performance_efficiency"
+  | "cost_optimisation";
 
+/** All 7 pillars, in display order. */
 export const WAF_PILLARS: readonly WafPillar[] = [
+  "governance",
+  "interoperability_usability",
+  "operational_excellence",
+  "security_compliance_privacy",
+  "reliability",
+  "performance_efficiency",
+  "cost_optimisation",
+] as const;
+
+/** Subset of pillars that have a deterministic SQL query today. */
+export const WAF_PILLARS_WITH_QUERIES = [
   "governance",
   "reliability",
   "cost_optimisation",
   "performance_efficiency",
-] as const;
+] as const satisfies readonly WafPillar[];
 
 export const PILLAR_LABEL: Record<WafPillar, string> = {
-  governance: "Governance",
+  governance: "Data and AI Governance",
+  interoperability_usability: "Interoperability and Usability",
+  operational_excellence: "Operational Excellence",
+  security_compliance_privacy: "Security, Compliance and Privacy",
   reliability: "Reliability",
-  cost_optimisation: "Cost Optimisation",
   performance_efficiency: "Performance Efficiency",
+  cost_optimisation: "Cost Optimisation",
 };
+
+/** Evaluation method for a control: automatic via SQL, or qualitative via questionnaire. */
+export type WafEvaluationType = "automatic" | "qualitative";
 
 /** Catalog entry — the curated description and recommendation for a control. */
 export interface WafControl {
@@ -35,11 +59,13 @@ export interface WafControl {
   bestPractice: string;
   capabilities: string | null;
   details: string | null;
-  thresholdPercentage: number;
+  /** null for qualitative controls — score is derived from the questionnaire response. */
+  thresholdPercentage: number | null;
   metricDefinition: string | null;
   recommendationIfNotMet: string | null;
   fixActionEngine: string | null;
   fixActionParamsJson: string | null;
+  evaluationType: WafEvaluationType;
 }
 
 /** Per-control evaluation produced by running a pillar query. */
@@ -58,6 +84,9 @@ export interface WafAssessmentSummary {
   scope: string | null;
   triggeredBy: string | null;
   governanceScore: number | null;
+  iuScore: number | null;
+  oeScore: number | null;
+  scpScore: number | null;
   reliabilityScore: number | null;
   costScore: number | null;
   performanceScore: number | null;

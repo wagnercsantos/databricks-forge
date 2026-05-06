@@ -15,7 +15,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { withPrisma } from "@/lib/prisma";
 import { parseCsv } from "./csv";
-import type { WafPillar } from "./types";
+import type { WafEvaluationType, WafPillar } from "./types";
 
 const CATALOG_PATH = path.join(process.cwd(), "lib/engines/waf-assessment/data/waf-controls-catalog.csv");
 
@@ -114,10 +114,18 @@ const FIX_ACTIONS: Record<string, { engine: string; params?: Record<string, unkn
 /** Map raw `pillar_name` from the CSV to our internal pillar key. */
 function pillarKeyFromName(name: string): WafPillar {
   const lower = name.toLowerCase();
+  if (lower.includes("interoperab")) return "interoperability_usability";
+  if (lower.includes("operational")) return "operational_excellence";
+  if (lower.includes("security") || lower.includes("compliance") || lower.includes("privacy"))
+    return "security_compliance_privacy";
   if (lower.includes("reliab")) return "reliability";
   if (lower.includes("cost")) return "cost_optimisation";
   if (lower.includes("performance")) return "performance_efficiency";
   return "governance";
+}
+
+function evaluationTypeFromRaw(raw: string | undefined): WafEvaluationType {
+  return (raw ?? "").trim().toLowerCase() === "qualitative" ? "qualitative" : "automatic";
 }
 
 interface RawControl {
@@ -131,6 +139,7 @@ interface RawControl {
   threshold_percentage: string;
   metric_definition: string;
   recommendation_if_not_met: string;
+  evaluation_type: string;
 }
 
 /** Read + parse the bundled CSV — returns rows in order, no DB calls. */
@@ -143,6 +152,14 @@ export async function loadControlsFromCsv() {
       const wafId = r.waf_id.trim();
       const pillar = pillarKeyFromName(r.pillar_name ?? "");
       const fix = FIX_ACTIONS[wafId];
+      const evaluationType = evaluationTypeFromRaw(r.evaluation_type);
+      const rawThreshold = (r.threshold_percentage ?? "").trim();
+      const thresholdPercentage =
+        evaluationType === "qualitative" || rawThreshold === ""
+          ? null
+          : Number.isFinite(parseFloat(rawThreshold))
+            ? parseFloat(rawThreshold)
+            : null;
       return {
         wafId,
         pillar,
@@ -151,11 +168,12 @@ export async function loadControlsFromCsv() {
         bestPractice: r.best_practice?.trim() ?? "",
         capabilities: r.capabilities?.trim() || null,
         details: r.details?.trim() || null,
-        thresholdPercentage: parseFloat(r.threshold_percentage) || 0,
+        thresholdPercentage,
         metricDefinition: r.metric_definition?.trim() || null,
         recommendationIfNotMet: r.recommendation_if_not_met?.trim() || null,
         fixActionEngine: fix?.engine ?? null,
         fixActionParamsJson: fix?.params ? JSON.stringify(fix.params) : null,
+        evaluationType,
       };
     });
 }

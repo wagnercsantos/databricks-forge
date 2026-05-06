@@ -15,9 +15,11 @@ import path from "path";
 import { executeSQL } from "@/lib/dbx/sql";
 import { logger } from "@/lib/logger";
 import type { WafControlResult, WafPillar } from "./types";
-import { WAF_PILLARS } from "./types";
+import { WAF_PILLARS_WITH_QUERIES } from "./types";
 
-const QUERY_FILES: Record<WafPillar, string> = {
+type WafPillarWithQuery = (typeof WAF_PILLARS_WITH_QUERIES)[number];
+
+const QUERY_FILES: Record<WafPillarWithQuery, string> = {
   governance: "governance.sql",
   reliability: "reliability.sql",
   cost_optimisation: "cost-optimisation.sql",
@@ -26,9 +28,9 @@ const QUERY_FILES: Record<WafPillar, string> = {
 
 const QUERY_DIR = path.join(process.cwd(), "lib/engines/waf-assessment/queries");
 
-const sqlCache = new Map<WafPillar, string>();
+const sqlCache = new Map<WafPillarWithQuery, string>();
 
-async function loadPillarSql(pillar: WafPillar): Promise<string> {
+async function loadPillarSql(pillar: WafPillarWithQuery): Promise<string> {
   const cached = sqlCache.get(pillar);
   if (cached) return cached;
   const sql = await fs.readFile(path.join(QUERY_DIR, QUERY_FILES[pillar]), "utf-8");
@@ -47,7 +49,7 @@ function parseFloatSafe(v: string | null | undefined): number {
 }
 
 /** Run a single pillar query and return per-control results. */
-export async function runPillar(pillar: WafPillar): Promise<WafControlResult[]> {
+export async function runPillar(pillar: WafPillarWithQuery): Promise<WafControlResult[]> {
   const sql = await loadPillarSql(pillar);
   const result = await executeSQL(sql);
 
@@ -76,12 +78,12 @@ export async function runAllPillars(): Promise<{
   results: WafControlResult[];
   errors: Array<{ pillar: WafPillar; message: string }>;
 }> {
-  const settled = await Promise.allSettled(WAF_PILLARS.map((p) => runPillar(p)));
+  const settled = await Promise.allSettled(WAF_PILLARS_WITH_QUERIES.map((p) => runPillar(p)));
   const results: WafControlResult[] = [];
   const errors: Array<{ pillar: WafPillar; message: string }> = [];
 
   settled.forEach((s, i) => {
-    const pillar = WAF_PILLARS[i];
+    const pillar = WAF_PILLARS_WITH_QUERIES[i];
     if (s.status === "fulfilled") {
       results.push(...s.value);
     } else {

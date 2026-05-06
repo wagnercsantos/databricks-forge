@@ -51,9 +51,12 @@ import type {
 
 const PILLAR_ORDER: WafPillar[] = [
   "governance",
+  "interoperability_usability",
+  "operational_excellence",
+  "security_compliance_privacy",
   "reliability",
-  "cost_optimisation",
   "performance_efficiency",
+  "cost_optimisation",
 ];
 
 const SCORE_DRIFT_THRESHOLD = 5;
@@ -67,7 +70,7 @@ interface DiffRow {
   toScore: number | null;
   fromMet: boolean | null;
   toMet: boolean | null;
-  threshold: number;
+  threshold: number | null;
   category: "regressed" | "improved" | "moved" | "unchanged" | "added" | "removed";
   delta: number | null;
 }
@@ -79,6 +82,9 @@ function fmtDate(iso: string): string {
 function pillarScoreFor(d: WafAssessmentDetail | null, p: WafPillar): number | null {
   if (!d) return null;
   if (p === "governance") return d.governanceScore;
+  if (p === "interoperability_usability") return d.iuScore;
+  if (p === "operational_excellence") return d.oeScore;
+  if (p === "security_compliance_privacy") return d.scpScore;
   if (p === "reliability") return d.reliabilityScore;
   if (p === "cost_optimisation") return d.costScore;
   if (p === "performance_efficiency") return d.performanceScore;

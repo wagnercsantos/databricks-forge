@@ -1426,17 +1426,18 @@ model ForgeUsage {
 // One row per control (e.g. DG-01-03), shared across all assessment runs.
 model ForgeWafControl {
   wafId                  String   @id @map("waf_id")
-  pillar                 String                                       // governance | reliability | cost_optimisation | performance_efficiency
+  pillar                 String                                       // governance | interoperability_usability | operational_excellence | security_compliance_privacy | reliability | performance_efficiency | cost_optimisation
   pillarName             String   @map("pillar_name")                 // verbatim from CSV (e.g. "01 - Data And AI Governance")
   principle              String
   bestPractice           String   @map("best_practice")
   capabilities           String?
   details                String?
-  thresholdPercentage    Float    @map("threshold_percentage")
+  thresholdPercentage    Float?   @map("threshold_percentage")        // null for qualitative controls
   metricDefinition       String?  @map("metric_definition")
   recommendationIfNotMet String?  @map("recommendation_if_not_met")
   fixActionEngine        String?  @map("fix_action_engine")           // e.g. comment-engine | tag-engine | estate-scan
   fixActionParamsJson    String?  @map("fix_action_params_json")
+  evaluationType         String   @default("automatic") @map("evaluation_type") // automatic | qualitative
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
 
@@ -1453,6 +1454,9 @@ model ForgeWafAssessment {
   scope             String?                                           // optional UC scope label
   triggeredBy       String?   @map("triggered_by")
   governanceScore   Float?    @map("governance_score")
+  iuScore           Float?    @map("iu_score")
+  oeScore           Float?    @map("oe_score")
+  scpScore          Float?    @map("scp_score")
   reliabilityScore  Float?    @map("reliability_score")
   costScore         Float?    @map("cost_score")
   performanceScore  Float?    @map("performance_score")

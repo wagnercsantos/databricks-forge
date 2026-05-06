@@ -60,13 +60,19 @@ interface ApiState {
 
 const PILLAR_ORDER: WafPillar[] = [
   "governance",
+  "interoperability_usability",
+  "operational_excellence",
+  "security_compliance_privacy",
   "reliability",
-  "cost_optimisation",
   "performance_efficiency",
+  "cost_optimisation",
 ];
 
 const SHORT_PILLAR_LABEL: Record<WafPillar, string> = {
   governance: "Governance",
+  interoperability_usability: "Interop & Usability",
+  operational_excellence: "Operational Excellence",
+  security_compliance_privacy: "Security & Compliance",
   reliability: "Reliability",
   cost_optimisation: "Cost",
   performance_efficiency: "Performance",
@@ -140,6 +146,9 @@ function fixAction(engine: string | null, paramsJson: string | null): FixAction 
 function pillarScoreFor(s: WafAssessmentSummary | null, p: WafPillar): number | null {
   if (!s) return null;
   if (p === "governance") return s.governanceScore;
+  if (p === "interoperability_usability") return s.iuScore;
+  if (p === "operational_excellence") return s.oeScore;
+  if (p === "security_compliance_privacy") return s.scpScore;
   if (p === "reliability") return s.reliabilityScore;
   if (p === "cost_optimisation") return s.costScore;
   if (p === "performance_efficiency") return s.performanceScore;
@@ -254,6 +263,9 @@ export default function AssessmentPage() {
   const byPillar = useMemo(() => {
     const map: Record<WafPillar, WafAssessmentDetail["results"]> = {
       governance: [],
+      interoperability_usability: [],
+      operational_excellence: [],
+      security_compliance_privacy: [],
       reliability: [],
       cost_optimisation: [],
       performance_efficiency: [],
@@ -274,6 +286,9 @@ export default function AssessmentPage() {
   const pillarStats = useMemo(() => {
     const stats: Record<WafPillar, { met: number; total: number }> = {
       governance: { met: 0, total: 0 },
+      interoperability_usability: { met: 0, total: 0 },
+      operational_excellence: { met: 0, total: 0 },
+      security_compliance_privacy: { met: 0, total: 0 },
       reliability: { met: 0, total: 0 },
       cost_optimisation: { met: 0, total: 0 },
       performance_efficiency: { met: 0, total: 0 },
@@ -569,6 +584,9 @@ function HistoryTable({
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Overall</TableHead>
             <TableHead className="text-right">Governance</TableHead>
+            <TableHead className="text-right">IU</TableHead>
+            <TableHead className="text-right">OE</TableHead>
+            <TableHead className="text-right">SCP</TableHead>
             <TableHead className="text-right">Reliability</TableHead>
             <TableHead className="text-right">Cost</TableHead>
             <TableHead className="text-right">Performance</TableHead>
@@ -598,6 +616,15 @@ function HistoryTable({
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {h.governanceScore?.toFixed(1) ?? "—"}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {h.iuScore?.toFixed(1) ?? "—"}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {h.oeScore?.toFixed(1) ?? "—"}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {h.scpScore?.toFixed(1) ?? "—"}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {h.reliabilityScore?.toFixed(1) ?? "—"}
