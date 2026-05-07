@@ -36,8 +36,22 @@ export interface ModelEndpoint {
   priority: number;
   /** Whether the model supports response_format: json_object on Databricks FMAPI. */
   supportsJsonMode: boolean;
+  /**
+   * Whether the model accepts the `temperature` request parameter. Some
+   * reasoning models (e.g. Claude Opus 4.7) reject it with HTTP 400. When
+   * false, the wire layer omits `temperature` from the request body and
+   * the model uses its server-side default (typically 1.0).
+   */
+  supportsTemperature: boolean;
   /** Maximum output tokens the model can generate per request. */
   maxOutputTokens: number;
+  /**
+   * Default value sent on the wire as `max_tokens` when the caller does not
+   * specify one. Closes the Claude Sonnet 4 footgun where omitting
+   * `max_tokens` silently truncates at 1,000 tokens, and ensures predictable
+   * output budgets for every endpoint.
+   */
+  defaultMaxTokens: number;
   /**
    * Whether this endpoint is known to be reachable. Set to false at runtime
    * when a 404/RESOURCE_DOES_NOT_EXIST is received, or when startup
@@ -57,7 +71,11 @@ interface ModelTemplate {
   maxConcurrent: number;
   priority: number;
   supportsJsonMode: boolean;
+  /** Defaults to true — only set false when the model explicitly rejects `temperature`. */
+  supportsTemperature?: boolean;
   maxOutputTokens: number;
+  /** Per-model default for `max_tokens` when the caller omits it. */
+  defaultMaxTokens: number;
 }
 
 /**
@@ -82,7 +100,9 @@ const KNOWN_MODELS: Record<string, ModelTemplate> = {
     maxConcurrent: 6,
     priority: 1,
     supportsJsonMode: false,
+    supportsTemperature: false,
     maxOutputTokens: 32_000,
+    defaultMaxTokens: 8_192,
   },
   "databricks-claude-opus-4-6": {
     tiers: ["reasoning"],
@@ -90,6 +110,7 @@ const KNOWN_MODELS: Record<string, ModelTemplate> = {
     priority: 2,
     supportsJsonMode: false,
     maxOutputTokens: 32_000,
+    defaultMaxTokens: 8_192,
   },
   "databricks-claude-opus-4-5": {
     tiers: ["reasoning"],
@@ -97,6 +118,7 @@ const KNOWN_MODELS: Record<string, ModelTemplate> = {
     priority: 3,
     supportsJsonMode: false,
     maxOutputTokens: 32_000,
+    defaultMaxTokens: 8_192,
   },
   "databricks-claude-sonnet-4-6": {
     tiers: ["generation", "classification"],
@@ -104,6 +126,7 @@ const KNOWN_MODELS: Record<string, ModelTemplate> = {
     priority: 1,
     supportsJsonMode: false,
     maxOutputTokens: 32_000,
+    defaultMaxTokens: 8_192,
   },
   "databricks-claude-sonnet-4-5": {
     tiers: ["classification", "lightweight"],
@@ -111,6 +134,7 @@ const KNOWN_MODELS: Record<string, ModelTemplate> = {
     priority: 2,
     supportsJsonMode: false,
     maxOutputTokens: 32_000,
+    defaultMaxTokens: 8_192,
   },
   "databricks-gpt-5-4": {
     tiers: ["sql", "generation", "reasoning"],
@@ -118,13 +142,15 @@ const KNOWN_MODELS: Record<string, ModelTemplate> = {
     priority: 1,
     supportsJsonMode: true,
     maxOutputTokens: 128_000,
+    defaultMaxTokens: 16_384,
   },
   "databricks-gemini-3-1-flash-lite": {
     tiers: ["generation", "classification", "lightweight"],
     maxConcurrent: 8,
     priority: 0,
     supportsJsonMode: false,
-    maxOutputTokens: 8_192,
+    maxOutputTokens: 32_768,
+    defaultMaxTokens: 4_096,
   },
   "databricks-llama-4-maverick": {
     tiers: ["generation", "classification"],
@@ -132,13 +158,15 @@ const KNOWN_MODELS: Record<string, ModelTemplate> = {
     priority: 1,
     supportsJsonMode: false,
     maxOutputTokens: 8_192,
+    defaultMaxTokens: 4_096,
   },
   "databricks-gemini-3-flash": {
     tiers: ["generation", "classification", "lightweight"],
     maxConcurrent: 8,
     priority: 1,
     supportsJsonMode: false,
-    maxOutputTokens: 8_192,
+    maxOutputTokens: 32_768,
+    defaultMaxTokens: 4_096,
   },
 };
 
@@ -183,7 +211,17 @@ function buildPool(): ModelEndpoint[] {
       return;
     }
     seen.add(key);
-    pool.push({ name, ...tmpl, available: true });
+    pool.push({
+      name,
+      tiers: tmpl.tiers,
+      maxConcurrent: tmpl.maxConcurrent,
+      priority: tmpl.priority,
+      supportsJsonMode: tmpl.supportsJsonMode,
+      supportsTemperature: tmpl.supportsTemperature ?? true,
+      maxOutputTokens: tmpl.maxOutputTokens,
+      defaultMaxTokens: tmpl.defaultMaxTokens,
+      available: true,
+    });
   };
 
   // Primary endpoints (legacy env vars)
@@ -199,7 +237,7 @@ function buildPool(): ModelEndpoint[] {
 
   if (pool.length === 0) {
     const def = "databricks-claude-opus-4-7";
-    pool.push({ name: def, ...KNOWN_MODELS[def]!, available: true });
+    add(def);
   }
 
   const filtered = applyAllowlist(pool);
@@ -367,7 +405,12 @@ export function resetModelPool(): void {
 }
 
 /** Safe defaults for models not in the pool (unknown endpoint fallback). */
-const UNKNOWN_CAPS = { supportsJsonMode: false, maxOutputTokens: 8_192 } as const;
+const UNKNOWN_CAPS = {
+  supportsJsonMode: false,
+  supportsTemperature: true,
+  maxOutputTokens: 8_192,
+  defaultMaxTokens: 4_096,
+} as const;
 
 /**
  * Look up capability metadata for an endpoint.
@@ -378,15 +421,28 @@ const UNKNOWN_CAPS = { supportsJsonMode: false, maxOutputTokens: 8_192 } as cons
  */
 export function getModelCapabilities(endpoint: string): {
   supportsJsonMode: boolean;
+  supportsTemperature: boolean;
   maxOutputTokens: number;
+  defaultMaxTokens: number;
 } {
   const pool = getModelPool();
   const ep = pool.find((e) => e.name.toLowerCase() === endpoint.toLowerCase());
-  if (ep) return { supportsJsonMode: ep.supportsJsonMode, maxOutputTokens: ep.maxOutputTokens };
+  if (ep)
+    return {
+      supportsJsonMode: ep.supportsJsonMode,
+      supportsTemperature: ep.supportsTemperature,
+      maxOutputTokens: ep.maxOutputTokens,
+      defaultMaxTokens: ep.defaultMaxTokens,
+    };
 
   const tmpl = templateFor(endpoint);
   if (tmpl)
-    return { supportsJsonMode: tmpl.supportsJsonMode, maxOutputTokens: tmpl.maxOutputTokens };
+    return {
+      supportsJsonMode: tmpl.supportsJsonMode,
+      supportsTemperature: tmpl.supportsTemperature ?? true,
+      maxOutputTokens: tmpl.maxOutputTokens,
+      defaultMaxTokens: tmpl.defaultMaxTokens,
+    };
 
   return UNKNOWN_CAPS;
 }
@@ -411,7 +467,9 @@ function logPoolSummary(pool: ModelEndpoint[]): void {
         tiers: ep.tiers.join(", "),
         maxConcurrent: ep.maxConcurrent,
         jsonMode: ep.supportsJsonMode,
+        temperature: ep.supportsTemperature,
         maxOutput: ep.maxOutputTokens,
+        defaultMax: ep.defaultMaxTokens,
         available: ep.available,
       })),
       effectiveMaxConcurrent: totalConcurrent,

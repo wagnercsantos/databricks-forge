@@ -156,33 +156,37 @@ export async function chatCompletion(
   const url = `${host}/serving-endpoints/${options.endpoint}/invocations`;
 
   const headers = await getAppHeaders();
+  const caps = getModelCapabilities(options.endpoint);
+
   const body: Record<string, unknown> = {
     messages: options.messages,
-    temperature: options.temperature ?? 0.3,
   };
 
-  const caps = getModelCapabilities(options.endpoint);
+  if (caps.supportsTemperature) {
+    body.temperature = options.temperature ?? 0.3;
+  }
+
+  const requestedMaxTokens = options.maxTokens ?? caps.defaultMaxTokens;
+  const clamped = Math.min(requestedMaxTokens, caps.maxOutputTokens);
+  if (options.maxTokens !== undefined && clamped < options.maxTokens) {
+    logger.warn("Clamped maxTokens to model limit", {
+      endpoint: options.endpoint,
+      requested: options.maxTokens,
+      clamped,
+      cap: caps.maxOutputTokens,
+    });
+  }
+  body.max_tokens = clamped;
 
   logger.info("LLM call", {
     fn: "chatCompletion",
     endpoint: options.endpoint,
-    maxTokens: options.maxTokens,
+    maxTokens: clamped,
     jsonMode: options.responseFormat === "json_object",
     supportsJson: caps.supportsJsonMode,
+    supportsTemperature: caps.supportsTemperature,
     maxOutputTokens: caps.maxOutputTokens,
   });
-
-  if (options.maxTokens !== undefined) {
-    const clamped = Math.min(options.maxTokens, caps.maxOutputTokens);
-    if (clamped < options.maxTokens) {
-      logger.info("Clamped maxTokens to model limit", {
-        endpoint: options.endpoint,
-        requested: options.maxTokens,
-        clamped,
-      });
-    }
-    body.max_tokens = clamped;
-  }
 
   if (options.responseFormat === "json_object" && supportsJsonResponseFormat(options.endpoint)) {
     body.response_format = { type: "json_object" };
@@ -268,17 +272,28 @@ export async function chatCompletionStream(
   const url = `${host}/serving-endpoints/${options.endpoint}/invocations`;
 
   const headers = await getAppHeaders();
+  const caps = getModelCapabilities(options.endpoint);
+
   const body: Record<string, unknown> = {
     messages: options.messages,
-    temperature: options.temperature ?? 0.3,
     stream: true,
   };
 
-  const caps = getModelCapabilities(options.endpoint);
-
-  if (options.maxTokens !== undefined) {
-    body.max_tokens = Math.min(options.maxTokens, caps.maxOutputTokens);
+  if (caps.supportsTemperature) {
+    body.temperature = options.temperature ?? 0.3;
   }
+
+  const requestedMaxTokens = options.maxTokens ?? caps.defaultMaxTokens;
+  const clamped = Math.min(requestedMaxTokens, caps.maxOutputTokens);
+  if (options.maxTokens !== undefined && clamped < options.maxTokens) {
+    logger.warn("Clamped maxTokens to model limit (stream)", {
+      endpoint: options.endpoint,
+      requested: options.maxTokens,
+      clamped,
+      cap: caps.maxOutputTokens,
+    });
+  }
+  body.max_tokens = clamped;
 
   if (options.responseFormat === "json_object" && supportsJsonResponseFormat(options.endpoint)) {
     body.response_format = { type: "json_object" };

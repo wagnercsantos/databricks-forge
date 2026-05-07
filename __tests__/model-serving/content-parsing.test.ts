@@ -20,7 +20,12 @@ vi.mock("@/lib/logger", () => {
 });
 
 vi.mock("@/lib/dbx/model-registry", () => ({
-  getModelCapabilities: () => ({ supportsJsonMode: false, maxOutputTokens: 8192 }),
+  getModelCapabilities: () => ({
+    supportsJsonMode: false,
+    supportsTemperature: true,
+    maxOutputTokens: 8192,
+    defaultMaxTokens: 4096,
+  }),
 }));
 
 describe("extractContentText", () => {
