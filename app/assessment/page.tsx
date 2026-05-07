@@ -45,8 +45,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  ExternalLink,
   EyeOff,
+  LayoutDashboard,
   Loader2,
+  MessageCircle,
   Play,
   RotateCcw,
   Sparkles,
@@ -252,6 +255,29 @@ export default function AssessmentPage() {
   const [data, setData] = useState<ApiState | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [deployingDashboard, setDeployingDashboard] = useState(false);
+  const [deployingGenie, setDeployingGenie] = useState(false);
+  const [dashboardUrl, setDashboardUrl] = useState<string | null>(null);
+  const [genieUrl, setGenieUrl] = useState<string | null>(null);
+
+  const refreshAssets = useCallback(async () => {
+    try {
+      const res = await fetch("/api/assessment/assets", { cache: "no-store" });
+      if (!res.ok) return;
+      const json = (await res.json()) as {
+        dashboard: { url: string } | null;
+        genie: { url: string } | null;
+      };
+      setDashboardUrl(json.dashboard?.url ?? null);
+      setGenieUrl(json.genie?.url ?? null);
+    } catch {
+      // best-effort; UI falls back to "Generate" buttons
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshAssets();
+  }, [refreshAssets]);
 
   const refresh = useCallback(async () => {
     try {
@@ -297,6 +323,58 @@ export default function AssessmentPage() {
       setRunning(false);
     }
   }, [refresh]);
+
+  const generateDashboard = useCallback(async () => {
+    setDeployingDashboard(true);
+    try {
+      const res = await fetch("/api/assessment/dashboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ publish: true }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `Dashboard deploy failed (${res.status})`);
+      const url = body.dashboardUrl as string | undefined;
+      if (url) setDashboardUrl(url);
+      toast.success(`Dashboard ${body.action ?? "ready"}`, {
+        action: url
+          ? { label: "Open", onClick: () => window.open(url, "_blank", "noopener") }
+          : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to deploy dashboard";
+      toast.error(message);
+    } finally {
+      setDeployingDashboard(false);
+      void refreshAssets();
+    }
+  }, [refreshAssets]);
+
+  const generateGenie = useCallback(async () => {
+    setDeployingGenie(true);
+    try {
+      const res = await fetch("/api/assessment/genie", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `Genie deploy failed (${res.status})`);
+      const url = body.spaceUrl as string | undefined;
+      if (url) setGenieUrl(url);
+      toast.success(`Genie space ${body.action ?? "ready"}`, {
+        action: url
+          ? { label: "Open", onClick: () => window.open(url, "_blank", "noopener") }
+          : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to deploy Genie space";
+      toast.error(message);
+    } finally {
+      setDeployingGenie(false);
+      void refreshAssets();
+    }
+  }, [refreshAssets]);
 
   const saveQualitative = useCallback(
     async (input: { wafId: string; response: WafQualitativeAnswer; notes: string | null }) => {
@@ -421,6 +499,54 @@ export default function AssessmentPage() {
           {latest && (
             <Button variant="outline" onClick={() => downloadCsv(latest)}>
               <Download className="mr-2 h-4 w-4" /> Export CSV
+            </Button>
+          )}
+          {dashboardUrl ? (
+            <Button
+              variant="outline"
+              onClick={() => window.open(dashboardUrl, "_blank", "noopener")}
+              title="Open the Forge WAF Lakeview dashboard"
+            >
+              <ExternalLink className="mr-2 h-4 w-4" />
+              Open dashboard
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={generateDashboard}
+              disabled={deployingDashboard}
+              title="Create the Forge WAF Lakeview dashboard"
+            >
+              {deployingDashboard ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <LayoutDashboard className="mr-2 h-4 w-4" />
+              )}
+              Generate dashboard
+            </Button>
+          )}
+          {genieUrl ? (
+            <Button
+              variant="outline"
+              onClick={() => window.open(genieUrl, "_blank", "noopener")}
+              title="Open the Forge WAF Genie space"
+            >
+              <ExternalLink className="mr-2 h-4 w-4" />
+              Open Genie
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={generateGenie}
+              disabled={deployingGenie}
+              title="Create the Forge WAF Genie space"
+            >
+              {deployingGenie ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <MessageCircle className="mr-2 h-4 w-4" />
+              )}
+              Generate Genie
             </Button>
           )}
           <Button onClick={runAssessment} disabled={running}>
