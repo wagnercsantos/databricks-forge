@@ -16,13 +16,30 @@ import {
 import { executeAIQuery } from "@/lib/ai/agent";
 import { resolveEndpoint } from "@/lib/dbx/client";
 import type { StrategyInitiative } from "@/lib/domain/types";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
+import { listAccessibleIds, clearAclForResource } from "@/lib/lakebase/acl";
+import { loadResourceOrRespond } from "@/lib/auth/route-guards";
+import { withPrisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const docs = await listStrategyDocuments();
-    return NextResponse.json(docs);
+    let user;
+    try {
+      user = await requireUser(req);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
+    const view = (req.nextUrl.searchParams.get("view") ?? "all") as "all" | "owned" | "shared";
+    const sharedIds = view === "owned" ? [] : await listAccessibleIds(user.email, "strategy_document");
+    const docs = await listStrategyDocuments(user.email, view, sharedIds);
+    return NextResponse.json(docs, {
+      headers: { "Cache-Control": "private, no-store" },
+    });
   } catch (err) {
     logger.error("[api/business-value/strategy] GET failed", { error: String(err) });
     return NextResponse.json({ error: "Failed to load strategy documents" }, { status: 500 });
@@ -31,6 +48,15 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    let user;
+    try {
+      user = await requireUser(req);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
     const body = await req.json();
     const { title, content } = body as { title: string; content: string };
 
@@ -39,7 +65,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Create the document
-    const doc = await createStrategyDocument({ title, rawContent: content });
+    const doc = await createStrategyDocument({
+      title,
+      rawContent: content,
+      ownerEmail: user.email,
+      createdBy: user.email,
+    });
 
     // Parse initiatives using LLM
     try {
@@ -99,7 +130,29 @@ export async function DELETE(req: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
+    const guard = await loadResourceOrRespond({
+      request: req,
+      resourceType: "strategy_document",
+      resourceId: id,
+      fetchOwner: () =>
+        withPrisma(async (prisma) => {
+          const row = await prisma.forgeStrategyDocument.findUnique({
+            where: { id },
+            select: { ownerEmail: true },
+          });
+          return row ? row.ownerEmail : undefined;
+        }),
+      mode: "edit",
+    });
+    if (!guard.ok) return guard.response;
+    if (guard.permission !== "owner") {
+      return NextResponse.json(
+        { error: "Only the owner can delete a strategy document." },
+        { status: 403 },
+      );
+    }
     await deleteStrategyDocument(id);
+    await clearAclForResource("strategy_document", id);
     return NextResponse.json({ ok: true });
   } catch (err) {
     logger.error("[api/business-value/strategy] DELETE failed", { error: String(err) });

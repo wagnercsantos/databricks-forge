@@ -12,6 +12,7 @@ import {
   RunProgressCard,
   RunFailedCard,
   RunCancelledCard,
+  RunQueuedCard,
   SummaryCardsSection,
   RunCompletedTabs,
   PbiResultBanner,
@@ -129,6 +130,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
 
   const isCompleted = run.status === "completed";
   const isActive = run.status === "running" || run.status === "pending";
+  const isQueued = run.status === "queued";
   const domainStats = isCompleted ? computeDomainStats(useCases) : [];
   const hasFabricTag =
     run.contextSources?.fabric?.scanId != null || run.config.fabricScanId != null;
@@ -167,6 +169,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
         onCancelEdit={() => setIndustryEditing(false)}
       />
 
+      {isQueued && <RunQueuedCard run={run} onCancel={handleCancel} />}
       {isActive && <RunProgressCard run={run} runId={runId} onCancel={handleCancel} />}
       {run.status === "failed" && run.errorMessage && (
         <RunFailedCard run={run} runId={runId} onResume={handleResume} />

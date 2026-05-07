@@ -14,10 +14,23 @@ import {
 import { logActivity } from "@/lib/lakebase/activity-log";
 import { logger } from "@/lib/logger";
 import type { ResearchPreset, DemoScope } from "@/lib/demo/types";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
+import { checkQuota } from "@/lib/quotas";
+import { recordUsage } from "@/lib/lakebase/usage";
 
 export async function POST(request: Request) {
   if (!isDemoModeEnabled()) {
     return NextResponse.json({ error: "Demo mode is not enabled" }, { status: 404 });
+  }
+
+  let user;
+  try {
+    user = await requireUser(request);
+  } catch (e) {
+    if (e instanceof ForgeAuthError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
+    throw e;
   }
 
   try {
@@ -50,12 +63,19 @@ export async function POST(request: Request) {
       catalogName: "",
       schemaName: "",
       scope,
+      ownerEmail: user.email,
+      createdBy: user.email,
     });
 
     const controller = await startResearchJob(sessionId);
+    recordUsage.demoEngine(user.email).catch(() => {});
 
-    // Fire-and-forget
-    (async () => {
+    const oboToken =
+      request.headers.get("x-forwarded-access-token") ??
+      request.headers.get("X-Forwarded-Access-Token") ??
+      null;
+
+    const startResearch = async () => {
       try {
         await updateDemoSessionStatus(sessionId, "researching");
 
@@ -67,6 +87,8 @@ export async function POST(request: Request) {
           websiteUrl,
           scope,
           pastedContext,
+          ownerEmail: user.email,
+          oboToken,
           signal: controller.signal,
           onProgress: (phase, percent, detail) => {
             updateResearchJob(sessionId, phase, percent, detail);
@@ -80,6 +102,7 @@ export async function POST(request: Request) {
 
         await completeResearchJob(sessionId);
         await logActivity("demo_research", {
+          userId: user.email,
           resourceId: sessionId,
           metadata: {
             customerName,
@@ -94,8 +117,25 @@ export async function POST(request: Request) {
         await failResearchJob(sessionId, msg);
         await updateDemoSessionStatus(sessionId, "failed", { errorMessage: msg });
       }
-    })();
+    };
 
+    const quota = await checkQuota("demo_engine", user.email, "reject");
+    if (!quota.allowed) {
+      // Cap reached: enqueue rather than reject. Keeps the user out of a
+      // hard-error state while the cap is busy with their other session.
+      const { enqueueDeferredJob } = await import("@/lib/scheduler/deferred-queue");
+      const { jobId, position } = enqueueDeferredJob({
+        kind: "demo_engine",
+        ownerEmail: user.email,
+        run: startResearch,
+      });
+      return NextResponse.json(
+        { sessionId, status: "queued", position, jobId, cap: quota.cap, active: quota.active },
+        { status: 202 },
+      );
+    }
+
+    void startResearch();
     return NextResponse.json({ sessionId });
   } catch (err) {
     logger.error("[demo/research] Request error", { error: String(err) });

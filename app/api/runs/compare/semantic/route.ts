@@ -16,6 +16,7 @@ import { withPrisma } from "@/lib/prisma";
 import { generateEmbedding } from "@/lib/embeddings/client";
 import { searchByVector } from "@/lib/embeddings/store";
 import { logger } from "@/lib/logger";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 
 interface OverlapPair {
   useCaseA: { id: string; name: string };
@@ -33,6 +34,11 @@ export async function GET(req: NextRequest) {
     if (!runA || !runB) {
       return Response.json({ error: "runA and runB are required" }, { status: 400 });
     }
+
+    const guardA = await loadRunOrRespond(req, runA, "read");
+    if (!guardA.ok) return guardA.response;
+    const guardB = await loadRunOrRespond(req, runB, "read");
+    if (!guardB.ok) return guardB.response;
 
     if (!isEmbeddingEnabled()) {
       return Response.json({ enabled: false, pairs: [] });

@@ -7,13 +7,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
-import { failOrphanedRunningRun, getRunById } from "@/lib/lakebase/runs";
+import { failOrphanedRunningRun } from "@/lib/lakebase/runs";
 import { startPipeline, resumePipeline, getActivePipelineRunIds } from "@/lib/pipeline/engine";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import { isValidUUID } from "@/lib/validation";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
+import { checkQuota } from "@/lib/quotas";
+import { recordUsage } from "@/lib/lakebase/usage";
+import { updateRunStatus } from "@/lib/lakebase/runs";
+import { logActivity } from "@/lib/lakebase/activity-log";
+import { notifyScheduler, getQueuePosition } from "@/lib/pipeline/scheduler";
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ runId: string }> },
 ) {
   const { runId } = await params;
@@ -28,34 +34,85 @@ export async function POST(
 
     await failOrphanedRunningRun(runId, getActivePipelineRunIds());
 
-    const run = await getRunById(runId);
+    const guard = await loadRunOrRespond(request, runId, "edit");
+    if (!guard.ok) return guard.response;
+    const { value, user } = guard;
+    const runRow = value.run;
 
-    if (!run) {
-      log.warn("Run not found", { errorCategory: "not_found" });
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
-
-    if (run.status === "running") {
+    if (runRow.status === "running") {
       log.warn("Pipeline is already running", { errorCategory: "conflict" });
       return NextResponse.json({ error: "Pipeline is already running" }, { status: 409 });
     }
 
-    const { searchParams } = new URL(_request.url);
+    const { searchParams } = new URL(request.url);
     const isResume = searchParams.get("resume") === "true";
+    const oboToken = user.oboToken;
 
-    if (isResume && run.status === "failed") {
-      resumePipeline(runId).catch((err) => {
+    const quota = await checkQuota("pipeline", user.email, "queue");
+
+    if (isResume && runRow.status === "failed") {
+      if (!quota.allowed) {
+        await updateRunStatus(
+          runId,
+          "queued",
+          null,
+          0,
+          undefined,
+          `Queued (cap ${quota.cap}). Will resume when capacity is available.`,
+        );
+        await logActivity("pipeline_queued", {
+          userId: user.email,
+          resourceId: runId,
+          metadata: { cap: quota.cap, active: quota.active, resume: true },
+        });
+        notifyScheduler();
+        const position = await getQueuePosition(runId);
+        return NextResponse.json({
+          status: "queued",
+          runId,
+          resumed: true,
+          queuePosition: position,
+          cap: quota.cap,
+          active: quota.active,
+        });
+      }
+      resumePipeline(runId, { ownerEmail: user.email, oboToken }).catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
         log.error("Resume pipeline crashed", { error: msg, errorCategory: "pipeline_crashed" });
       });
       return NextResponse.json({ status: "running", runId, resumed: true });
     }
 
-    // Start pipeline asynchronously -- do not await
-    startPipeline(runId).catch((err) => {
+    if (!quota.allowed) {
+      await updateRunStatus(
+        runId,
+        "queued",
+        null,
+        0,
+        undefined,
+        `Queued (cap ${quota.cap}). Will start when a slot is available.`,
+      );
+      await logActivity("pipeline_queued", {
+        userId: user.email,
+        resourceId: runId,
+        metadata: { cap: quota.cap, active: quota.active },
+      });
+      notifyScheduler();
+      const position = await getQueuePosition(runId);
+      return NextResponse.json({
+        status: "queued",
+        runId,
+        queuePosition: position,
+        cap: quota.cap,
+        active: quota.active,
+      });
+    }
+
+    startPipeline(runId, { ownerEmail: user.email, oboToken }).catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
       log.error("Pipeline crashed", { error: msg, errorCategory: "pipeline_crashed" });
     });
+    recordUsage.pipelineRun(user.email).catch(() => {});
 
     return NextResponse.json({ status: "running", runId });
   } catch (error) {

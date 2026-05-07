@@ -7,9 +7,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { withPrisma } from "@/lib/prisma";
-import { getRunById } from "@/lib/lakebase/runs";
 import { logger } from "@/lib/logger";
 import { isValidUUID } from "@/lib/validation";
 import { SpaceEditBodySchema } from "@/lib/metadata-genie/schemas";
@@ -25,10 +25,9 @@ export async function PATCH(
     }
     const decodedDomain = decodeURIComponent(domain);
 
-    const run = await getRunById(runId);
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "edit");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
 
     const raw = await request.json();
     const parsed = SpaceEditBodySchema.safeParse(raw);

@@ -32,24 +32,57 @@ function safeParse<T>(raw: string | null | undefined, fallback: T): T {
   }
 }
 
-export async function getPortfolioData(): Promise<
-  BusinessValuePortfolio & { latestRunId: string | null }
-> {
+export async function getPortfolioData(
+  userEmail?: string | null,
+  accessibleRunIds: string[] = [],
+): Promise<BusinessValuePortfolio & { latestRunId: string | null }> {
   return withPrisma(async (prisma) => {
+    const owner = userEmail ? userEmail.toLowerCase().trim() : null;
+    // Build a where clause that scopes to the user's owned + shared runs.
+    const runIdScope = owner
+      ? {
+          OR: [
+            { ownerEmail: owner },
+            ...(accessibleRunIds.length > 0 ? [{ runId: { in: accessibleRunIds } }] : []),
+          ],
+        }
+      : {};
+
+    const accessibleRunsForUser = owner
+      ? await prisma.forgeRun.findMany({
+          where: runIdScope,
+          select: { runId: true },
+        })
+      : [];
+    const userRunIds = accessibleRunsForUser.map((r) => r.runId);
+    const useCaseScope = owner
+      ? userRunIds.length > 0
+        ? { runId: { in: userRunIds } }
+        : { runId: "__no_run__" }
+      : {};
+
     const latestRun = await prisma.forgeRun.findFirst({
-      where: { status: "completed", synthesisJson: { not: null } },
+      where: {
+        status: "completed",
+        synthesisJson: { not: null },
+        ...runIdScope,
+      },
       orderBy: { completedAt: "desc" },
       select: { runId: true, synthesisJson: true },
     });
 
-    const totalUseCases = await prisma.forgeUseCase.count();
+    const totalUseCases = await prisma.forgeUseCase.count({
+      where: useCaseScope,
+    });
 
     const valueAgg = await prisma.forgeValueEstimate.aggregate({
+      where: useCaseScope,
       _sum: { valueLow: true, valueMid: true, valueHigh: true },
     });
 
     const stageGroups = await prisma.forgeUseCaseTracking.groupBy({
       by: ["stage"],
+      where: useCaseScope,
       _count: { _all: true },
     });
     const byStage: Record<TrackingStage, number> = {
@@ -65,6 +98,7 @@ export async function getPortfolioData(): Promise<
 
     const phaseGroups = await prisma.forgeRoadmapPhase.groupBy({
       by: ["phase"],
+      where: useCaseScope,
       _count: { _all: true },
     });
     const byPhase: Record<RoadmapPhase, { count: number; valueMid: number }> = {
@@ -118,6 +152,7 @@ export async function getPortfolioData(): Promise<
     }
 
     const deliveredAgg = await prisma.forgeValueCapture.aggregate({
+      where: useCaseScope,
       _sum: { amount: true },
     });
 
@@ -144,10 +179,22 @@ export async function getPortfolioData(): Promise<
   });
 }
 
-export async function getPortfolioUseCases(): Promise<PortfolioUseCase[]> {
+export async function getPortfolioUseCases(
+  userEmail?: string | null,
+  accessibleRunIds: string[] = [],
+): Promise<PortfolioUseCase[]> {
   return withPrisma(async (prisma) => {
+    const owner = userEmail ? userEmail.toLowerCase().trim() : null;
+    const runIdScope = owner
+      ? {
+          OR: [
+            { ownerEmail: owner },
+            ...(accessibleRunIds.length > 0 ? [{ runId: { in: accessibleRunIds } }] : []),
+          ],
+        }
+      : {};
     const latestRun = await prisma.forgeRun.findFirst({
-      where: { status: "completed" },
+      where: { status: "completed", ...runIdScope },
       orderBy: { completedAt: "desc" },
       select: { runId: true },
     });

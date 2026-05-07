@@ -299,7 +299,7 @@ async function getUserToken(): Promise<string | null> {
  *   4. OAuth M2M – `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET`
  *      (service principal, for background tasks or when user auth is off).
  */
-async function getBearerToken(): Promise<string> {
+export async function getBearerToken(): Promise<string> {
   // 1. User authorization (on-behalf-of-user, Databricks Apps)
   const userToken = await getUserToken();
   if (userToken) return userToken;

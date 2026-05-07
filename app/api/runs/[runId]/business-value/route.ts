@@ -14,12 +14,15 @@ import { getStakeholderProfilesForRun } from "@/lib/lakebase/stakeholder-profile
 import { getValueCapturesForRun } from "@/lib/lakebase/value-captures";
 import { withPrisma } from "@/lib/prisma";
 import type { ExecutiveSynthesis } from "@/lib/domain/types";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ runId: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ runId: string }> }) {
   try {
     const { runId } = await params;
+    const guard = await loadRunOrRespond(req, runId, "read");
+    if (!guard.ok) return guard.response;
 
     const [
       estimates,

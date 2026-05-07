@@ -8,6 +8,8 @@ import { listRuns } from "@/lib/lakebase/runs";
 import { logger } from "@/lib/logger";
 import { Plus } from "lucide-react";
 import type { PipelineRun } from "@/lib/domain/types";
+import { requireUser } from "@/lib/auth/route-user";
+import { listAccessibleIds } from "@/lib/lakebase/acl";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +18,9 @@ async function fetchInitialRuns(): Promise<{
   error: string | null;
 }> {
   try {
-    const runs = await listRuns(200, 0);
+    const user = await requireUser();
+    const sharedIds = await listAccessibleIds(user.email, "run");
+    const runs = await listRuns(200, 0, user.email, "all", sharedIds);
     return { runs, error: null };
   } catch (err) {
     logger.error("[runs] Failed to fetch initial runs", {

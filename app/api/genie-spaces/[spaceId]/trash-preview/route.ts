@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { getDeployedAssets, findSpacesReferencingAssets } from "@/lib/lakebase/genie-spaces";
+import { loadGenieSpaceBySpaceIdOrRespond } from "@/lib/auth/route-guards";
 import { isSafeId } from "@/lib/validation";
 
 interface SharedAsset {
@@ -23,7 +24,7 @@ interface TrashPreviewResponse {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ spaceId: string }> },
 ) {
   try {
@@ -31,6 +32,9 @@ export async function GET(
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
     }
+
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "read");
+    if (!guard.ok) return guard.response;
 
     const assets = await getDeployedAssets(spaceId);
     if (!assets) {

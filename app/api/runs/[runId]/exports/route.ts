@@ -5,15 +5,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 import { logger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { getExportsByRunId } from "@/lib/lakebase/exports";
-import { getRunById } from "@/lib/lakebase/runs";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import { isValidUUID } from "@/lib/validation";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ runId: string }> },
 ) {
   let runId: string | undefined;
@@ -30,14 +30,9 @@ export async function GET(
       return NextResponse.json({ error: "Invalid run ID format" }, { status: 400 });
     }
 
-    const run = await getRunById(runId);
-    if (!run) {
-      logger.warn("Run not found for exports", {
-        runId,
-        route: "/api/runs/[runId]/exports",
-      });
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "read");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
 
     const exports = await getExportsByRunId(runId);
 

@@ -8,6 +8,7 @@ import { runFixes } from "@/lib/genie/space-fixer";
 import { getGenieSpace, updateGenieSpace } from "@/lib/dbx/genie";
 import { logActivity } from "@/lib/lakebase/activity-log";
 import { logger } from "@/lib/logger";
+import { loadGenieSpaceBySpaceIdOrRespond } from "@/lib/auth/route-guards";
 
 const activeJobs = new Map<
   string,
@@ -32,6 +33,9 @@ export async function POST(request: NextRequest) {
     if (!spaceId) {
       return NextResponse.json({ error: "spaceId is required" }, { status: 400 });
     }
+
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "edit");
+    if (!guard.ok) return guard.response;
 
     const oboToken = request.headers.get("x-forwarded-access-token") ?? undefined;
 

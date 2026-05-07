@@ -47,10 +47,18 @@ export async function getTrackingForRun(runId: string): Promise<UseCaseTrackingE
   });
 }
 
-export async function getTrackingByStage(): Promise<Record<TrackingStage, number>> {
+export async function getTrackingByStage(
+  runIds?: string[] | null,
+): Promise<Record<TrackingStage, number>> {
   return withPrisma(async (prisma) => {
+    const where = runIds
+      ? runIds.length > 0
+        ? { runId: { in: runIds } }
+        : { runId: "__no_run__" }
+      : undefined;
     const groups = await prisma.forgeUseCaseTracking.groupBy({
       by: ["stage"],
+      where,
       _count: { _all: true },
     });
     const result: Record<TrackingStage, number> = {

@@ -12,15 +12,33 @@ import {
   markConnectionTested,
 } from "@/lib/lakebase/connections";
 import { acquireToken, listWorkspacesWithToken } from "@/lib/fabric/client";
+import { loadResourceOrRespond } from "@/lib/auth/route-guards";
+import { withPrisma } from "@/lib/prisma";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-export async function POST(_req: NextRequest, { params }: RouteParams) {
+export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     await ensureMigrated();
     const { id } = await params;
+
+    const guard = await loadResourceOrRespond({
+      request: req,
+      resourceType: "connection",
+      resourceId: id,
+      fetchOwner: () =>
+        withPrisma(async (prisma) => {
+          const row = await prisma.forgeConnection.findUnique({
+            where: { id },
+            select: { ownerEmail: true },
+          });
+          return row ? row.ownerEmail : undefined;
+        }),
+      mode: "edit",
+    });
+    if (!guard.ok) return guard.response;
 
     const conn = await getConnection(id);
     if (!conn) {

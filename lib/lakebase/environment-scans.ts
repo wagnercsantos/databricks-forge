@@ -45,6 +45,7 @@ export async function saveEnvironmentScan(
   columns: ColumnInfo[] = [],
   tableTags: TableTag[] = [],
   columnTags: ColumnTag[] = [],
+  ownerEmail: string | null = null,
 ): Promise<void> {
   // Build a per-table column lookup (lowercase FQN keys for case-insensitive matching)
   const columnsByTable = new Map<
@@ -88,6 +89,7 @@ export async function saveEnvironmentScan(
       await prisma.$transaction(
         async (tx) => {
           // 1. Upsert the scan record
+          const normalisedOwner = ownerEmail ? ownerEmail.toLowerCase().trim() : null;
           await tx.forgeEnvironmentScan.upsert({
             where: { scanId: scan.scanId },
             create: {
@@ -115,6 +117,7 @@ export async function saveEnvironmentScan(
               dashboardCount: scan.dashboardCount,
               metricViewCount: scan.metricViewCount,
               analyticsCoveragePercent: scan.analyticsCoveragePercent,
+              ownerEmail: normalisedOwner,
             },
             update: {
               runId: scan.runId,
@@ -375,10 +378,32 @@ export async function getLatestScanIdForRun(
 
 /**
  * List recent environment scans (summary only, no related data).
+ *
+ * When `userEmail` is provided, results include scans the user owns plus
+ * those shared with them via the ACL (scan ids in `sharedIds`). When
+ * omitted, returns all scans (legacy behaviour, used by background callers).
  */
-export async function listEnvironmentScans(limit = 20, offset = 0) {
+export async function listEnvironmentScans(
+  limit = 20,
+  offset = 0,
+  userEmail?: string | null,
+  viewMode: "all" | "owned" | "shared" = "all",
+  sharedIds: string[] = [],
+) {
   return withPrisma(async (prisma) => {
+    let where: Record<string, unknown> = {};
+    if (userEmail) {
+      const email = userEmail.toLowerCase().trim();
+      if (viewMode === "owned") {
+        where = { ownerEmail: email };
+      } else if (viewMode === "shared") {
+        where = { scanId: { in: sharedIds } };
+      } else {
+        where = { OR: [{ ownerEmail: email }, { scanId: { in: sharedIds } }] };
+      }
+    }
     return prisma.forgeEnvironmentScan.findMany({
+      where,
       take: limit,
       skip: offset,
       orderBy: { createdAt: "desc" },

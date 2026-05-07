@@ -22,7 +22,7 @@ export enum PipelineStep {
   GenieRecommendations = "genie-recommendations",
 }
 
-export type RunStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export type RunStatus = "pending" | "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export type Operation = "Discover Usecases" | "Re-generate SQL" | "Generate Sample Result";
 
@@ -147,6 +147,7 @@ export interface PipelineRun {
   industryAutoDetected: boolean; // true when the industry was set by auto-detection, not user
   contextSources: RunContextSources | null;
   createdBy: string | null; // email of the user who created this run
+  ownerEmail: string | null; // canonical owner for isolation; mirrors createdBy at create time
   createdAt: string; // ISO timestamp
   completedAt: string | null;
 }
@@ -356,6 +357,20 @@ export interface PipelineContext {
   signal?: AbortSignal;
   /** Scoped logger carrying origin/task/runId context. Injected by the pipeline engine. */
   logger?: import("@/lib/logger").ScopedLogger;
+  /**
+   * Owner of this run, used by background passes for ACL-aware retrieval
+   * and per-user fairness accounting (Phase 5b/5c). Mirrors `run.ownerEmail`
+   * but is also threaded through to long-running engines so the user
+   * context survives across spawned tasks.
+   */
+  ownerEmail?: string | null;
+  /**
+   * On-behalf-of OAuth access token captured at run start. Required by
+   * Genie Conversation API and any other call that must run as the user.
+   * Null when running purely with service-principal credentials (e.g.
+   * scheduled background work).
+   */
+  oboToken?: string | null;
 }
 
 // ---------------------------------------------------------------------------

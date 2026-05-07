@@ -63,9 +63,25 @@ function dbRowToAlignment(row: {
 // Strategy Documents
 // ---------------------------------------------------------------------------
 
-export async function listStrategyDocuments(): Promise<StrategyDocument[]> {
+export async function listStrategyDocuments(
+  userEmail?: string | null,
+  viewMode: "all" | "owned" | "shared" = "all",
+  sharedIds: string[] = [],
+): Promise<StrategyDocument[]> {
   return withPrisma(async (prisma) => {
+    const owner = userEmail ? userEmail.toLowerCase().trim() : null;
+    const where: Record<string, unknown> = {};
+    if (owner) {
+      if (viewMode === "owned") {
+        where.ownerEmail = owner;
+      } else if (viewMode === "shared") {
+        where.id = { in: sharedIds };
+      } else {
+        where.OR = [{ ownerEmail: owner }, { id: { in: sharedIds } }];
+      }
+    }
     const rows = await prisma.forgeStrategyDocument.findMany({
+      where,
       orderBy: { createdAt: "desc" },
     });
     return rows.map(dbRowToStrategy);
@@ -84,14 +100,21 @@ export async function createStrategyDocument(data: {
   rawContent: string;
   parsedInitiatives?: StrategyInitiative[];
   createdBy?: string;
+  ownerEmail?: string | null;
 }): Promise<StrategyDocument> {
   return withPrisma(async (prisma) => {
+    const owner = data.ownerEmail
+      ? data.ownerEmail.toLowerCase().trim()
+      : data.createdBy
+        ? data.createdBy.toLowerCase().trim()
+        : null;
     const row = await prisma.forgeStrategyDocument.create({
       data: {
         title: data.title,
         rawContent: data.rawContent,
         parsedInitiatives: data.parsedInitiatives ? JSON.stringify(data.parsedInitiatives) : null,
         createdBy: data.createdBy ?? null,
+        ownerEmail: owner,
       },
     });
     return dbRowToStrategy(row);

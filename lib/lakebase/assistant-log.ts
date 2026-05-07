@@ -26,6 +26,12 @@ export interface ActionCardInput {
 export interface CreateAssistantLogInput {
   sessionId: string;
   question: string;
+  /**
+   * Required: caller's email. Each assistant log row is owned by the user.
+   * Pass an explicit "anonymous" string only for unauthenticated callers
+   * (which is now blocked at the middleware layer).
+   */
+  userId: string;
   intent?: string;
   intentConfidence?: number;
   ragChunkIds?: string[];
@@ -35,7 +41,6 @@ export interface CreateAssistantLogInput {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
-  userId?: string;
   sources?: SourceCardInput[];
   referencedTables?: string[];
   actions?: ActionCardInput[];
@@ -110,12 +115,14 @@ export async function updateAssistantLog(
 }
 
 /**
- * Get recent assistant logs for a session.
+ * Get recent assistant logs for a session, scoped to a specific user.
+ *
+ * userEmail is required: callers should never read another user's logs.
  */
-export async function getSessionLogs(sessionId: string, limit = 50) {
+export async function getSessionLogs(sessionId: string, userEmail: string, limit = 50) {
   return withPrisma(async (prisma) => {
     return prisma.forgeAssistantLog.findMany({
-      where: { sessionId },
+      where: { sessionId, userId: userEmail },
       orderBy: { createdAt: "asc" },
       take: limit,
     });
@@ -123,11 +130,12 @@ export async function getSessionLogs(sessionId: string, limit = 50) {
 }
 
 /**
- * Get recent assistant logs across all sessions.
+ * Get recent assistant logs for a specific user across all their sessions.
  */
-export async function getRecentLogs(limit = 100) {
+export async function getRecentLogs(userEmail: string, limit = 100) {
   return withPrisma(async (prisma) => {
     return prisma.forgeAssistantLog.findMany({
+      where: { userId: userEmail },
       orderBy: { createdAt: "desc" },
       take: limit,
     });

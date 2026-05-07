@@ -7,16 +7,20 @@
  */
 
 import { NextResponse } from "next/server";
+import { loadCommentJobOrRespond } from "@/lib/auth/route-guards";
 import { getCommentProgress } from "@/lib/ai/comment-engine/progress";
 import { getCommentJob } from "@/lib/lakebase/comment-jobs";
 import { isValidUUID } from "@/lib/validation";
 
-export async function GET(_request: Request, { params }: { params: Promise<{ jobId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = await params;
 
   if (!isValidUUID(jobId)) {
     return NextResponse.json({ error: "Invalid job ID" }, { status: 400 });
   }
+
+  const guard = await loadCommentJobOrRespond(request, jobId, "read");
+  if (!guard.ok) return guard.response;
 
   const progress = getCommentProgress(jobId);
   if (progress) {

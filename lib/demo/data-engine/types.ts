@@ -54,6 +54,12 @@ export interface DataEngineInput {
   onTablePhase?: (tableName: string, phase: TablePhase) => void;
   onTablesReady?: (tables: TableDesign[]) => void;
   deps?: DataEngineDeps;
+  /**
+   * Email of the user who initiated this run. Used for ownership tagging on
+   * any downstream resources (Genie space, deployed dashboards) created in the
+   * fire-and-forget background closure.
+   */
+  ownerEmail?: string | null;
 }
 
 export interface DataEngineDeps {

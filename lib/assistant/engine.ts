@@ -140,6 +140,7 @@ export async function runAssistantEngine(
     intentResult.intent,
     history,
     persona,
+    userId ?? null,
   );
 
   // Short-circuit when no data exists -- avoid burning LLM tokens on generic answers
@@ -159,7 +160,7 @@ export async function runAssistantEngine(
         intentConfidence: intentResult.confidence,
         response: noDataAnswer,
         durationMs: Date.now() - start,
-        userId: userId ?? undefined,
+        userId: userId ?? "anonymous",
         persona,
       });
     } catch {
@@ -335,6 +336,7 @@ export async function runAssistantEngine(
         kinds: ["genie_recommendation", "genie_question"],
         topK: 1,
         minScore: 0.7,
+        userEmail: userId ?? null,
       });
       if (genieChunks.length > 0) {
         const m = genieChunks[0].metadata ?? {};
@@ -343,9 +345,9 @@ export async function runAssistantEngine(
         const domain = m.domain as string | undefined;
 
         // RAG embeddings may not store the deployed spaceId -- resolve via tracked spaces
-        if (!spaceId && domain) {
+        if (!spaceId && domain && userId) {
           try {
-            const tracked = await listTrackedGenieSpaces();
+            const tracked = await listTrackedGenieSpaces({ ownerEmail: userId });
             const match = tracked.find((t) => t.domain === domain && t.status !== "trashed");
             spaceId = match?.spaceId;
           } catch {
@@ -452,7 +454,6 @@ export async function runAssistantEngine(
     });
   }
 
-  // Fire-and-forget: logging + quality metrics don't block the response
   createAssistantLog({
     sessionId: sessionId ?? "anonymous",
     question,
@@ -465,7 +466,7 @@ export async function runAssistantEngine(
     promptTokens: llmResponse.usage?.promptTokens,
     completionTokens: llmResponse.usage?.completionTokens,
     totalTokens: llmResponse.usage?.totalTokens,
-    userId: userId ?? undefined,
+    userId: userId ?? "anonymous",
     sources,
     referencedTables: reconciledTables,
     actions,

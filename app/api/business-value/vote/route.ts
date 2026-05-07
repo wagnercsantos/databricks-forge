@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import { withPrisma } from "@/lib/prisma";
-import { getCurrentUserEmail } from "@/lib/dbx/client";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +40,9 @@ export async function GET(req: NextRequest) {
     if (!runId) {
       return NextResponse.json({ error: "runId required" }, { status: 400 });
     }
+
+    const guard = await loadRunOrRespond(req, runId, "read");
+    if (!guard.ok) return guard.response;
 
     const entries = await withPrisma((prisma) =>
       prisma.forgeUseCaseTracking.findMany({
@@ -80,7 +83,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "runId and useCaseId required" }, { status: 400 });
     }
 
-    const voter = (await getCurrentUserEmail()) ?? "anonymous";
+    const guard = await loadRunOrRespond(req, runId, "read");
+    if (!guard.ok) return guard.response;
+
+    const voter = guard.user.email;
     const voteValue = value ?? 1;
 
     const updated = await withPrisma(async (prisma) => {

@@ -21,9 +21,11 @@ import {
 import type { GenieBuilderStep } from "@/lib/genie/builder-steps";
 import { logger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
 
 interface AdHocJobStatus {
   jobId: string;
+  ownerEmail: string;
   status: "generating" | "completed" | "failed" | "cancelled";
   currentStep: GenieBuilderStep | null;
   message: string;
@@ -87,6 +89,7 @@ function jobToResponse(job: AdHocJobStatus) {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireUser(request);
     const body = await request.json();
     const {
       tables: rawTables,
@@ -110,16 +113,12 @@ export async function POST(request: NextRequest) {
 
     const mode = config?.mode ?? "fast";
 
-    // -----------------------------------------------------------------------
-    // Fast mode (synchronous) -- only when async flag is NOT set.
-    // We still create an in-memory job so Genie Studio can show a tile
-    // with progress while the synchronous call blocks.
-    // -----------------------------------------------------------------------
     if (mode === "fast" && !asyncMode) {
       evictStale();
       const jobId = uuidv4();
       jobs.set(jobId, {
         jobId,
+        ownerEmail: user.email,
         status: "generating",
         currentStep: null,
         message: "Quick build in progress...",
@@ -180,6 +179,7 @@ export async function POST(request: NextRequest) {
 
     jobs.set(jobId, {
       jobId,
+      ownerEmail: user.email,
       status: "generating",
       currentStep: null,
       message:
@@ -252,6 +252,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ jobId, mode: effectiveMode });
   } catch (error) {
+    if (error instanceof ForgeAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: safeErrorMessage(error) }, { status: 500 });
   }
 }
@@ -259,25 +262,41 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   evictStale();
 
+  let user;
+  try {
+    user = await requireUser(request);
+  } catch (e) {
+    if (e instanceof ForgeAuthError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
+    throw e;
+  }
+
   const jobId = request.nextUrl.searchParams.get("jobId");
 
-  // If no jobId, return all non-evicted jobs so the dashboard can render
-  // in-progress, completed, failed, and cancelled states.
   if (!jobId) {
-    const allJobs = [...jobs.values()].map(jobToResponse);
-    return NextResponse.json({ jobs: allJobs });
+    const allJobs = [...jobs.values()]
+      .filter((j) => j.ownerEmail === user.email)
+      .map(jobToResponse);
+    return NextResponse.json(
+      { jobs: allJobs },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
   }
 
   const job = jobs.get(jobId);
-  if (!job) {
+  if (!job || job.ownerEmail !== user.email) {
     return NextResponse.json({ error: "Job not found or expired" }, { status: 404 });
   }
 
-  return NextResponse.json(jobToResponse(job));
+  return NextResponse.json(jobToResponse(job), {
+    headers: { "Cache-Control": "private, no-store" },
+  });
 }
 
 export async function PATCH(request: NextRequest) {
   try {
+    const user = await requireUser(request);
     const body = await request.json();
     const { jobId, deployedSpaceId } = body as {
       jobId?: string;
@@ -289,7 +308,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const job = jobs.get(jobId);
-    if (!job) {
+    if (!job || job.ownerEmail !== user.email) {
       return NextResponse.json({ error: "Job not found or expired" }, { status: 404 });
     }
 
@@ -299,18 +318,31 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ success: true, ...jobToResponse(job) });
   } catch (error) {
+    if (error instanceof ForgeAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: safeErrorMessage(error) }, { status: 500 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
+  let user;
+  try {
+    user = await requireUser(request);
+  } catch (e) {
+    if (e instanceof ForgeAuthError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
+    throw e;
+  }
+
   const jobId = request.nextUrl.searchParams.get("jobId");
   if (!jobId) {
     return NextResponse.json({ error: "jobId query parameter required" }, { status: 400 });
   }
 
   const job = jobs.get(jobId);
-  if (!job) {
+  if (!job || job.ownerEmail !== user.email) {
     return NextResponse.json({ error: "Job not found or expired" }, { status: 404 });
   }
 

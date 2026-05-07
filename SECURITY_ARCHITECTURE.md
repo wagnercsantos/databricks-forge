@@ -181,8 +181,9 @@ flowchart TD
 
 ### Authorization Model
 
-The application **does not implement its own authorization layer**. Access
-control is fully delegated to the Databricks platform:
+The application enforces **per-user isolation at the application layer**
+(team-shared opt-in sharing) on top of the Databricks platform's catalog and
+warehouse permissions.
 
 - **Unity Catalog permissions**: Metadata queries run as the authenticated user
   (or service principal). The user can only see catalogs, schemas, and tables
@@ -199,9 +200,48 @@ control is fully delegated to the Databricks platform:
   and inherit their UC table permissions. Can be switched to service principal
   in Settings. The auth mode used to create each space is persisted and reused
   for subsequent updates and deletions.
-- **Lakebase**: Application-level data (runs, use cases) is accessible to all
-  authenticated users of the app. There is no per-user row-level isolation on
-  pipeline runs.
+- **Lakebase (per-user isolation)**: Every root table (`ForgeRun`,
+  `ForgeEnvironmentScan`, `ForgeGenieSpace`, `ForgeMetadataGenieSpace`,
+  `ForgeSpaceBenchmarkRun`, `ForgeSpaceHealthScore`, `ForgeDemoSession`,
+  `ForgeCommentJob`, `ForgeConnection`, `ForgeFabricScan`,
+  `ForgeFabricMigration`, `ForgeStrategyDocument`, `ForgeDocument`,
+  `ForgeQualityMetric`) carries a NOT NULL `owner_email` column. List, detail,
+  update, delete, and export paths apply a single visibility rule:
+
+  ```sql
+  WHERE owner_email = $user
+     OR id IN (SELECT resource_id FROM forge_resource_acl
+               WHERE resource_type = $type AND viewer_email = $user)
+  ```
+
+  Owners can opt-in share resources via `ForgeResourceAcl` with `view` or
+  `edit` permissions (delete and re-share remain owner-only). Outcome maps,
+  benchmarks, prompt templates, and metadata cache stay global by design.
+
+- **Vector search**: `forge_embeddings` is filtered through accessible parent
+  ids (run/scan/source) at query time -- callers pass `userEmail` and the
+  reader resolves accessible ids via `lib/lakebase/acl.ts`. Catalog kinds
+  (`outcome_map`, `benchmark_context`, skills, industry KPIs) remain global.
+
+- **Auth seam**: `lib/auth/route-user.ts` exposes `requireUser()` and
+  `getUserOrNull()`. Next.js 16's root proxy (`proxy.ts`, the renamed
+  middleware convention) enforces 401 on every `/api/**` route that lacks
+  identity. Server Components call
+  `requireUser()` directly. Local dev supports a `?as_user=` query param
+  override gated to `NODE_ENV !== "production"` for end-to-end isolation
+  testing.
+
+- **Per-user fairness & quotas**: Per-user active-resource caps (configurable
+  via env, default 1 for pipelines/scans/demo engines, 2 for Genie deploys)
+  are enforced at every fire-and-forget kickoff. Pipelines exceeding the cap
+  are queued (`status='queued'`) and promoted by a process-local scheduler
+  (`lib/pipeline/scheduler.ts`) when capacity opens up. The pool rate
+  limiter tracks per-user inflight calls per endpoint to support fair-share
+  scheduling.
+
+- **`FORGE_USER_ISOLATION` feature flag**: gates the UI sharing dialog and
+  per-user quota enforcement. Data-layer filtering by `owner_email` is
+  unconditional and not affected by the flag.
 
 ### Session Management
 
@@ -670,7 +710,7 @@ flowchart TD
 | **Denial of service** | Fetch timeouts + SQL Warehouse concurrency limits | Medium -- no app-level rate limiting |
 | **Data exfiltration via LLM** | Only metadata sent; sample data opt-in; no PII by design | Low |
 | **Insecure deserialization** | Zod validation on all API inputs | Low |
-| **Broken access control** | UC permissions enforced by Databricks; no multi-tenant isolation in app | Medium -- all app users see all runs |
+| **Broken access control** | UC permissions enforced by Databricks; per-user isolation enforced at app layer (`owner_email` + `forge_resource_acl`); middleware-enforced auth seam | Low |
 | **Information leakage** | Error boundaries show opaque digests in production; health endpoint may expose connection errors | Low |
 | **Supply chain** | Pinned deps via lockfile; Alpine base image | Low |
 
@@ -713,33 +753,44 @@ third-party API, or cross-region endpoint.
 |------|-----------|
 | **CSP header** | `Content-Security-Policy` configured in `next.config.ts` (`default-src 'self'`, `script-src 'self' 'unsafe-inline'`, `frame-ancestors 'none'`, etc.) |
 | **HSTS header** | `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` added to `next.config.ts` |
-| **App-level rate limiting** | In-memory sliding-window limiter in `lib/rate-limit.ts`, activated via `middleware.ts` (LLM routes: 3k/min, general: 12k/min per client) |
+| **App-level rate limiting** | In-memory sliding-window limiter in `lib/rate-limit.ts`, activated via `proxy.ts` (LLM routes: 3k/min, general: 12k/min per client) |
 | **Health endpoint exposure** | `/api/health` returns only `{ status, version, uptime, timestamp }` for unauthenticated callers; full diagnostics (checks, authRuntime, host) require auth headers |
 | **Error message sanitisation** | `safeErrorMessage()` in `lib/error-utils.ts` returns generic message in production; applied to all API route error responses. Error boundaries rely on Next.js production sanitisation |
 | **Prompt injection (Ask Forge)** | User question now wrapped in `---BEGIN USER QUESTION---` / `---END USER QUESTION---` delimiters with marker stripping in `lib/assistant/prompts.ts` |
 | **Sample data audit logging** | `fetchSampleData()` logs structured audit entry with table FQNs, runId, userEmail, and step |
 | **Dependency audits in CI** | `npm audit --audit-level=high` step added to `.github/workflows/ci.yml` |
-| **Multi-tenant isolation (Phase 1)** | `listRuns()` accepts optional `userEmail` filter; `GET /api/runs` and `app/runs/page.tsx` scope results to the current user |
+| **Per-user isolation (full)** | Every root table has `owner_email` (NOT NULL); list, detail, update, delete, and export paths apply the visibility rule (`owner OR shared`); team-shared opt-in via `ForgeResourceAcl`; vector search filters by accessible parent ids; auth seam enforced via `proxy.ts` + `requireUser()`; Server Components call `requireUser()` directly. |
+| **Per-user fairness** | Active-resource caps per user (`FORGE_MAX_ACTIVE_*_PER_USER`); pipeline runs queue when over cap; pool rate limiter tracks per-user inflight per endpoint; system-load banner surfaces aggregate load anonymously. |
 
 ### Current Limitations
 
 | Area | Limitation | Risk Level |
 |------|-----------|------------|
-| **Multi-tenant isolation (Phase 2)** | Direct-ID access (`getRunById`, update, delete, export) has no ownership check -- any authenticated user with a `runId` can access it | Medium |
-| **Multi-tenant isolation (Phase 3)** | No admin/shared-viewer role for team-wide visibility when needed | Low |
+| **Group sharing** | Sharing is per-resource per-email only. Group/team sharing (`ForgeTeam`) is a documented follow-up. | Low |
+| **Owner transfer / GDPR erasure** | Bulk owner transfer and right-to-erasure require manual SQL today. The schema supports both (cascading deletes are wired) but a single `lib/lakebase/erase-user.ts` orchestrator and admin UI is a follow-up. | Low |
+| **Schema rollback** | The migration is forward-only (`owner_email` is NOT NULL). `FORGE_USER_ISOLATION=false` does not restore pre-isolation behaviour because the data layer always filters by `owner_email`. Real rollback requires a Lakebase point-in-time restore. | Medium (deploy-time only) |
 | **Prompt injection** | Delimiter-based mitigation reduces but cannot eliminate risk (inherent LLM limitation) | Medium |
 | **`unsafe-inline` in CSP** | `script-src 'self' 'unsafe-inline'` still required by Next.js; nonce-based CSP would be stronger | Low |
 
 ### Recommendations for Further Hardening
 
-1. **Implement full run ownership checks** -- add ownership verification to `getRunById`,
-   `updateRunStatus`, `deleteRun`, and all export/action routes. Return 403 for non-owners.
-2. **Add admin/shared-viewer role** -- allow designated users to view all runs for team
-   collaboration and oversight.
-3. **Nonce-based CSP** -- replace `'unsafe-inline'` with per-request nonces once Next.js
-   supports it natively.
-4. **Extend multi-tenant isolation** -- apply per-user scoping to environment scans,
-   Fabric scans, connections, and Genie Space operations.
+1. **Group / team sharing** -- add `ForgeTeam` + `ForgeTeamMember` and an
+   ACL `viewerType: email | team` to grant access to a whole team in one
+   row.
+2. **Owner transfer & GDPR erasure** -- add a single
+   `lib/lakebase/erase-user.ts` orchestrator and admin UI to bulk-transfer
+   or delete a user's resources (the schema already supports cascading
+   deletes via the `owner_email` column).
+3. **SCIM email autocomplete** -- replace the free-text recipient input on
+   the share dialog with SCIM directory autocomplete
+   (`/api/2.0/preview/scim/v2/Users`).
+4. **Notifications on share** -- in-app + email/Slack notification when a
+   resource is shared with you; today the activity log records
+   `resource_shared` / `resource_unshared` for future wiring.
+5. **Nonce-based CSP** -- replace `'unsafe-inline'` with per-request nonces
+   once Next.js supports it natively.
+6. **Per-user LLM budget enforcement** -- `ForgeUsage` is read-only in
+   v1.0.0; turn it into a hard cap once usage data is available.
 
 ---
 

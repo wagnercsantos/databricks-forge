@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadCommentJobOrRespond } from "@/lib/auth/route-guards";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { getProposalsForJob } from "@/lib/lakebase/comment-proposals";
 import { undoProposals } from "@/lib/ai/comment-applier";
@@ -16,6 +17,9 @@ export async function POST(
 ) {
   try {
     const { jobId } = await params;
+    const guard = await loadCommentJobOrRespond(request, jobId, "edit");
+    if (!guard.ok) return guard.response;
+
     const body = await request.json();
     const { proposalIds, all } = body as {
       proposalIds?: string[];

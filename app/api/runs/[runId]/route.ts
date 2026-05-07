@@ -18,12 +18,13 @@ import { loadLineageFqnsForRun } from "@/lib/lakebase/metadata-cache";
 import { getLatestScanIdForRun } from "@/lib/lakebase/environment-scans";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import { isValidUUID } from "@/lib/validation";
-import { getCurrentUserEmail } from "@/lib/dbx/client";
 import { logActivity } from "@/lib/lakebase/activity-log";
 import { getAllIndustryOutcomes } from "@/lib/domain/industry-outcomes-server";
 import { apiLogger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { getActivePipelineRunIds } from "@/lib/pipeline/engine";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
+import { clearAclForResource } from "@/lib/lakebase/acl";
 
 export async function GET(
   request: NextRequest,
@@ -42,12 +43,9 @@ export async function GET(
 
     await failOrphanedRunningRun(runId, getActivePipelineRunIds());
 
-    const run = await getRunById(runId);
-
-    if (!run) {
-      log.warn("Run not found", { errorCategory: "not_found" });
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "read");
+    if (!guard.ok) return guard.response;
+    const { run } = guard.value;
 
     // Only fetch use cases if the run is completed
     let useCases = undefined;
@@ -65,15 +63,12 @@ export async function GET(
       scanId = scanIdResult.status === "fulfilled" ? scanIdResult.value : null;
     }
 
-    const cacheMaxAge = run.status === "completed" ? 300 : 0;
     return NextResponse.json(
-      { run, useCases, lineageDiscoveredFqns, scanId },
+      { run, useCases, lineageDiscoveredFqns, scanId, permission: guard.permission },
       {
         headers: {
-          "Cache-Control":
-            cacheMaxAge > 0
-              ? `public, s-maxage=${cacheMaxAge}, stale-while-revalidate=60`
-              : "no-store",
+          // Per-user content -- never cached on shared CDN.
+          "Cache-Control": "private, no-store",
         },
       },
     );
@@ -97,12 +92,12 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid run ID format" }, { status: 400 });
     }
 
-    const run = await getRunById(runId);
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "edit");
+    if (!guard.ok) return guard.response;
+    const { value, user } = guard;
+    const runRow = value.run;
 
-    if (run.status === "running") {
+    if (runRow.status === "running") {
       return NextResponse.json({ error: "Cannot modify a running pipeline." }, { status: 409 });
     }
 
@@ -132,9 +127,8 @@ export async function PATCH(
       log.info("Industry cleared");
     }
 
-    const userEmail = await getCurrentUserEmail();
     logActivity("updated_run_industry", {
-      userId: userEmail,
+      userId: user.email,
       resourceId: runId,
       metadata: { industry: industry ?? "(cleared)" },
     });
@@ -149,7 +143,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ runId: string }> },
 ) {
   const { runId } = await params;
@@ -162,14 +156,20 @@ export async function DELETE(
       return NextResponse.json({ error: "Invalid run ID format" }, { status: 400 });
     }
 
-    const run = await getRunById(runId);
-
-    if (!run) {
-      log.warn("Run not found", { errorCategory: "not_found" });
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
+    // Delete is owner-only. We use "edit" mode and additionally enforce
+    // that the caller is the actual owner -- non-owner editors can re-run
+    // but cannot delete.
+    const guard = await loadRunOrRespond(request, runId, "edit");
+    if (!guard.ok) return guard.response;
+    const { value, user, permission } = guard;
+    if (permission !== "owner") {
+      return NextResponse.json(
+        { error: "Only the owner can delete a run." },
+        { status: 403 },
+      );
     }
 
-    if (run.status === "running") {
+    if (value.run.status === "running") {
       log.warn("Delete blocked -- run still in progress", { errorCategory: "conflict" });
       return NextResponse.json(
         { error: "Cannot delete a running pipeline. Wait for it to complete or fail." },
@@ -178,12 +178,12 @@ export async function DELETE(
     }
 
     await deleteRun(runId);
+    await clearAclForResource("run", runId);
 
-    const userEmail = await getCurrentUserEmail();
     logActivity("deleted_run", {
-      userId: userEmail,
+      userId: user.email,
       resourceId: runId,
-      metadata: { businessName: run.config.businessName },
+      metadata: { businessName: value.run.config.businessName },
     });
 
     log.info("Run deleted");

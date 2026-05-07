@@ -7,6 +7,8 @@ import { Plus } from "lucide-react";
 import { DashboardContent, type DashboardStats } from "@/components/dashboard/dashboard-content";
 import { withPrisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { requireUser } from "@/lib/auth/route-user";
+import { listAccessibleIds } from "@/lib/lakebase/acl";
 
 export const dynamic = "force-dynamic";
 
@@ -15,13 +17,27 @@ async function fetchDashboardStats(): Promise<{
   error: string | null;
 }> {
   try {
+    const user = await requireUser();
+    const accessibleRunIds = await listAccessibleIds(user.email, "run");
+    const runScope = {
+      OR: [
+        { ownerEmail: user.email },
+        ...(accessibleRunIds.length > 0 ? [{ runId: { in: accessibleRunIds } }] : []),
+      ],
+    };
+    const useCaseRunScope = {
+      run: runScope,
+    };
+
     const stats = await withPrisma(async (prisma) => {
       const [runStatusGroups, recentRuns] = await Promise.all([
         prisma.forgeRun.groupBy({
           by: ["status"],
+          where: runScope,
           _count: { _all: true },
         }),
         prisma.forgeRun.findMany({
+          where: runScope,
           orderBy: { createdAt: "desc" },
           take: 5,
           select: {
@@ -39,16 +55,18 @@ async function fetchDashboardStats(): Promise<{
       const [typeGroups, domainGroups, scoreRows] = await Promise.all([
         prisma.forgeUseCase.groupBy({
           by: ["type"],
+          where: useCaseRunScope,
           _count: { _all: true },
         }),
         prisma.forgeUseCase.groupBy({
           by: ["domain"],
+          where: useCaseRunScope,
           _count: { _all: true },
           orderBy: { _count: { domain: "desc" } },
         }),
         prisma.forgeUseCase.findMany({
+          where: { overallScore: { not: null }, ...useCaseRunScope },
           select: { overallScore: true },
-          where: { overallScore: { not: null } },
         }),
       ]);
 
@@ -56,6 +74,10 @@ async function fetchDashboardStats(): Promise<{
         prisma.forgeQualityMetric.findMany({
           where: {
             createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+            OR: [
+              { ownerEmail: user.email },
+              { ownerEmail: null }, // legacy/system-emitted metrics
+            ],
           },
           select: {
             metricType: true,
@@ -64,6 +86,7 @@ async function fetchDashboardStats(): Promise<{
             passed: true,
           },
         }),
+        // Benchmarks are a global catalog -- no per-user filter.
         prisma.forgeBenchmarkRecord.findMany({
           where: { lifecycleStatus: "published" },
           select: { industry: true, publishedAt: true, ttlDays: true },

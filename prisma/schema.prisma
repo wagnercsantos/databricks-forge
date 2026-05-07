@@ -30,6 +30,10 @@ model ForgeRun {
   languages          String?   @default("[\"English\"]")
   generationOptions  String?   @default("[\"SQL Code\"]") @map("generation_options")
   generationPath     String?   @default("./forge_gen/") @map("generation_path")
+  // Status values: pending | queued | running | completed | failed | cancelled
+  // `queued` is set by the run-level scheduler when a user is at their
+  // active-run cap (Phase 5b/5c). It transitions to `running` via the
+  // atomic claim in lib/pipeline/scheduler.ts.
   status             String    @default("pending")
   currentStep        String?   @map("current_step")
   progressPct        Int       @default(0) @map("progress_pct")
@@ -39,6 +43,10 @@ model ForgeRun {
   createdAt          DateTime  @default(now()) @map("created_at")
   completedAt        DateTime? @map("completed_at")
 
+  // Owner of this run (the user who created it). Nullable on legacy rows;
+  // application code always writes a value for new rows. Cutover wipe
+  // ensures no nulls remain after rollout.
+  ownerEmail         String?   @map("owner_email")
   createdBy          String?   @map("created_by")
   filteredTablesJson String?   @map("filtered_tables_json")
   metadataCacheKey   String?   @map("metadata_cache_key")
@@ -68,6 +76,9 @@ model ForgeRun {
   strategyAlignments       ForgeStrategyAlignment[]
   stakeholderProfiles      ForgeStakeholderProfile[]
 
+  @@index([ownerEmail])
+  @@index([ownerEmail, status])
+  @@index([ownerEmail, createdAt(sort: Desc)])
   @@map("forge_runs")
 }
 
@@ -273,6 +284,7 @@ model ForgeMetricViewProposal {
   deploymentStatus String    @default("proposed") @map("deployment_status")
   deployedFqn      String?   @map("deployed_fqn")
   deployedAt       DateTime? @map("deployed_at")
+  ownerEmail       String?   @map("owner_email")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
@@ -282,6 +294,7 @@ model ForgeMetricViewProposal {
   @@index([schemaScope])
   @@index([deployedFqn])
   @@index([subdomain])
+  @@index([ownerEmail])
   @@map("forge_metric_view_proposals")
 }
 
@@ -317,12 +330,15 @@ model ForgeGenieSpace {
   status             String   @default("created") // created | updated | trashed
   deployedAssetsJson String?  @map("deployed_assets_json")
   authMode           String?  @map("auth_mode") // "obo" | "sp" — null for legacy rows (treated as "sp")
+  ownerEmail         String?  @map("owner_email")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
 
   run ForgeRun? @relation(fields: [runId], references: [runId], onDelete: Cascade)
 
   @@index([runId])
+  @@index([ownerEmail])
+  @@index([ownerEmail, createdAt(sort: Desc)])
   @@map("forge_genie_spaces")
 }
 
@@ -470,6 +486,7 @@ model ForgeEnvironmentScan {
   metricViewCount       Int      @default(0) @map("metric_view_count")
   analyticsCoveragePercent Float @default(0) @map("analytics_coverage_percent")
   createdAt             DateTime @default(now()) @map("created_at")
+  ownerEmail            String?  @map("owner_email")
 
   run        ForgeRun? @relation(fields: [runId], references: [runId], onDelete: Cascade)
   details    ForgeTableDetail[]
@@ -479,6 +496,8 @@ model ForgeEnvironmentScan {
 
   @@index([runId])
   @@index([createdAt])
+  @@index([ownerEmail])
+  @@index([ownerEmail, createdAt(sort: Desc)])
   @@map("forge_environment_scans")
 }
 
@@ -667,9 +686,11 @@ model ForgeMetadataGenieSpace {
   status          String   @default("draft")
   authMode        String   @default("obo") @map("auth_mode")
   tableCount      Int      @default(0) @map("table_count")
+  ownerEmail      String?  @map("owner_email")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
+  @@index([ownerEmail])
   @@map("forge_metadata_genie_spaces")
 }
 
@@ -815,6 +836,7 @@ model ForgeQualityMetric {
   runId         String?  @map("run_id")
   assistantLogId String? @map("assistant_log_id")
   metadataJson  String?  @map("metadata_json")
+  ownerEmail    String?  @map("owner_email")
   createdAt     DateTime @default(now()) @map("created_at")
 
   run          ForgeRun?          @relation(fields: [runId], references: [runId], onDelete: Cascade)
@@ -823,6 +845,7 @@ model ForgeQualityMetric {
   @@index([metricType, metricName, createdAt])
   @@index([runId])
   @@index([assistantLogId])
+  @@index([ownerEmail])
   @@map("forge_quality_metrics")
 }
 
@@ -856,9 +879,11 @@ model ForgeDocument {
   sizeBytes  Int      @map("size_bytes")
   status     String   @default("processing")
   uploadedBy String?  @map("uploaded_by")
+  ownerEmail String?  @map("owner_email")
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([status])
+  @@index([ownerEmail])
   @@map("forge_documents")
 }
 
@@ -877,6 +902,7 @@ model ForgeConnection {
   configJson    String?  @map("config_json")
   status        String   @default("active")
   createdBy     String?  @map("created_by")
+  ownerEmail    String?  @map("owner_email")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at")
   lastTestedAt         DateTime? @map("last_tested_at")
@@ -885,6 +911,7 @@ model ForgeConnection {
   fabricScans   ForgeFabricScan[]
 
   @@index([connectorType])
+  @@index([ownerEmail])
   @@map("forge_connections")
 }
 
@@ -906,6 +933,7 @@ model ForgeFabricScan {
   errorMessage    String?   @map("error_message")
   rawResultJson   String?   @map("raw_result_json")
   createdBy       String?   @map("created_by")
+  ownerEmail      String?   @map("owner_email")
   createdAt       DateTime  @default(now()) @map("created_at")
   completedAt     DateTime? @map("completed_at")
 
@@ -916,6 +944,8 @@ model ForgeFabricScan {
   artifacts   ForgeFabricArtifact[]
 
   @@index([connectionId])
+  @@index([ownerEmail])
+  @@index([ownerEmail, status])
   @@map("forge_fabric_scans")
 }
 
@@ -1004,10 +1034,12 @@ model ForgeFabricMigration {
   nameMappingJson String?   @map("name_mapping_json")
   rlsWarningsJson String?   @map("rls_warnings_json")
   createdBy       String?   @map("created_by")
+  ownerEmail      String?   @map("owner_email")
   createdAt       DateTime  @default(now()) @map("created_at")
   completedAt     DateTime? @map("completed_at")
 
   @@index([scanId])
+  @@index([ownerEmail])
   @@map("forge_fabric_migrations")
 }
 
@@ -1029,9 +1061,11 @@ model ForgeSpaceBenchmarkRun {
   feedbackJson        String?  @map("feedback_json")
   improvementsApplied Boolean  @default(false) @map("improvements_applied")
   improvementSummary  String?  @map("improvement_summary")
+  ownerEmail          String?  @map("owner_email")
 
   @@index([spaceId])
   @@index([evalRunId])
+  @@index([ownerEmail])
   @@map("forge_space_benchmark_runs")
 }
 
@@ -1042,9 +1076,11 @@ model ForgeSpaceHealthScore {
   grade       String
   checksJson  String   @map("checks_json")
   triggeredBy String?  @map("triggered_by")
+  ownerEmail  String?  @map("owner_email")
   measuredAt  DateTime @default(now()) @map("measured_at")
 
   @@index([spaceId])
+  @@index([ownerEmail])
   @@map("forge_space_health_scores")
 }
 
@@ -1171,12 +1207,14 @@ model ForgeStrategyDocument {
   alignmentScore    Float?   @map("alignment_score")
   status            String   @default("draft") // draft | analyzed | archived
   createdBy         String?  @map("created_by")
+  ownerEmail        String?  @map("owner_email")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at")
 
   alignments ForgeStrategyAlignment[]
 
   @@index([status])
+  @@index([ownerEmail])
   @@map("forge_strategy_documents")
 }
 
@@ -1239,11 +1277,12 @@ model ForgeCommentJob {
   runId        String?  @map("run_id")
   scopeJson    String   @map("scope_json")
   industryId   String?  @map("industry_id")
-  status       String   @default("draft") // draft | generating | ready | applying | completed | failed
+  status       String   @default("draft") // draft | queued | generating | ready | applying | completed | failed
   tableCount   Int      @default(0) @map("table_count")
   columnCount  Int      @default(0) @map("column_count")
   appliedCount Int      @default(0) @map("applied_count")
   errorMessage String?  @map("error_message")
+  ownerEmail   String?  @map("owner_email")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
 
@@ -1251,6 +1290,8 @@ model ForgeCommentJob {
 
   @@index([status])
   @@index([createdAt])
+  @@index([ownerEmail])
+  @@index([ownerEmail, status])
   @@map("forge_comment_jobs")
 }
 
@@ -1297,17 +1338,82 @@ model ForgeDemoSession {
   dataModelJson    String?   @map("data_model_json")
   tablesJson       String?   @map("tables_json")
   sourceDocsJson   String?   @map("source_docs_json")
-  status           String    @default("draft") // draft | researching | designing | generating | completed | failed
+  status           String    @default("draft") // draft | queued | researching | designing | generating | completed | failed | cancelled
   tablesCreated    Int       @default(0) @map("tables_created")
   totalRows        Int       @default(0) @map("total_rows")
   durationMs       Int       @default(0) @map("duration_ms")
   errorMessage     String?   @map("error_message")
   createdBy        String?   @map("created_by")
+  ownerEmail       String?   @map("owner_email")
   createdAt        DateTime  @default(now()) @map("created_at")
   completedAt      DateTime? @map("completed_at")
 
   @@index([customerName])
   @@index([status])
   @@index([createdAt])
+  @@index([ownerEmail])
+  @@index([ownerEmail, status])
+  @@index([ownerEmail, createdAt(sort: Desc)])
   @@map("forge_demo_sessions")
+}
+
+// ---------------------------------------------------------------------------
+// User Isolation: Resource Access Control List
+//
+// Owners share their resources (runs, scans, Genie spaces, demo sessions, etc.)
+// with named teammates by writing rows here. Visibility queries everywhere
+// follow the rule:
+//
+//   user can see resource R if R.owner_email = $user
+//                         OR exists ACL row (resource_type, R.id, $user)
+//
+// Permission semantics:
+//   view  -- can read; cannot regenerate, edit metadata, delete, or re-share
+//   edit  -- view + can re-run / regenerate / edit metadata
+//   (owner is implicit on the resource itself; not stored here)
+// ---------------------------------------------------------------------------
+
+model ForgeResourceAcl {
+  id           String   @id @default(uuid())
+  // run | scan | genie_space | metadata_genie_space | demo_session |
+  // comment_job | strategy_document | connection | document |
+  // bv_portfolio | benchmark_run | health_score | metric_view_proposal |
+  // fabric_scan | fabric_migration
+  resourceType String   @map("resource_type")
+  resourceId   String   @map("resource_id")
+  viewerEmail  String   @map("viewer_email")
+  permission   String   @default("view") // "view" | "edit"
+  grantedBy    String   @map("granted_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@unique([resourceType, resourceId, viewerEmail])
+  @@index([viewerEmail, resourceType])
+  @@index([resourceType, resourceId])
+  @@map("forge_resource_acl")
+}
+
+// ---------------------------------------------------------------------------
+// User Isolation: Per-User Usage Counters (Phase 5b)
+//
+// Read-only telemetry written by the rate limiter and pipeline engine to
+// support fairness reporting and a future hard quota. One row per
+// (userEmail, day) -- aggregated across all engines.
+// ---------------------------------------------------------------------------
+
+model ForgeUsage {
+  id           String   @id @default(uuid())
+  userEmail    String   @map("user_email")
+  day          DateTime @map("day") @db.Date
+  pipelineRuns Int      @default(0) @map("pipeline_runs")
+  scans        Int      @default(0) @map("scans")
+  genieDeploys Int      @default(0) @map("genie_deploys")
+  demoEngines  Int      @default(0) @map("demo_engines")
+  llmCalls     Int      @default(0) @map("llm_calls")
+  embedTokens  Int      @default(0) @map("embed_tokens")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([userEmail, day])
+  @@index([userEmail])
+  @@index([day])
+  @@map("forge_usage")
 }

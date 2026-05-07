@@ -12,7 +12,8 @@ import { safeErrorMessage } from "@/lib/error-utils";
 import { createRun, listRuns } from "@/lib/lakebase/runs";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import { safeParseBody, CreateRunSchema } from "@/lib/validation";
-import { getCurrentUserEmail } from "@/lib/dbx/client";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
+import { listAccessibleIds } from "@/lib/lakebase/acl";
 import { logActivity } from "@/lib/lakebase/activity-log";
 import type {
   PipelineRunConfig,
@@ -27,6 +28,16 @@ export async function POST(request: NextRequest) {
   const log = apiLogger("/api/runs", "POST");
   try {
     await ensureMigrated();
+
+    let user;
+    try {
+      user = await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
 
     const parsed = await safeParseBody(request, CreateRunSchema);
     if (!parsed.success) {
@@ -65,12 +76,11 @@ export async function POST(request: NextRequest) {
       businessValueEnabled: body.businessValueEnabled ?? false,
     };
 
-    const userEmail = await getCurrentUserEmail();
-    await createRun(runId, config, userEmail);
+    await createRun(runId, config, user.email);
 
     // Fire-and-forget activity log
     logActivity("created_run", {
-      userId: userEmail,
+      userId: user.email,
       resourceId: runId,
       metadata: { businessName: config.businessName },
     });
@@ -86,18 +96,32 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const log = apiLogger("/api/runs", "GET");
   try {
+    let user;
+    try {
+      user = await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
+
     const { searchParams } = new URL(request.url);
     const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "50", 10) || 50, 1), 200);
     const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
+    const view = (searchParams.get("view") ?? "all") as "all" | "owned" | "shared";
 
     await ensureMigrated();
-    const runs = await listRuns(limit, offset);
+
+    const sharedIds = view === "owned" ? [] : await listAccessibleIds(user.email, "run");
+    const runs = await listRuns(limit, offset, user.email, view, sharedIds);
 
     return NextResponse.json(
       { runs },
       {
         headers: {
-          "Cache-Control": "public, s-maxage=5, stale-while-revalidate=30",
+          // Per-user content -- must NOT be cached on shared CDN.
+          "Cache-Control": "private, no-store",
         },
       },
     );

@@ -12,6 +12,7 @@ import { compareRuns } from "@/lib/lakebase/run-comparison";
 import { generateComparisonExcel } from "@/lib/export/comparison-excel";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import { isValidUUID } from "@/lib/validation";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,6 +27,11 @@ export async function GET(request: NextRequest) {
         { status: 400 },
       );
     }
+
+    const guardA = await loadRunOrRespond(request, runAId, "read");
+    if (!guardA.ok) return guardA.response;
+    const guardB = await loadRunOrRespond(request, runBId, "read");
+    if (!guardB.ok) return guardB.response;
 
     const comparison = await compareRuns(runAId, runBId);
     const buffer = await generateComparisonExcel(comparison);

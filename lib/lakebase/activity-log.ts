@@ -34,7 +34,13 @@ export type ActivityAction =
   | "demo_research"
   | "demo_generate"
   | "demo_cleanup"
-  | "demo_genie_space_deployed";
+  | "demo_genie_space_deployed"
+  | "pipeline_queued"
+  | "pipeline_promoted"
+  | "pipeline_cancelled"
+  | "endpoint_throttled"
+  | "resource_shared"
+  | "resource_unshared";
 
 export interface ActivityLogEntry {
   activityId: string;
@@ -87,10 +93,19 @@ export async function logActivity(
 
 /**
  * Get the most recent activity entries for the dashboard feed.
+ *
+ * When `userEmail` is provided, results are scoped to entries owned by
+ * that user (or with `userId IS NULL` for legacy/system entries). This
+ * is the default for the per-user feed.
  */
-export async function getRecentActivity(limit = 20): Promise<ActivityLogEntry[]> {
+export async function getRecentActivity(
+  limit = 20,
+  opts?: { userEmail?: string },
+): Promise<ActivityLogEntry[]> {
   return withPrisma(async (prisma) => {
+    const where = opts?.userEmail ? { userId: opts.userEmail } : undefined;
     const rows = await prisma.forgeActivityLog.findMany({
+      where,
       orderBy: { createdAt: "desc" },
       take: limit,
     });

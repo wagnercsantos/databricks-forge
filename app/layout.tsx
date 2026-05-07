@@ -11,6 +11,7 @@ import { SearchBar } from "@/components/search/search-bar";
 import { AskForgePanel } from "@/components/assistant/ask-forge-panel";
 import { GenieBuildProvider } from "@/components/providers/genie-build-provider";
 import { GenieBuildRestore } from "@/components/providers/genie-build-restore";
+import { SystemLoadBanner } from "@/components/system-load-banner";
 
 const sans = localFont({
   src: [
@@ -72,6 +73,7 @@ export default function RootLayout({
                       <ThemeToggle />
                     </div>
                   </header>
+                  <SystemLoadBanner />
                   <main id="main-content" className="flex-1 overflow-y-auto overflow-x-hidden">
                     <div className="w-full px-4 py-6 sm:px-6 lg:px-8">{children}</div>
                   </main>

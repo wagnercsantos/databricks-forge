@@ -27,6 +27,10 @@ import {
   patchSpaceWithMetricViews,
   type MetricViewDeployResult,
 } from "@/lib/genie/deploy";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
+import { listAccessibleIds } from "@/lib/lakebase/acl";
+import { checkQuota } from "@/lib/quotas";
+import { recordUsage } from "@/lib/lakebase/usage";
 
 // ---------------------------------------------------------------------------
 // Deploy job tracker (in-memory, same pattern as generate route)
@@ -87,12 +91,32 @@ export async function GET(request: NextRequest) {
   // Default: list from Lakebase cache (fast, no Databricks API calls).
   // Sync from Databricks is handled by POST /api/genie-spaces/sync.
   try {
-    const [cached, tracked, lastSyncedAt] = await Promise.all([
+    let user;
+    try {
+      user = await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
+
+    // Workspace cache (`forge_genie_space_cache`) is shared because it
+    // mirrors Databricks workspace state, not user-private Forge data.
+    // Tracking rows are user-scoped (deployedBy / sharing).
+    const [cached, tracked, sharedTrackingIds, lastSyncedAt] = await Promise.all([
       listCachedSpaces().catch(() => []),
-      listTrackedGenieSpaces().catch(() => []),
+      listTrackedGenieSpaces({ ownerEmail: user.email }).catch(() => []),
+      listAccessibleIds(user.email, "genie_space").catch(() => []),
       getCacheSyncTimestamp().catch(() => null),
     ]);
 
+    const sharedTracked = sharedTrackingIds.length
+      ? await listTrackedGenieSpaces({ idsIn: sharedTrackingIds }).catch(() => [])
+      : [];
+
+    const merged = [...tracked, ...sharedTracked];
+    const dedupedTracked = Array.from(new Map(merged.map((t) => [t.id, t])).values());
     const cachedIds = new Set(cached.map((c) => c.spaceId));
 
     const mergedSpaces = cached.map((c) => ({
@@ -109,13 +133,18 @@ export async function GET(request: NextRequest) {
       lastDiscoveredAt: c.lastDiscoveredAt,
     }));
 
-    const liveTracked = tracked.filter((t) => t.status === "trashed" || cachedIds.has(t.spaceId));
+    const liveTracked = dedupedTracked.filter(
+      (t) => t.status === "trashed" || cachedIds.has(t.spaceId),
+    );
 
-    return NextResponse.json({
-      spaces: mergedSpaces,
-      tracked: liveTracked,
-      lastSyncedAt,
-    });
+    return NextResponse.json(
+      {
+        spaces: mergedSpaces,
+        tracked: liveTracked,
+        lastSyncedAt,
+      },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -128,6 +157,16 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    let user;
+    try {
+      user = await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
+
     const body = await request.json();
     const {
       title,
@@ -196,28 +235,55 @@ export async function POST(request: NextRequest) {
       error: null,
     });
 
-    runDeploy(jobId, {
-      title,
-      description,
-      serializedSpace,
-      runId,
-      domain,
-      parentPath,
-      authMode,
-      quality,
-      targetSchema,
-      metricViews,
-      resourcePrefix,
-    }).catch((err) => {
-      const job = deployJobs.get(jobId);
-      if (job && job.status === "deploying") {
-        job.status = "failed";
-        job.message = "Deployment failed";
-        job.error = safeErrorMessage(err);
-        job.completedAt = Date.now();
-      }
-    });
+    recordUsage.genieDeploy(user.email).catch(() => {});
 
+    const startDeploy = () =>
+      runDeploy(jobId, {
+        title,
+        description,
+        serializedSpace,
+        runId,
+        domain,
+        parentPath,
+        authMode,
+        quality,
+        targetSchema,
+        metricViews,
+        resourcePrefix,
+        ownerEmail: user.email,
+      }).catch((err) => {
+        const job = deployJobs.get(jobId);
+        if (job && job.status === "deploying") {
+          job.status = "failed";
+          job.message = "Deployment failed";
+          job.error = safeErrorMessage(err);
+          job.completedAt = Date.now();
+        }
+      });
+
+    const quota = await checkQuota("genie_deploy", user.email, "reject");
+    if (!quota.allowed) {
+      const { enqueueDeferredJob } = await import("@/lib/scheduler/deferred-queue");
+      const { position } = enqueueDeferredJob({
+        kind: "genie_deploy",
+        ownerEmail: user.email,
+        run: startDeploy,
+      });
+      const job = deployJobs.get(jobId);
+      if (job) {
+        job.status = "deploying";
+        job.message = `Queued (position ${position}) -- waiting for capacity.`;
+      }
+      return NextResponse.json({
+        jobId,
+        status: "queued",
+        position,
+        cap: quota.cap,
+        active: quota.active,
+      });
+    }
+
+    void startDeploy();
     return NextResponse.json({ jobId, status: "deploying" });
   } catch (error) {
     return NextResponse.json({ error: safeErrorMessage(error) }, { status: 500 });
@@ -242,6 +308,7 @@ async function runDeploy(
     targetSchema?: string;
     metricViews?: Array<{ name: string; ddl: string; description?: string }>;
     resourcePrefix?: string;
+    ownerEmail: string;
   },
 ): Promise<void> {
   const job = deployJobs.get(jobId);
@@ -305,6 +372,7 @@ async function runDeploy(
       },
     },
     params.authMode,
+    params.ownerEmail,
   );
 
   // Step 5: Best-effort listing cache update -- space is already live,

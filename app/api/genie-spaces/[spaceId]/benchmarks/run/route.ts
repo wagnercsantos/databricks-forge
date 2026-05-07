@@ -14,6 +14,7 @@ import {
   pollEvalRunUntilDone,
 } from "@/lib/dbx/genie";
 import { saveBenchmarkRun } from "@/lib/lakebase/space-health";
+import { loadGenieSpaceBySpaceIdOrRespond } from "@/lib/auth/route-guards";
 import { isSafeId } from "@/lib/validation";
 import { logger } from "@/lib/logger";
 import { createConcurrencyLimiter } from "@/lib/toolkit/concurrency";
@@ -33,6 +34,9 @@ export async function GET(
   if (!isSafeId(spaceId)) {
     return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
   }
+
+  const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "read");
+  if (!guard.ok) return guard.response;
 
   const evalRunId = request.nextUrl.searchParams.get("evalRunId");
   if (!evalRunId) {
@@ -108,6 +112,9 @@ export async function POST(
   if (!isSafeId(spaceId)) {
     return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
   }
+
+  const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "edit");
+  if (!guard.ok) return guard.response;
 
   const oboToken = request.headers.get("x-forwarded-access-token") ?? undefined;
 

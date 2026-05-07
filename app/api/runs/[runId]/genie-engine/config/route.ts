@@ -6,14 +6,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { isValidUUID } from "@/lib/validation";
-import { getRunById } from "@/lib/lakebase/runs";
 import { getGenieEngineConfig, saveGenieEngineConfig } from "@/lib/lakebase/genie-engine-config";
 import type { GenieEngineConfig } from "@/lib/genie/types";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ runId: string }> },
 ) {
   try {
@@ -22,10 +22,9 @@ export async function GET(
       return NextResponse.json({ error: "Invalid run ID" }, { status: 400 });
     }
 
-    const run = await getRunById(runId);
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "read");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
 
     const { config, version } = await getGenieEngineConfig(runId);
 
@@ -45,10 +44,9 @@ export async function PUT(
       return NextResponse.json({ error: "Invalid run ID" }, { status: 400 });
     }
 
-    const run = await getRunById(runId);
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "edit");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
 
     const body = await request.json();
     const config = body.config as GenieEngineConfig;

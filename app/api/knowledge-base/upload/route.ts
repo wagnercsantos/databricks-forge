@@ -25,6 +25,7 @@ import { insertEmbeddings, deleteEmbeddingsBySource } from "@/lib/embeddings/sto
 import type { EmbeddingInput } from "@/lib/embeddings/types";
 import { isEmbeddingEnabled } from "@/lib/embeddings/config";
 import { logger } from "@/lib/logger";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 const ALLOWED_TYPES = new Set([
@@ -46,6 +47,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const user = await requireUser(request);
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const category = (formData.get("category") as string) || "other";
@@ -74,13 +76,14 @@ export async function POST(request: NextRequest) {
 
     const docId = randomUUID();
 
-    // Create document record
     await createDocument({
       id: docId,
       filename: file.name,
       mimeType: file.type || "application/octet-stream",
       category,
       sizeBytes: file.size,
+      uploadedBy: user.email,
+      ownerEmail: user.email,
     });
 
     // Extract text
@@ -127,6 +130,9 @@ export async function POST(request: NextRequest) {
       status: "processing",
     });
   } catch (error) {
+    if (error instanceof ForgeAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     logger.error("[knowledge-base/upload] POST failed", {
       error: error instanceof Error ? error.message : String(error),
     });

@@ -23,6 +23,7 @@ export interface CommentJob {
   columnCount: number;
   appliedCount: number;
   errorMessage: string | null;
+  ownerEmail: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,7 +33,9 @@ export async function createCommentJob(input: {
   industryId?: string;
   scanId?: string;
   runId?: string;
+  ownerEmail?: string | null;
 }): Promise<CommentJob> {
+  const owner = input.ownerEmail ? input.ownerEmail.toLowerCase().trim() : null;
   return withPrisma(async (prisma) => {
     const row = await prisma.forgeCommentJob.create({
       data: {
@@ -41,6 +44,7 @@ export async function createCommentJob(input: {
         scanId: input.scanId ?? null,
         runId: input.runId ?? null,
         status: "draft",
+        ownerEmail: owner,
       },
     });
     return row as CommentJob;
@@ -54,9 +58,25 @@ export async function getCommentJob(jobId: string): Promise<CommentJob | null> {
   });
 }
 
-export async function listCommentJobs(): Promise<CommentJob[]> {
+export async function listCommentJobs(
+  userEmail?: string | null,
+  viewMode: "all" | "owned" | "shared" = "all",
+  sharedIds: string[] = [],
+): Promise<CommentJob[]> {
   return withPrisma(async (prisma) => {
+    const owner = userEmail ? userEmail.toLowerCase().trim() : null;
+    const where: Record<string, unknown> = {};
+    if (owner) {
+      if (viewMode === "owned") {
+        where.ownerEmail = owner;
+      } else if (viewMode === "shared") {
+        where.id = { in: sharedIds };
+      } else {
+        where.OR = [{ ownerEmail: owner }, { id: { in: sharedIds } }];
+      }
+    }
     const rows = await prisma.forgeCommentJob.findMany({
+      where,
       orderBy: { createdAt: "desc" },
     });
     return rows as CommentJob[];

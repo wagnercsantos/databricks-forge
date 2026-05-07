@@ -5,11 +5,24 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import {
+  ForgeAuthError,
+  requireUser,
+} from "@/lib/auth/route-user";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { checkPermissions } from "@/lib/ai/comment-applier";
 
 export async function POST(request: NextRequest) {
   try {
+    try {
+      await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
+
     const body = await request.json();
     const { tableFqns } = body as { tableFqns: string[] };
 

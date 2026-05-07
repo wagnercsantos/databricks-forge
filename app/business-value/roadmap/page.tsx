@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/page-header";
 import { getPortfolioData, getPortfolioUseCases } from "@/lib/lakebase/portfolio";
+import { requireUser } from "@/lib/auth/route-user";
+import { listAccessibleIds } from "@/lib/lakebase/acl";
 import { formatCurrency } from "@/lib/utils";
 import type { RoadmapPhase } from "@/lib/domain/types";
 import type { PortfolioUseCase } from "@/lib/lakebase/portfolio";
@@ -62,7 +64,12 @@ async function RoadmapContent() {
   let portfolio;
   let useCases: PortfolioUseCase[];
   try {
-    [portfolio, useCases] = await Promise.all([getPortfolioData(), getPortfolioUseCases()]);
+    const user = await requireUser();
+    const accessibleRunIds = await listAccessibleIds(user.email, "run");
+    [portfolio, useCases] = await Promise.all([
+      getPortfolioData(user.email, accessibleRunIds),
+      getPortfolioUseCases(user.email, accessibleRunIds),
+    ]);
   } catch {
     return (
       <Card>

@@ -10,7 +10,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { isValidUUID } from "@/lib/validation";
-import { getRunById } from "@/lib/lakebase/runs";
 import { getUseCasesByRunId } from "@/lib/lakebase/usecases";
 import { loadMetadataForRun } from "@/lib/lakebase/metadata-cache";
 import { listTrackedGenieSpaces } from "@/lib/lakebase/genie-spaces";
@@ -19,9 +18,10 @@ import { generateGenieRecommendations } from "@/lib/genie/recommend";
 import { getGenieEngineConfig } from "@/lib/lakebase/genie-engine-config";
 import { getConfig } from "@/lib/dbx/client";
 import type { GenieSpaceRecommendation } from "@/lib/genie/types";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ runId: string }> },
 ) {
   try {
@@ -30,11 +30,9 @@ export async function GET(
       return NextResponse.json({ error: "Invalid run ID" }, { status: 400 });
     }
 
-    // Load the run
-    const run = await getRunById(runId);
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "read");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
     if (run.status !== "completed") {
       return NextResponse.json(
         { error: "Run is not completed. Genie recommendations require a completed pipeline run." },
@@ -74,7 +72,7 @@ export async function GET(
     }
 
     // Load tracking status for this run
-    const tracked = await listTrackedGenieSpaces(runId);
+    const tracked = await listTrackedGenieSpaces({ runId });
 
     let databricksHost: string | null = null;
     try {

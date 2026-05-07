@@ -8,9 +8,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getHealthScoreHistory } from "@/lib/lakebase/space-health";
 import { isSafeId } from "@/lib/validation";
 import { safeErrorMessage } from "@/lib/error-utils";
+import { loadGenieSpaceBySpaceIdOrRespond } from "@/lib/auth/route-guards";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ spaceId: string }> },
 ) {
   try {
@@ -18,6 +19,8 @@ export async function GET(
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
     }
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "read");
+    if (!guard.ok) return guard.response;
 
     const scores = await getHealthScoreHistory(spaceId);
 

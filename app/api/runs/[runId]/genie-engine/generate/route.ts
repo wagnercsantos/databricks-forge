@@ -6,9 +6,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { isValidUUID } from "@/lib/validation";
-import { getRunById } from "@/lib/lakebase/runs";
 import { getUseCasesByRunId } from "@/lib/lakebase/usecases";
 import { loadMetadataForRun } from "@/lib/lakebase/metadata-cache";
 import { getGenieEngineConfig } from "@/lib/lakebase/genie-engine-config";
@@ -52,10 +52,9 @@ export async function POST(
       // No body or invalid JSON -- regenerate all domains
     }
 
-    const run = await getRunById(runId);
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "edit");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
     if (run.status !== "completed") {
       return NextResponse.json(
         { error: "Run must be completed to generate Genie spaces" },

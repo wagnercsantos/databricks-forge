@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/page-header";
 import { getStakeholderProfilesForLatestRun } from "@/lib/lakebase/stakeholder-profiles";
+import { requireUser } from "@/lib/auth/route-user";
+import { listAccessibleIds } from "@/lib/lakebase/acl";
 import { formatCurrency } from "@/lib/utils";
 import type { StakeholderProfile } from "@/lib/domain/types";
 import { Users, Crown, Building2, ShieldAlert, BarChart3, Star } from "lucide-react";
@@ -94,7 +96,12 @@ const COMPLEXITY_CONFIG: Record<string, { label: string; className: string }> = 
 };
 
 async function StakeholderContent() {
-  const { runId, profiles } = await getStakeholderProfilesForLatestRun();
+  const user = await requireUser();
+  const accessibleRunIds = await listAccessibleIds(user.email, "run");
+  const { runId, profiles } = await getStakeholderProfilesForLatestRun(
+    user.email,
+    accessibleRunIds,
+  );
 
   if (!runId || profiles.length === 0) {
     return (

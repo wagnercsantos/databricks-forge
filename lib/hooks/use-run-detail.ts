@@ -219,7 +219,8 @@ export function useRunDetail(runId: string) {
   fetchRunRef.current = fetchRun;
 
   useEffect(() => {
-    const isActive = run?.status === "running" || run?.status === "pending";
+    const isActive =
+      run?.status === "running" || run?.status === "pending" || run?.status === "queued";
     if (!isActive) return;
     let delay = 2000;
     let lastStatus: string | undefined = run?.status;

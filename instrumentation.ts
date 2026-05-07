@@ -79,10 +79,66 @@ export function register() {
       } catch {
         // The lazy check in getPersistedJobStatus will catch any remaining orphans.
       }
+
+      // Re-queue orphan running pipelines (graceful redeploy). The scheduler
+      // tick (started below) will promote them when capacity allows.
+      try {
+        const { requeueOrphanedRunsOnStartup } = await import("@/lib/lakebase/runs");
+        const requeued = await requeueOrphanedRunsOnStartup();
+        if (requeued > 0) {
+          console.log(`[instrumentation] Re-queued ${requeued} orphan running run(s).`);
+        }
+      } catch (err) {
+        console.warn(
+          "[instrumentation] Failed to re-queue orphan runs:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+
+      // Defensive: refuse to come up if any root table has NULL owner_email
+      // rows. These would be invisible under per-user isolation. The check
+      // is non-fatal when FORGE_USER_ISOLATION=false (escape hatch).
+      try {
+        const { assertOwnerEmailIntegrity } = await import("@/lib/lakebase/isolation-guard");
+        await assertOwnerEmailIntegrity();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[startup] Isolation integrity check failed:", message);
+        // Exit so the platform retries with a visible failure instead of
+        // booting with corrupt visibility state.
+        process.exit(1);
+      }
     };
 
     setTimeout(() => {
       void warmupAndOrphanCheck();
     }, 500);
+
+    setTimeout(() => {
+      void (async () => {
+        try {
+          await import("@/lib/pipeline/engine");
+          const { startScheduler } = await import("@/lib/pipeline/scheduler");
+          startScheduler();
+          console.log("[instrumentation] Pipeline scheduler started.");
+        } catch (err) {
+          console.warn(
+            "[instrumentation] Failed to start pipeline scheduler:",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+
+        try {
+          const { startDeferredQueue } = await import("@/lib/scheduler/deferred-queue");
+          startDeferredQueue();
+          console.log("[instrumentation] Deferred-job queue started.");
+        } catch (err) {
+          console.warn(
+            "[instrumentation] Failed to start deferred-job queue:",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      })();
+    }, 1000);
   }
 }

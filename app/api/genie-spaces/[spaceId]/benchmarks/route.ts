@@ -7,11 +7,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGenieSpace } from "@/lib/dbx/genie";
 import { getSpaceCache, setSpaceCache } from "@/lib/genie/space-cache";
+import { loadGenieSpaceBySpaceIdOrRespond } from "@/lib/auth/route-guards";
 import { isSafeId } from "@/lib/validation";
 import { safeErrorMessage } from "@/lib/error-utils";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ spaceId: string }> },
 ) {
   try {
@@ -19,6 +20,9 @@ export async function GET(
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
     }
+
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "read");
+    if (!guard.ok) return guard.response;
 
     let serializedSpace = getSpaceCache(spaceId);
     if (!serializedSpace) {

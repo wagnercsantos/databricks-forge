@@ -456,11 +456,10 @@ export async function runDataEngine(input: DataEngineInput): Promise<DataEngineR
           tableResults,
           research: input.research,
           oboToken: input.oboToken,
+          ownerEmail: input.ownerEmail ?? null,
           logger: log,
           signal,
           onProgress: (msg, pct) => {
-            // Compress 0-100 of the deploy progress into the 95-99 band
-            // of the overall data engine progress.
             progress(msg, 95 + Math.floor(pct * 0.04));
           },
         });

@@ -12,6 +12,7 @@ import { safeErrorMessage } from "@/lib/error-utils";
 import { compareRuns } from "@/lib/lakebase/run-comparison";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import { isValidUUID } from "@/lib/validation";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 
 export async function GET(request: NextRequest) {
   try {
@@ -32,9 +33,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const guardA = await loadRunOrRespond(request, runAId, "read");
+    if (!guardA.ok) return guardA.response;
+    const guardB = await loadRunOrRespond(request, runBId, "read");
+    if (!guardB.ok) return guardB.response;
+
     const result = await compareRuns(runAId, runBId);
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, {
+      headers: { "Cache-Control": "private, no-store" },
+    });
   } catch (error) {
     logger.error("Failed to compare runs", {
       error: error instanceof Error ? error.message : String(error),

@@ -122,6 +122,21 @@ The first page load takes 10-15 seconds while Next.js compiles. You should
 see the Forge dashboard. No PAT or long-lived credentials are stored on disk
 -- the app authenticates via the Databricks CLI's OAuth session.
 
+#### Multi-user testing locally (per-user isolation)
+
+Forge enforces per-user isolation on every list, detail, update, delete, and
+vector-search call. Two flags make local development frictionless:
+
+- **`FORGE_LOCAL_USER_EMAIL`** -- the default identity used when no
+  `x-forwarded-email` header is present. `.deploy_local.sh` writes this from
+  your `$USER_EMAIL` automatically. Set it manually if you start the dev
+  server yourself: `export FORGE_LOCAL_USER_EMAIL=alice@x.com`.
+
+- **`?as_user=alice@x.com`** -- a request-scoped override gated to
+  `NODE_ENV !== "production"`. Lets a single dev tab swap identities without
+  restarting the server. Useful for end-to-end isolation testing:
+  `http://localhost:3000/runs?as_user=bob@x.com`.
+
 See [QUICKSTART.md](QUICKSTART.md) or [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 for full details and troubleshooting.
 

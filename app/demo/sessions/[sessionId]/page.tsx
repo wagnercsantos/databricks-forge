@@ -21,6 +21,7 @@ import { DataReadinessList } from "@/components/demo/session/data-readiness-list
 import { DataWindowCard } from "@/components/demo/session/data-window-card";
 import type { DemoDateWindow } from "@/lib/demo/data-engine/date-window";
 import type { TableDesign, ValidationResult } from "@/lib/demo/types";
+import { ShareButton, SharedByBadge } from "@/components/share/share-button";
 
 interface SessionDetail {
   sessionId: string;
@@ -42,6 +43,7 @@ interface SessionDetail {
   genieSpaceId?: string | null;
   genieSpaceUrl?: string | null;
   genieDeployError?: string | null;
+  ownerEmail?: string | null;
 }
 
 export default function DemoSessionPage() {
@@ -218,14 +220,25 @@ export default function DemoSessionPage() {
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-6">
-      {/* Breadcrumb */}
-      <Link
-        href="/demo"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Demo Studio
-      </Link>
+      {/* Breadcrumb + Share */}
+      <div className="flex items-center justify-between gap-2">
+        <Link
+          href="/demo"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Demo Studio
+        </Link>
+        <div className="flex items-center gap-2">
+          <SharedByBadge ownerEmail={session.ownerEmail} />
+          <ShareButton
+            resourceType="demo_session"
+            resourceId={session.sessionId}
+            ownerEmail={session.ownerEmail}
+            resourceLabel={`"${session.customerName}"`}
+          />
+        </div>
+      </div>
 
       {/* ── Header ────────────────────────────────────────────────── */}
       <ResearchHeader

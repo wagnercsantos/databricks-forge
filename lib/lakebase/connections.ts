@@ -93,7 +93,13 @@ function dbRowToSummary(row: {
 export async function createConnection(
   input: CreateConnectionInput,
   createdBy?: string | null,
+  ownerEmail?: string | null,
 ): Promise<ConnectionConfig> {
+  const owner = ownerEmail
+    ? ownerEmail.toLowerCase().trim()
+    : createdBy
+      ? createdBy.toLowerCase().trim()
+      : null;
   return withPrisma(async (prisma) => {
     const id = randomUUID();
     const configJson = input.workspaceFilter
@@ -111,6 +117,7 @@ export async function createConnection(
         clientSecret: encrypt(input.clientSecret),
         configJson,
         createdBy: createdBy ?? null,
+        ownerEmail: owner,
       },
     });
     return dbRowToConfig(row);
@@ -128,9 +135,25 @@ export async function getConnection(id: string): Promise<ConnectionConfig | null
   });
 }
 
-export async function listConnections(): Promise<ConnectionSummary[]> {
+export async function listConnections(
+  userEmail?: string | null,
+  viewMode: "all" | "owned" | "shared" = "all",
+  sharedIds: string[] = [],
+): Promise<ConnectionSummary[]> {
   return withPrisma(async (prisma) => {
+    const owner = userEmail ? userEmail.toLowerCase().trim() : null;
+    const where: Record<string, unknown> = {};
+    if (owner) {
+      if (viewMode === "owned") {
+        where.ownerEmail = owner;
+      } else if (viewMode === "shared") {
+        where.id = { in: sharedIds };
+      } else {
+        where.OR = [{ ownerEmail: owner }, { id: { in: sharedIds } }];
+      }
+    }
     const rows = await prisma.forgeConnection.findMany({
+      where,
       orderBy: { createdAt: "desc" },
       select: {
         id: true,

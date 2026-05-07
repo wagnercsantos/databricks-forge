@@ -14,9 +14,15 @@ export { OverviewTabContent } from "./overview-tab-content";
 export { PbiResultBanner } from "./pbi-result-banner";
 export { PbiScanDialog } from "./pbi-scan-dialog";
 export { PromptVersionsCard } from "./prompt-versions-card";
-export { RunCancelledCard, RunFailedCard, RunProgressCard } from "./run-status-cards";
+export {
+  RunCancelledCard,
+  RunFailedCard,
+  RunProgressCard,
+  RunQueuedCard,
+} from "./run-status-cards";
 export { RunHeader } from "./run-header";
 export { SchemaCoverageCard } from "./schema-coverage-card";
+export { StepInstrumentationLine } from "./step-instrumentation-line";
 export { SummaryCard } from "./summary-card";
 export { SummaryCardsSection } from "./summary-cards-section";
 export { RunCompletedTabs } from "./run-completed-tabs";

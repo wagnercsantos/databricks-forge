@@ -26,12 +26,22 @@ import {
 import { logActivity } from "@/lib/lakebase/activity-log";
 import { logger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
 
 // ---------------------------------------------------------------------------
 // GET -- poll sync job status
 // ---------------------------------------------------------------------------
 
 export async function GET(request: NextRequest) {
+  try {
+    await requireUser(request);
+  } catch (e) {
+    if (e instanceof ForgeAuthError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
+    throw e;
+  }
+
   const jobId = request.nextUrl.searchParams.get("jobId");
   if (!jobId) {
     return NextResponse.json({ error: "jobId query parameter is required" }, { status: 400 });
@@ -42,22 +52,34 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Sync job not found or expired" }, { status: 404 });
   }
 
-  return NextResponse.json({
-    jobId: job.jobId,
-    status: job.status,
-    message: job.message,
-    percent: job.percent,
-    spacesFound: job.spacesFound,
-    error: job.error,
-  });
+  return NextResponse.json(
+    {
+      jobId: job.jobId,
+      status: job.status,
+      message: job.message,
+      percent: job.percent,
+      spacesFound: job.spacesFound,
+      error: job.error,
+    },
+    { headers: { "Cache-Control": "private, no-store" } },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // POST -- start background sync
 // ---------------------------------------------------------------------------
 
-export async function POST() {
-  // Prevent concurrent syncs -- return existing job if one is active
+export async function POST(request: NextRequest) {
+  let user;
+  try {
+    user = await requireUser(request);
+  } catch (e) {
+    if (e instanceof ForgeAuthError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
+    throw e;
+  }
+
   const active = getActiveSyncJob();
   if (active) {
     return NextResponse.json({
@@ -73,7 +95,7 @@ export async function POST() {
   const jobId = uuidv4();
   startSyncJob(jobId);
 
-  runSync(jobId).catch((err) => {
+  runSync(jobId, user.email).catch((err) => {
     failSyncJob(jobId, safeErrorMessage(err));
   });
 
@@ -84,7 +106,7 @@ export async function POST() {
 // Background sync logic
 // ---------------------------------------------------------------------------
 
-async function runSync(jobId: string): Promise<void> {
+async function runSync(jobId: string, userEmail: string): Promise<void> {
   try {
     updateSyncJob(jobId, { message: "Fetching workspace spaces..." });
 
@@ -132,6 +154,7 @@ async function runSync(jobId: string): Promise<void> {
     completeSyncJob(jobId, allSpaces.length);
 
     logActivity("synced_genie_spaces", {
+      userId: userEmail,
       metadata: { spacesFound: allSpaces.length, pruned },
     }).catch(() => {});
   } catch (err) {

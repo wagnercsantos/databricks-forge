@@ -9,6 +9,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadCommentJobOrRespond } from "@/lib/auth/route-guards";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { getCommentJob, createCommentJob } from "@/lib/lakebase/comment-jobs";
 import { generateComments } from "@/lib/ai/comment-generator";
@@ -17,6 +19,7 @@ import { apiLogger } from "@/lib/logger";
 export async function POST(request: NextRequest) {
   const log = apiLogger("/api/environment/comments/generate", "POST");
   try {
+    const user = await requireUser(request);
     const body = await request.json();
     const {
       jobId,
@@ -49,6 +52,7 @@ export async function POST(request: NextRequest) {
         industryId,
         scanId,
         runId,
+        ownerEmail: user.email,
       });
       effectiveJobId = job.id;
     } else {
@@ -57,6 +61,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Job not found" }, { status: 404 });
       }
     }
+
+    const guard = await loadCommentJobOrRespond(request, effectiveJobId, "edit");
+    if (!guard.ok) return guard.response;
 
     const job = await getCommentJob(effectiveJobId);
     if (!job) {
@@ -94,6 +101,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ jobId: effectiveJobId, status: "generating" });
   } catch (error) {
+    if (error instanceof ForgeAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     log.error("Request failed", {
       error: safeErrorMessage(error),
       errorCategory: "internal_error",

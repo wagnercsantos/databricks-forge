@@ -12,6 +12,7 @@ import { isReviewEnabled } from "@/lib/dbx/client";
 import { getHealthCheckConfig, saveHealthScore } from "@/lib/lakebase/space-health";
 import { getSpaceAuthMode } from "@/lib/lakebase/genie-spaces";
 import { invalidateSpaceCache } from "@/lib/genie/space-cache";
+import { loadGenieSpaceBySpaceIdOrRespond } from "@/lib/auth/route-guards";
 import { isSafeId } from "@/lib/validation";
 import { logger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
@@ -25,6 +26,9 @@ export async function POST(
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
     }
+
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "edit");
+    if (!guard.ok) return guard.response;
 
     const body = await request.json();
     const { serializedSpace } = body as { serializedSpace: string };

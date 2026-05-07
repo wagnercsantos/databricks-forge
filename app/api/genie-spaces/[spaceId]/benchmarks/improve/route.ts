@@ -11,6 +11,7 @@ import { getBenchmarkRun } from "@/lib/lakebase/space-health";
 import { runFixes } from "@/lib/genie/space-fixer";
 import { analyzeFeedbackForFixes, type FeedbackEntry } from "@/lib/genie/benchmark-feedback";
 import { getSpaceCache, setSpaceCache } from "@/lib/genie/space-cache";
+import { loadGenieSpaceBySpaceIdOrRespond } from "@/lib/auth/route-guards";
 import { isSafeId } from "@/lib/validation";
 import { logger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
@@ -26,6 +27,9 @@ export async function POST(
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
     }
+
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "edit");
+    if (!guard.ok) return guard.response;
 
     const body = await request.json();
     const { benchmarkRunId } = body as { benchmarkRunId: string };

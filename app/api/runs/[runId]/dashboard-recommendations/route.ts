@@ -6,15 +6,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { isValidUUID } from "@/lib/validation";
-import { getRunById } from "@/lib/lakebase/runs";
 import { getDashboardRecommendationsByRunId } from "@/lib/lakebase/dashboard-recommendations";
 import { listTrackedDashboards } from "@/lib/lakebase/dashboards";
 import { getConfig } from "@/lib/dbx/client";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ runId: string }> },
 ) {
   try {
@@ -23,10 +23,9 @@ export async function GET(
       return NextResponse.json({ error: "Invalid run ID" }, { status: 400 });
     }
 
-    const run = await getRunById(runId);
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "read");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
     if (run.status !== "completed") {
       return NextResponse.json(
         {

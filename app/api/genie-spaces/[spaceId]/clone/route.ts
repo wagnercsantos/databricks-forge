@@ -8,12 +8,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getGenieSpace, createGenieSpace } from "@/lib/dbx/genie";
 import { getConfig } from "@/lib/dbx/client";
 import { getSpaceCache, setSpaceCache } from "@/lib/genie/space-cache";
+import { loadGenieSpaceBySpaceIdOrRespond } from "@/lib/auth/route-guards";
 import { isSafeId } from "@/lib/validation";
 import { logger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ spaceId: string }> },
 ) {
   try {
@@ -21,6 +22,9 @@ export async function POST(
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
     }
+
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "read");
+    if (!guard.ok) return guard.response;
 
     let serializedSpace = getSpaceCache(spaceId);
     let originalTitle = "Untitled";
@@ -35,7 +39,7 @@ export async function POST(
     const config = getConfig();
     const cloneTitle = `${originalTitle} (Forge Copy)`;
 
-    const oboToken = _request.headers.get("x-forwarded-access-token") ?? undefined;
+    const oboToken = request.headers.get("x-forwarded-access-token") ?? undefined;
     const result = await createGenieSpace({
       title: cloneTitle,
       description: `Cloned from space ${spaceId} for health check improvement.`,

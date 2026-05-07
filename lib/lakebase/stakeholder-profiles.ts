@@ -52,13 +52,24 @@ export async function getStakeholderProfilesForRun(runId: string): Promise<Stake
   });
 }
 
-export async function getStakeholderProfilesForLatestRun(): Promise<{
+export async function getStakeholderProfilesForLatestRun(
+  userEmail?: string | null,
+  accessibleRunIds: string[] = [],
+): Promise<{
   runId: string | null;
   profiles: StakeholderProfile[];
 }> {
   return withPrisma(async (prisma) => {
+    const owner = userEmail ? userEmail.toLowerCase().trim() : null;
+    const where: Record<string, unknown> = { status: "completed" };
+    if (owner) {
+      where.OR = [
+        { ownerEmail: owner },
+        ...(accessibleRunIds.length > 0 ? [{ runId: { in: accessibleRunIds } }] : []),
+      ];
+    }
     const latestRun = await prisma.forgeRun.findFirst({
-      where: { status: "completed" },
+      where,
       orderBy: { completedAt: "desc" },
       select: { runId: true },
     });

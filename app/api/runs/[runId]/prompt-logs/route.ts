@@ -5,15 +5,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 import { logger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { getPromptLogsByRunId, getPromptLogStats } from "@/lib/lakebase/prompt-logs";
-import { getRunById } from "@/lib/lakebase/runs";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import { isValidUUID } from "@/lib/validation";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ runId: string }> },
 ) {
   let runId: string | undefined;
@@ -30,14 +30,9 @@ export async function GET(
       return NextResponse.json({ error: "Invalid run ID format" }, { status: 400 });
     }
 
-    const run = await getRunById(runId);
-    if (!run) {
-      logger.warn("Run not found for prompt-logs", {
-        runId,
-        route: "/api/runs/[runId]/prompt-logs",
-      });
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "read");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
 
     const [logs, stats] = await Promise.all([
       getPromptLogsByRunId(runId),

@@ -20,6 +20,7 @@ export interface DocumentRecord {
   sizeBytes: number;
   status: string;
   uploadedBy: string | null;
+  ownerEmail: string | null;
   createdAt: Date;
 }
 
@@ -41,8 +42,10 @@ export async function createDocument(opts: {
   category: string;
   sizeBytes: number;
   uploadedBy?: string | null;
+  ownerEmail?: string | null;
 }): Promise<DocumentRecord> {
   return withPrisma(async (prisma) => {
+    const owner = opts.ownerEmail ? opts.ownerEmail.toLowerCase().trim() : null;
     const row = await prisma.forgeDocument.create({
       data: {
         id: opts.id,
@@ -51,6 +54,7 @@ export async function createDocument(opts: {
         category: opts.category,
         sizeBytes: opts.sizeBytes,
         uploadedBy: opts.uploadedBy ?? null,
+        ownerEmail: owner,
         status: "processing",
       },
     });
@@ -62,9 +66,26 @@ export async function createDocument(opts: {
 // Read
 // ---------------------------------------------------------------------------
 
-export async function listDocuments(): Promise<DocumentRecord[]> {
+export async function listDocuments(opts?: {
+  userEmail?: string;
+  viewMode?: "owned" | "shared" | "all";
+  sharedIds?: string[];
+}): Promise<DocumentRecord[]> {
   return withPrisma(async (prisma) => {
+    const where: Record<string, unknown> = {};
+    if (opts?.userEmail) {
+      const sharedIds = opts.sharedIds ?? [];
+      const viewMode = opts.viewMode ?? "all";
+      if (viewMode === "owned") {
+        where.ownerEmail = opts.userEmail;
+      } else if (viewMode === "shared") {
+        where.id = { in: sharedIds };
+      } else {
+        where.OR = [{ ownerEmail: opts.userEmail }, { id: { in: sharedIds } }];
+      }
+    }
     const rows = await prisma.forgeDocument.findMany({
+      where,
       orderBy: { createdAt: "desc" },
     });
     return rows.map(toRecord);
@@ -139,6 +160,7 @@ function toRecord(row: {
   sizeBytes: number;
   status: string;
   uploadedBy: string | null;
+  ownerEmail?: string | null;
   createdAt: Date;
 }): DocumentRecord {
   return {
@@ -150,6 +172,7 @@ function toRecord(row: {
     sizeBytes: row.sizeBytes,
     status: row.status,
     uploadedBy: row.uploadedBy,
+    ownerEmail: row.ownerEmail ?? null,
     createdAt: row.createdAt,
   };
 }

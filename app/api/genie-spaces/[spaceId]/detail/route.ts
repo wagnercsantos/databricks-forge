@@ -18,9 +18,10 @@ import { extractSpaceMetadata, parseSerializedSpace } from "@/lib/genie/space-me
 import { isSafeId } from "@/lib/validation";
 import { logger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
+import { loadGenieSpaceBySpaceIdOrRespond } from "@/lib/auth/route-guards";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ spaceId: string }> },
 ) {
   try {
@@ -28,6 +29,8 @@ export async function GET(
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
     }
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "read");
+    if (!guard.ok) return guard.response;
 
     // Fetch space detail (OBO auth) and tracking info in parallel
     let serializedSpace = getSpaceCache(spaceId);
@@ -89,6 +92,11 @@ export async function GET(
 
     return NextResponse.json({
       spaceId,
+      // Forge tracking-row id (null for off-platform / untracked spaces).
+      // The Share dialog and any other ACL helper must use this id, not
+      // the Databricks `spaceId`, because `/api/share` resolves
+      // `genie_space` ownership by tracking-row id.
+      trackingId: tracked?.id ?? null,
       title: tracked?.title ?? title,
       description,
       domain: tracked?.domain ?? null,
@@ -98,6 +106,7 @@ export async function GET(
       serializedSpace,
       metadata,
       healthReport,
+      ownerEmail: tracked?.ownerEmail ?? null,
     });
   } catch (error) {
     const { spaceId: sid } = await params;

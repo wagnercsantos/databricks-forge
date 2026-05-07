@@ -8,8 +8,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 import { getEnvironmentScan } from "@/lib/lakebase/environment-scans";
-import { getRunById } from "@/lib/lakebase/runs";
 import { getUseCasesByRunId } from "@/lib/lakebase/usecases";
 import {
   generateExecutiveBriefing,
@@ -66,15 +66,15 @@ export async function GET(request: NextRequest) {
     // Optionally include discovery data
     let discovery: BriefingDiscoveryData | null = null;
     if (runId) {
-      const run = await getRunById(runId);
-      if (run) {
-        const useCases = await getUseCasesByRunId(runId);
-        discovery = {
-          businessName: run.config.businessName,
-          useCases,
-          filteredTables: useCases.flatMap((uc) => uc.tablesInvolved),
-        };
-      }
+      const guard = await loadRunOrRespond(request, runId, "read");
+      if (!guard.ok) return guard.response;
+      const run = guard.value.run;
+      const useCases = await getUseCasesByRunId(runId);
+      discovery = {
+        businessName: run.config.businessName,
+        useCases,
+        filteredTables: useCases.flatMap((uc) => uc.tablesInvolved),
+      };
     }
 
     const buffer = await generateExecutiveBriefing(estate, discovery);

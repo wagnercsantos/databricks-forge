@@ -7,10 +7,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { executeSQL } from "@/lib/dbx/sql";
 import { withPrisma } from "@/lib/prisma";
-import { getRunById } from "@/lib/lakebase/runs";
 import {
   getMetricViewProposalsByRunDomain,
   updateDeploymentStatus,
@@ -29,10 +29,9 @@ export async function POST(
     }
     const decodedDomain = decodeURIComponent(domain);
 
-    const run = await getRunById(runId);
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "edit");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
 
     const body = (await request.json()) as {
       ddl: string;

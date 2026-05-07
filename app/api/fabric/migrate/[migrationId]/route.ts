@@ -15,15 +15,34 @@ import {
   runGenieStep,
 } from "@/lib/fabric/migration-orchestrator";
 import { withPrisma } from "@/lib/prisma";
+import { loadResourceOrRespond } from "@/lib/auth/route-guards";
 
 interface RouteParams {
   params: Promise<{ migrationId: string }>;
 }
 
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function fetchMigrationOwner(migrationId: string) {
+  return withPrisma(async (prisma) => {
+    const row = await prisma.forgeFabricMigration.findUnique({
+      where: { id: migrationId },
+      select: { ownerEmail: true },
+    });
+    return row ? row.ownerEmail : undefined;
+  });
+}
+
+export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
     await ensureMigrated();
     const { migrationId } = await params;
+    const guard = await loadResourceOrRespond({
+      request: req,
+      resourceType: "fabric_migration",
+      resourceId: migrationId,
+      fetchOwner: () => fetchMigrationOwner(migrationId),
+      mode: "read",
+    });
+    if (!guard.ok) return guard.response;
 
     const state = getMigrationState(migrationId);
     if (state) return NextResponse.json(state);
@@ -47,6 +66,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     await ensureMigrated();
     const { migrationId } = await params;
+    const guard = await loadResourceOrRespond({
+      request,
+      resourceType: "fabric_migration",
+      resourceId: migrationId,
+      fetchOwner: () => fetchMigrationOwner(migrationId),
+      mode: "edit",
+    });
+    if (!guard.ok) return guard.response;
     const body = (await request.json()) as { action: string };
 
     switch (body.action) {

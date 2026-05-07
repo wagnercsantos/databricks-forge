@@ -7,6 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 import { v4 as uuidv4 } from "uuid";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { isValidUUID } from "@/lib/validation";
@@ -17,7 +18,6 @@ import {
   publishDashboard,
   DEFAULT_DASHBOARD_PARENT_PATH,
 } from "@/lib/dbx/dashboards";
-import { getRunById } from "@/lib/lakebase/runs";
 import { getDashboardRecommendationsByRunId } from "@/lib/lakebase/dashboard-recommendations";
 import {
   listTrackedDashboards,
@@ -37,11 +37,9 @@ export async function POST(
     }
     const decodedDomain = decodeURIComponent(domain);
 
-    const run = await getRunById(runId);
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
-
+    const guard = await loadRunOrRespond(request, runId, "edit");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
     const recs = await getDashboardRecommendationsByRunId(runId);
     const rec = recs.find((r) => r.domain.toLowerCase() === decodedDomain.toLowerCase());
 

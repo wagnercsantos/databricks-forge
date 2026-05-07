@@ -101,6 +101,11 @@ ARG_BENCHMARK_ADMINS=""
 ARG_ENABLE_METRIC_VIEWS=false
 ARG_ENABLE_FABRIC=false
 ARG_ENABLE_DEMO_MODE=false
+ARG_DISABLE_USER_ISOLATION=false
+ARG_MAX_PIPELINE_PER_USER=""
+ARG_MAX_SCANS_PER_USER=""
+ARG_MAX_GENIE_DEPLOYS_PER_USER=""
+ARG_MAX_DEMO_ENGINES_PER_USER=""
 ARG_SKIP_PROBE=false
 ARG_ZERO_EGRESS=false
 ARG_FULL_SYNC=false
@@ -169,6 +174,20 @@ Options:
   --enable-metric-views      Enable metric view generation (off by default)
   --enable-fabric            Enable Fabric / Power BI features (off by default)
   --enable-demo-mode         Enable Demo Mode for FE/Sales (off by default)
+  --disable-user-isolation   Run as a single-tenant deployment: per-user
+                             quotas are not enforced and the Sharing UI
+                             is hidden. (Data-layer ownerEmail filters
+                             always apply -- this flag does not roll
+                             back isolation.) Defaults to enabled.
+  --max-pipeline-runs-per-user N
+                             Per-user cap on concurrent pipeline runs
+                             (default 1). Excess runs are queued and
+                             promoted by the scheduler.
+  --max-scans-per-user N     Per-user cap on concurrent estate scans (default 1).
+  --max-genie-deploys-per-user N
+                             Per-user cap on concurrent Genie deploys (default 2).
+  --max-demo-engines-per-user N
+                             Per-user cap on concurrent demo engines (default 1).
   --budget-policy-id ID      Optional serverless budget policy ID to attach
                              to the Databricks App and the Lakebase project
                              for cost attribution. Applied at create time
@@ -235,6 +254,11 @@ while [[ $# -gt 0 ]]; do
     --enable-metric-views) ARG_ENABLE_METRIC_VIEWS=true; shift ;;
     --enable-fabric)       ARG_ENABLE_FABRIC=true; shift ;;
     --enable-demo-mode)    ARG_ENABLE_DEMO_MODE=true; shift ;;
+    --disable-user-isolation) ARG_DISABLE_USER_ISOLATION=true; shift ;;
+    --max-pipeline-runs-per-user) ARG_MAX_PIPELINE_PER_USER="$2"; shift 2 ;;
+    --max-scans-per-user)        ARG_MAX_SCANS_PER_USER="$2"; shift 2 ;;
+    --max-genie-deploys-per-user) ARG_MAX_GENIE_DEPLOYS_PER_USER="$2"; shift 2 ;;
+    --max-demo-engines-per-user)  ARG_MAX_DEMO_ENGINES_PER_USER="$2"; shift 2 ;;
     --budget-policy-id)    ARG_BUDGET_POLICY_ID="$2"; shift 2 ;;
     --tag)                 ARG_TAGS+=("$2"); shift 2 ;;
     --skip-probe)          ARG_SKIP_PROBE=true; shift ;;
@@ -281,6 +305,11 @@ BENCHMARK_ADMINS="${ARG_BENCHMARK_ADMINS:-}"
 ENABLE_METRIC_VIEWS="${ARG_ENABLE_METRIC_VIEWS}"
 ENABLE_FABRIC="${ARG_ENABLE_FABRIC}"
 ENABLE_DEMO_MODE="${ARG_ENABLE_DEMO_MODE}"
+DISABLE_USER_ISOLATION="${ARG_DISABLE_USER_ISOLATION}"
+MAX_PIPELINE_PER_USER="${ARG_MAX_PIPELINE_PER_USER}"
+MAX_SCANS_PER_USER="${ARG_MAX_SCANS_PER_USER}"
+MAX_GENIE_DEPLOYS_PER_USER="${ARG_MAX_GENIE_DEPLOYS_PER_USER}"
+MAX_DEMO_ENGINES_PER_USER="${ARG_MAX_DEMO_ENGINES_PER_USER}"
 
 # -------------------------------------------------------------------------
 # Cost governance (all optional). BUDGET_POLICY_ID is applied to the
@@ -601,6 +630,11 @@ prepare_app_yaml() {
   export ENABLE_METRIC_VIEWS
   export ENABLE_FABRIC
   export ENABLE_DEMO_MODE
+  export DISABLE_USER_ISOLATION
+  export MAX_PIPELINE_PER_USER
+  export MAX_SCANS_PER_USER
+  export MAX_GENIE_DEPLOYS_PER_USER
+  export MAX_DEMO_ENGINES_PER_USER
   export REASONING_ENDPOINT_2
   export GENERATION_ENDPOINT
   export SQL_ENDPOINT
@@ -628,6 +662,11 @@ benchmark_admins = os.environ.get("BENCHMARK_ADMINS", "").strip()
 enable_metric_views = os.environ.get("ENABLE_METRIC_VIEWS", "").strip().lower() == "true"
 enable_fabric = os.environ.get("ENABLE_FABRIC", "").strip().lower() == "true"
 enable_demo_mode = os.environ.get("ENABLE_DEMO_MODE", "").strip().lower() == "true"
+disable_user_isolation = os.environ.get("DISABLE_USER_ISOLATION", "").strip().lower() == "true"
+max_pipeline_per_user = os.environ.get("MAX_PIPELINE_PER_USER", "").strip()
+max_scans_per_user = os.environ.get("MAX_SCANS_PER_USER", "").strip()
+max_genie_deploys_per_user = os.environ.get("MAX_GENIE_DEPLOYS_PER_USER", "").strip()
+max_demo_engines_per_user = os.environ.get("MAX_DEMO_ENGINES_PER_USER", "").strip()
 reasoning_endpoint_2 = os.environ.get("REASONING_ENDPOINT_2", "").strip()
 generation_endpoint = os.environ.get("GENERATION_ENDPOINT", "").strip()
 sql_endpoint = os.environ.get("SQL_ENDPOINT", "").strip()
@@ -661,6 +700,11 @@ def is_managed_name_line(s: str) -> bool:
         or "FORGE_METRIC_VIEWS_ENABLED" in t
         or "FORGE_FABRIC_ENABLED" in t
         or "FORGE_DEMO_MODE_ENABLED" in t
+        or "FORGE_USER_ISOLATION" in t
+        or "FORGE_MAX_ACTIVE_PIPELINE_RUNS_PER_USER" in t
+        or "FORGE_MAX_ACTIVE_SCANS_PER_USER" in t
+        or "FORGE_MAX_ACTIVE_GENIE_DEPLOYS_PER_USER" in t
+        or "FORGE_MAX_ACTIVE_DEMO_ENGINES_PER_USER" in t
         or "DATABRICKS_SERVING_ENDPOINT_REASONING_2" in t
         or "DATABRICKS_SERVING_ENDPOINT_GENERATION" in t
         or "DATABRICKS_SERVING_ENDPOINT_SQL" in t
@@ -728,6 +772,21 @@ if enable_fabric:
 if enable_demo_mode:
     out.append("  - name: FORGE_DEMO_MODE_ENABLED")
     out.append('    value: "true"')
+if disable_user_isolation:
+    out.append("  - name: FORGE_USER_ISOLATION")
+    out.append('    value: "false"')
+if max_pipeline_per_user:
+    out.append("  - name: FORGE_MAX_ACTIVE_PIPELINE_RUNS_PER_USER")
+    out.append(f'    value: "{max_pipeline_per_user}"')
+if max_scans_per_user:
+    out.append("  - name: FORGE_MAX_ACTIVE_SCANS_PER_USER")
+    out.append(f'    value: "{max_scans_per_user}"')
+if max_genie_deploys_per_user:
+    out.append("  - name: FORGE_MAX_ACTIVE_GENIE_DEPLOYS_PER_USER")
+    out.append(f'    value: "{max_genie_deploys_per_user}"')
+if max_demo_engines_per_user:
+    out.append("  - name: FORGE_MAX_ACTIVE_DEMO_ENGINES_PER_USER")
+    out.append(f'    value: "{max_demo_engines_per_user}"')
 if reasoning_endpoint_2:
     out.append("  - name: DATABRICKS_SERVING_ENDPOINT_REASONING_2")
     out.append("    valueFrom: serving-endpoint-reasoning-2")

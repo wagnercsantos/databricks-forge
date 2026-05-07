@@ -27,6 +27,7 @@ import { withPrisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/lakebase/activity-log";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import type { PipelineContext, ExecutiveSynthesis } from "@/lib/domain/types";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 
 export const dynamic = "force-dynamic";
 
@@ -44,10 +45,9 @@ export async function POST(
       return NextResponse.json({ error: "Invalid run ID format" }, { status: 400 });
     }
 
-    const run = await getRunById(runId);
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "edit");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
 
     if (run.status !== "completed") {
       return NextResponse.json(
@@ -84,7 +84,8 @@ export async function POST(
 
     activeRerunIds.add(runId);
 
-    const userEmail = request.headers.get("x-forwarded-user") ?? undefined;
+    const userEmail = guard.user.email;
+    const oboToken = guard.user.oboToken;
 
     // Fire-and-forget: run BV analysis, embed, log activity
     (async () => {
@@ -111,6 +112,8 @@ export async function POST(
           lineageGraph: null,
           sampleData: null,
           discoveryResult: null,
+          ownerEmail: userEmail,
+          oboToken,
         };
 
         await runBusinessValueAnalysis(ctx);

@@ -8,9 +8,11 @@ import {
 import { cleanupDemoSession } from "@/lib/demo/cleanup";
 import { databricksSqlExecutor } from "@/lib/ports/defaults/databricks-sql-executor";
 import { logger } from "@/lib/logger";
+import { loadDemoSessionOrRespond } from "@/lib/auth/route-guards";
+import { clearAclForResource } from "@/lib/lakebase/acl";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ sessionId: string }> },
 ) {
   if (!isDemoModeEnabled()) {
@@ -18,6 +20,9 @@ export async function GET(
   }
 
   const { sessionId } = await params;
+  const guard = await loadDemoSessionOrRespond(request, sessionId, "read");
+  if (!guard.ok) return guard.response;
+
   const session = await getDemoSession(sessionId);
 
   if (!session) {
@@ -43,7 +48,7 @@ export async function GET(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ sessionId: string }> },
 ) {
   if (!isDemoModeEnabled()) {
@@ -51,9 +56,18 @@ export async function DELETE(
   }
 
   const { sessionId } = await params;
+  const guard = await loadDemoSessionOrRespond(request, sessionId, "edit");
+  if (!guard.ok) return guard.response;
+  if (guard.permission !== "owner") {
+    return NextResponse.json(
+      { error: "Only the owner can delete a demo session." },
+      { status: 403 },
+    );
+  }
 
   try {
     const result = await cleanupDemoSession(sessionId, databricksSqlExecutor);
+    await clearAclForResource("demo_session", sessionId);
     return NextResponse.json(result);
   } catch (err) {
     logger.error("[demo/sessions] Delete error", { sessionId, error: String(err) });

@@ -35,13 +35,15 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Trash2, Search, ChevronLeft, ChevronRight, ArrowUpDown, Square } from "lucide-react";
+import { Trash2, Search, ChevronLeft, ChevronRight, ArrowUpDown, Square, Users } from "lucide-react";
 import { LabelWithTip } from "@/components/ui/info-tip";
 import { RUNS_LIST } from "@/lib/help-text";
 import type { PipelineRun } from "@/lib/domain/types";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 
 const STATUS_STYLES: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+  queued: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300",
   running: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
   completed: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
   failed: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
@@ -58,6 +60,7 @@ export function RunsContent({
   initialError: string | null;
 }) {
   const router = useRouter();
+  const { email: currentEmail } = useCurrentUser();
   const [runs, setRuns] = useState<PipelineRun[]>(initialRuns);
   const [error, setError] = useState<string | null>(initialError);
   const abortRef = useRef<AbortController | null>(null);
@@ -65,6 +68,7 @@ export function RunsContent({
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [ownershipFilter, setOwnershipFilter] = useState<"all" | "mine" | "shared">("all");
   const [sortBy, setSortBy] = useState<"date" | "name">("date");
   const [page, setPage] = useState(0);
 
@@ -97,7 +101,9 @@ export function RunsContent({
   }, []);
 
   useEffect(() => {
-    const hasActiveRuns = runs.some((r) => r.status === "running" || r.status === "pending");
+    const hasActiveRuns = runs.some(
+      (r) => r.status === "running" || r.status === "pending" || r.status === "queued",
+    );
     if (!hasActiveRuns) return;
     const interval = setInterval(fetchRuns, 5000);
     return () => clearInterval(interval);
@@ -130,6 +136,12 @@ export function RunsContent({
   const filtered = runs
     .filter((run) => {
       if (statusFilter !== "all" && run.status !== statusFilter) return false;
+      if (ownershipFilter !== "all" && currentEmail) {
+        const owner = run.ownerEmail?.toLowerCase() ?? null;
+        const isMine = owner === currentEmail;
+        if (ownershipFilter === "mine" && !isMine) return false;
+        if (ownershipFilter === "shared" && (isMine || owner == null)) return false;
+      }
       if (search) {
         const q = search.toLowerCase();
         return (
@@ -193,6 +205,22 @@ export function RunsContent({
           />
         </div>
         <Select
+          value={ownershipFilter}
+          onValueChange={(v) => {
+            setOwnershipFilter(v as typeof ownershipFilter);
+            setPage(0);
+          }}
+        >
+          <SelectTrigger className="w-[130px]">
+            <SelectValue placeholder="Visibility" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Visible</SelectItem>
+            <SelectItem value="mine">My Runs</SelectItem>
+            <SelectItem value="shared">Shared With Me</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
           value={statusFilter}
           onValueChange={(v) => {
             setStatusFilter(v);
@@ -206,6 +234,7 @@ export function RunsContent({
             <SelectItem value="all">All Statuses</SelectItem>
             <SelectItem value="completed">Completed</SelectItem>
             <SelectItem value="running">Running</SelectItem>
+            <SelectItem value="queued">Queued</SelectItem>
             <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="failed">Failed</SelectItem>
             <SelectItem value="cancelled">Cancelled</SelectItem>
@@ -273,12 +302,26 @@ export function RunsContent({
                     onClick={() => router.push(`/runs/${run.runId}`)}
                   >
                     <TableCell className="font-medium">
-                      <span
-                        className="block max-w-[200px] truncate"
-                        title={run.config.businessName}
-                      >
-                        {run.config.businessName}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="block max-w-[180px] truncate"
+                          title={run.config.businessName}
+                        >
+                          {run.config.businessName}
+                        </span>
+                        {currentEmail &&
+                          run.ownerEmail &&
+                          run.ownerEmail.toLowerCase() !== currentEmail && (
+                            <Badge
+                              variant="outline"
+                              className="border-violet-300 px-1.5 py-0 text-[10px] text-violet-700 dark:border-violet-500/50 dark:text-violet-300"
+                              title={`Shared by ${run.ownerEmail}`}
+                            >
+                              <Users className="mr-0.5 h-2.5 w-2.5" />
+                              Shared
+                            </Badge>
+                          )}
+                      </div>
                     </TableCell>
                     <TableCell
                       className="max-w-[200px] truncate font-mono text-xs"
@@ -344,7 +387,19 @@ export function RunsContent({
                               variant="ghost"
                               size="sm"
                               className="text-muted-foreground hover:text-destructive"
-                              disabled={run.status === "running"}
+                              disabled={
+                                run.status === "running" ||
+                                (currentEmail != null &&
+                                  run.ownerEmail != null &&
+                                  run.ownerEmail.toLowerCase() !== currentEmail)
+                              }
+                              title={
+                                currentEmail != null &&
+                                run.ownerEmail != null &&
+                                run.ownerEmail.toLowerCase() !== currentEmail
+                                  ? "Only the owner can delete this run"
+                                  : undefined
+                              }
                             >
                               <Trash2 className="h-4 w-4" />
                               <span className="sr-only">Delete</span>

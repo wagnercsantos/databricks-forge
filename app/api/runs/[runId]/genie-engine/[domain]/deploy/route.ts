@@ -12,7 +12,6 @@ import { isValidUUID } from "@/lib/validation";
 import { v4 as uuidv4 } from "uuid";
 import { getConfig } from "@/lib/dbx/client";
 import { createGenieSpace, updateGenieSpace, DEFAULT_GENIE_PARENT_PATH } from "@/lib/dbx/genie";
-import { getRunById } from "@/lib/lakebase/runs";
 import { getGenieRecommendationsByRunId } from "@/lib/lakebase/genie-recommendations";
 import {
   listTrackedGenieSpaces,
@@ -22,6 +21,7 @@ import {
 import { logger } from "@/lib/logger";
 import type { GenieAuthMode } from "@/lib/settings";
 import { revalidateSerializedSpace } from "@/lib/genie/deploy-validation";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 
 export async function POST(
   request: NextRequest,
@@ -34,10 +34,8 @@ export async function POST(
     }
     const decodedDomain = decodeURIComponent(domain);
 
-    const run = await getRunById(runId);
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "edit");
+    if (!guard.ok) return guard.response;
 
     const recs = await getGenieRecommendationsByRunId(runId);
     const rec = recs.find((r) => r.domain.toLowerCase() === decodedDomain.toLowerCase());
@@ -65,7 +63,7 @@ export async function POST(
     }
 
     // Check if there's already a tracked space for this run+domain
-    const tracked = await listTrackedGenieSpaces(runId);
+    const tracked = await listTrackedGenieSpaces({ runId });
     const existing = tracked.find(
       (t) => t.domain.toLowerCase() === decodedDomain.toLowerCase() && t.status !== "trashed",
     );
@@ -108,6 +106,7 @@ export async function POST(
         rec.title,
         undefined,
         authMode,
+        guard.user.email,
       );
     }
 

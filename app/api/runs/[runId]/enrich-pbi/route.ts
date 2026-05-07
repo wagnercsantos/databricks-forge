@@ -8,9 +8,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { isValidUUID } from "@/lib/validation";
-import { getRunById } from "@/lib/lakebase/runs";
 import { getUseCasesByRunId } from "@/lib/lakebase/usecases";
 import { getFabricScanDetail } from "@/lib/lakebase/fabric-scans";
 import { persistManifest } from "@/lib/pipeline/context-manifest";
@@ -36,10 +36,9 @@ export async function POST(
       );
     }
 
-    const run = await getRunById(runId);
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "edit");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
     if (run.status !== "completed") {
       return NextResponse.json(
         { error: "Run must be completed before enrichment" },

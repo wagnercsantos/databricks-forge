@@ -67,6 +67,13 @@ export async function runStandaloneEnrichment(
   assetDiscoveryEnabled = false,
   excludedScope?: string,
   exclusionPatternsStr?: string,
+  ownerEmail: string | null = null,
+  // OBO token captured from the request that initiated the scan. Currently
+  // unused inside the scan -- SQL warehouse access already prefers OBO via
+  // getHeaders() -- but we accept and forward for future Genie/Workspace
+  // calls that need user context.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _oboToken: string | null = null,
 ): Promise<void> {
   const startTime = Date.now();
   const scopes = parseUCMetadata(ucMetadata);
@@ -77,7 +84,7 @@ export async function runStandaloneEnrichment(
     scanId,
   });
 
-  initScanProgress(scanId);
+  initScanProgress(scanId, ownerEmail);
   log.info("Starting", { scanId, ucMetadata, scopes: scopes.length });
 
   try {
@@ -454,6 +461,7 @@ export async function runStandaloneEnrichment(
       [],
       allTableTags,
       allColumnTags,
+      ownerEmail,
     );
     log.info("Deterministic scan checkpoint saved (header + lineage + tags)", { scanId });
 
@@ -671,6 +679,7 @@ export async function runStandaloneEnrichment(
       allColumns,
       allTableTags,
       allColumnTags,
+      ownerEmail,
     );
 
     // Generate vector embeddings for semantic search (best-effort, non-blocking)

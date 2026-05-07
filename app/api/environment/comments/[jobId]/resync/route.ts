@@ -7,6 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadCommentJobOrRespond } from "@/lib/auth/route-guards";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { getCommentJob } from "@/lib/lakebase/comment-jobs";
 import { getProposalsForTable, updateOriginalComments } from "@/lib/lakebase/comment-proposals";
@@ -20,6 +21,9 @@ export async function POST(
 ) {
   try {
     const { jobId } = await params;
+    const guard = await loadCommentJobOrRespond(request, jobId, "edit");
+    if (!guard.ok) return guard.response;
+
     const body = await request.json();
     const { tableFqn } = body;
 

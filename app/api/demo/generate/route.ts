@@ -21,6 +21,7 @@ import {
 } from "@/lib/lakebase/demo-sessions";
 import { logActivity } from "@/lib/lakebase/activity-log";
 import { logger } from "@/lib/logger";
+import { loadDemoSessionOrRespond } from "@/lib/auth/route-guards";
 
 export async function POST(request: Request) {
   if (!isDemoModeEnabled()) {
@@ -51,6 +52,9 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+
+    const guard = await loadDemoSessionOrRespond(request, sessionId, "edit");
+    if (!guard.ok) return guard.response;
 
     const research = await getDemoSessionResearch(sessionId);
     if (!research) {
@@ -94,6 +98,7 @@ export async function POST(request: Request) {
           targetTableCount: resolvedTableCount,
           genieMode,
           oboToken,
+          ownerEmail: guard.user.email,
           signal: controller.signal,
           onProgress: (message, percent) => {
             updateDataJob(sessionId, message, percent);
@@ -134,6 +139,7 @@ export async function POST(request: Request) {
 
         await completeDataJob(sessionId);
         await logActivity("demo_generate", {
+          userId: guard.user.email,
           resourceId: sessionId,
           metadata: {
             catalog,
@@ -146,6 +152,7 @@ export async function POST(request: Request) {
         });
         if (result.genieSpaceId) {
           await logActivity("demo_genie_space_deployed", {
+            userId: guard.user.email,
             resourceId: sessionId,
             metadata: {
               catalog,

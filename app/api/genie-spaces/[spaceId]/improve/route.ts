@@ -29,6 +29,7 @@ import {
   computeImproveChanges,
   type ImproveHealthDiagnostics,
 } from "@/lib/genie/improve-jobs";
+import { loadGenieSpaceBySpaceIdOrRespond } from "@/lib/auth/route-guards";
 import { isSafeId } from "@/lib/validation";
 import { logger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
@@ -43,6 +44,9 @@ export async function POST(
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
     }
+
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "edit");
+    if (!guard.ok) return guard.response;
 
     const existing = getImproveJob(spaceId);
     if (existing && existing.status === "generating") {
@@ -283,7 +287,7 @@ function runFullImprove(
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ spaceId: string }> },
 ) {
   try {
@@ -291,6 +295,9 @@ export async function GET(
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
     }
+
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "read");
+    if (!guard.ok) return guard.response;
 
     const job = getImproveJob(spaceId);
     if (!job) {
@@ -319,6 +326,9 @@ export async function DELETE(
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
     }
+
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "edit");
+    if (!guard.ok) return guard.response;
 
     const action = request.nextUrl.searchParams.get("action");
 

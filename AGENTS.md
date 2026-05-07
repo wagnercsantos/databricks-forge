@@ -462,6 +462,93 @@ for custom LLM-generated industry outcome maps.
 - `GET /api/demo/sessions/:id` -- session detail + research result
 - `DELETE /api/demo/sessions/:id` -- cleanup: DROP UC objects + delete session
 
+## User Isolation & Sharing
+
+Forge is multi-tenant by default. Every "root" resource (run, scan, Genie
+space, demo session, comment job, strategy document, document, fabric scan,
+fabric migration, etc.) carries an `ownerEmail` column. Lists and detail
+endpoints scope to `ownerEmail = $user OR id ∈ shared(user)`; vector search
+filters by parent resource accessibility. Sharing is opt-in:
+
+- `ForgeResourceAcl` records per-resource grants (`view` or `edit`).
+- `lib/lakebase/acl.ts` -- `listAccessibleIds`, `share`, `unshare`,
+  `canRead`, `canEdit`, `clearAclForResource`.
+- `/api/share` (GET/POST/DELETE) -- owner-only mutations.
+- `<ShareDialog>` -- reusable dialog rendered from the run-detail header
+  (and any other surface that adopts it).
+- `ResourceType` ∈ {`run`, `scan`, `genie_space`, `metadata_genie_space`,
+  `demo_session`, `comment_job`, `strategy_document`, `connection`,
+  `document`, `bv_portfolio`, `benchmark_run`, `health_score`,
+  `metric_view_proposal`, `fabric_scan`, `fabric_migration`}.
+
+Auth foundation:
+
+- `proxy.ts` (Next.js 16's renamed middleware convention) enforces
+  `requireUser` on all `/api/**` routes, forwarding `x-forge-user` so
+  handlers and Server Components share one identity model. Do NOT add a
+  `middleware.ts` alongside it -- the build will fail.
+- `lib/auth/route-user.ts` -- `requireUser(request)` resolves email +
+  OBO token from proxy headers (`x-forwarded-email`,
+  `x-forwarded-access-token`) with `?as_user=` and `FORGE_LOCAL_USER_EMAIL`
+  fallbacks for local dev only.
+- `lib/auth/route-guards.ts` -- `loadRunOrRespond`,
+  `loadResourceOrRespond`, `loadScanOrRespond`,
+  `loadGenieSpaceBySpaceIdOrRespond`, `loadDemoSessionOrRespond`,
+  `loadCommentJobOrRespond` -- consolidated auth+ACL boilerplate.
+- Server Components do NOT pass through middleware; pages call
+  `requireUser()` directly.
+
+Per-user fairness:
+
+- `lib/quotas.ts` -- `checkQuota(kind, userEmail, behavior)` enforces
+  per-user caps on active resources. Pipelines use behaviour `"queue"`
+  (the run is persisted as `status='queued'` and the scheduler promotes
+  it later); scans, Genie deploys, and demo sessions use `"reject"`.
+  Caps come from env: `FORGE_MAX_ACTIVE_PIPELINE_RUNS_PER_USER` (1),
+  `FORGE_MAX_ACTIVE_SCANS_PER_USER` (1),
+  `FORGE_MAX_ACTIVE_GENIE_DEPLOYS_PER_USER` (2),
+  `FORGE_MAX_ACTIVE_DEMO_ENGINES_PER_USER` (1).
+- `lib/dbx/rate-limiter.ts` -- max-min weighted fair-share between users
+  on every per-endpoint semaphore. `acquire(endpoint, userKey)` and
+  `release(endpoint, userKey)` track per-user inflight; the queued
+  waiter belonging to the user with the fewest inflight calls wakes
+  first.
+- `lib/lakebase/usage.ts` -- `recordUsage.{pipelineRun,scan,genieDeploy,
+  demoEngine,llmCall,embedTokens}` writes to `ForgeUsage` (per-user,
+  per-day rollups). Read-only in this round; sets the foundation for
+  future budget enforcement.
+
+Queue & load visibility:
+
+- `lib/pipeline/scheduler.ts` -- in-process scheduler that polls Lakebase
+  every 5s, atomically claims `queued` runs whose owners now have free
+  capacity (`UPDATE ... WHERE status='queued'` returns 1 only for the
+  winner), and starts them via the registered starter.
+  `notifyScheduler()` is called on every run completion / new enqueue.
+  `getQueuePosition(runId)` returns 1-based position in the user's queue.
+- `lib/dbx/system-load.ts` + `/api/system-load` -- aggregate load
+  snapshot (per-endpoint inflight/queued/blocked, system-wide active
+  counts, your inflight/queued). Never returns other users' identities.
+- `<SystemLoadBanner />` (in `app/layout.tsx`) -- thin strip that appears
+  only when the system is busy or throttled. Polls every 10s.
+- Activity-log additions: `pipeline_queued`, `pipeline_promoted`,
+  `endpoint_throttled`, `resource_shared`, `resource_unshared`.
+
+Feature flag:
+
+- `FORGE_USER_ISOLATION` (default ON). When OFF, per-user caps are not
+  enforced and the share button is hidden. Data-layer `ownerEmail`
+  filters are ALWAYS applied because the schema migration is
+  forward-only -- the flag does not roll back isolation.
+  See `lib/config/isolation-flag.ts`.
+
+Cutover note: `lib/lakebase/reset.ts` `deleteAllData()` extends to
+`ForgeResourceAcl`, `ForgeUsage`, fabric migrations/connections,
+strategy documents, quality metrics, and space benchmark/health rows.
+Demo-mode UC objects (catalogs/schemas dropped via
+`cleanupDemoSession()`) and deployed Genie spaces (live in Databricks)
+survive a wipe; release notes call this out.
+
 ## Infrastructure
 
 | Concern            | Implementation                                              |
@@ -481,7 +568,11 @@ for custom LLM-generated industry outcome maps.
 | Embeddings         | `lib/embeddings/client.ts` -- `databricks-qwen3-embedding-0-6b` (1024-dim) via `getEmbeddingEndpoint()`; batched (16/req) with 429/5xx retry |
 | Vector search      | `lib/embeddings/store.ts` -- pgvector in Lakebase; `forge_embeddings` table with HNSW index; 12 entity kinds covering all estate + pipeline data |
 | LLM cache + retry  | `lib/toolkit/llm-cache.ts` -- in-memory SHA-256-keyed cache (10min TTL) with 429/5xx retry |
-| Rate limiting      | `lib/dbx/rate-limiter.ts` -- per-endpoint semaphores + independent 429 circuit breakers; optional global ceiling via `GLOBAL_LLM_MAX_CONCURRENT` |
+| Rate limiting      | `lib/dbx/rate-limiter.ts` -- per-endpoint semaphores + independent 429 circuit breakers + max-min user fair-share; optional global ceiling via `GLOBAL_LLM_MAX_CONCURRENT` |
+| Per-user fairness  | `lib/quotas.ts` -- per-user caps on pipelines/scans/Genie deploys/demo engines; pipelines queue, others reject 429 |
+| Run scheduler      | `lib/pipeline/scheduler.ts` -- promotes `queued` runs when their owner has free capacity (atomic claim, 5s tick) |
+| System load        | `/api/system-load` + `<SystemLoadBanner />` -- privacy-respecting load snapshot (per-endpoint queues + your inflight/queued) |
+| Usage tracking     | `lib/lakebase/usage.ts` -- per-user/per-day rollups in `ForgeUsage` (read-only foundation for future budgets) |
 | Concurrency        | `lib/toolkit/concurrency.ts` -- bounded-concurrency utility for parallel domains and batches |
 | Toolkit            | `lib/toolkit/` -- shared utilities relocated from engine-specific paths for cross-engine reuse |
 | Port interfaces    | `lib/ports/` -- abstract DI interfaces (LLMClient, SqlExecutor, SkillResolver, Logger, EngineProgress) |
@@ -516,6 +607,7 @@ original paths for backward compatibility.
 - **Model availability failover** -- three-layer defense: deploy-time probing in `deploy.sh` selects best available models per role; startup-time validation via `scripts/validate-endpoints.mjs` prunes unavailable endpoints from the pool; runtime 404/RESOURCE_DOES_NOT_EXIST from `model-serving.ts` calls `markEndpointUnavailable()` and triggers immediate endpoint rotation in `llm-cache.ts`. The `available` flag on `ModelEndpoint` is permanent per process; restart to re-probe.
 - **Generation budgets** -- all Genie Engine passes respect the `GenerationBudget` from `lib/genie/quality-presets.ts`; target counts, maxTokens, and review surfaces are never hardcoded in pass code; `config.qualityPreset` (default: `"balanced"`) drives the budget
 - **Genie Conversation API MUST use OBO tokens** -- `startConversation`, `pollMessageCompletion`, `sendFollowUp`, and any new Genie Conversation API call MUST authenticate as the logged-in user via OBO token, NEVER as the service principal (`getAppHeaders()`). The Genie API returns 404 `RESOURCE_DOES_NOT_EXIST` when called with SP credentials because the SP does not own the space. Every API route that calls these functions MUST capture the OBO token from `request.headers.get("x-forwarded-access-token")` and pass it through. Use `resolveHeaders(undefined, oboToken)` or pass `oboToken` as a parameter. If a function runs in a background task (fire-and-forget), capture the OBO token while still in request context and thread it through the entire call chain.
+- **User isolation is mandatory** -- every list/read API route MUST resolve the user via `requireUser` (the `proxy.ts` edge entry point enforces this) AND scope the underlying Prisma query by `ownerEmail` ∪ `listAccessibleIds(user.email, "<resourceType>")`. Per-resource detail/mutation routes MUST go through one of the `loadXxxOrRespond` guards in `lib/auth/route-guards.ts` so authorization is consistent. New embedding kinds MUST register a scope mapping in `lib/embeddings/kind-scope.ts`. Background jobs MUST capture `ownerEmail` and `oboToken` in request context and thread them into the engine entrypoint -- never resolve identity from an injected service-principal context.
 
 ## New Feature Integration Checklist
 
@@ -528,16 +620,19 @@ pages **must** complete all items below before the work is considered done.
 | 2 | **Activity logging** (`lib/lakebase/activity-log.ts`) | Add new `ActivityAction` members for user actions (create, apply, delete, etc.) and call `logActivity()` from API routes. |
 | 3 | **Navigation** (`components/pipeline/sidebar-nav.tsx`) | Add the page to the appropriate nav section. |
 | 4 | **Documentation** (`AGENTS.md`) | Document key modules, data model, and API routes in this file. |
-| 5 | **Prisma schema** (`prisma/schema.prisma`) | Define models with indexes, relations, `@@map`. Run `npx prisma generate` after changes. |
+| 5 | **Prisma schema** (`prisma/schema.prisma`) | Define models with indexes, relations, `@@map`. Run `npx prisma generate` after changes. New root models MUST include `ownerEmail String?` + `@@index([ownerEmail])`. |
 | 6 | **SQL injection protection** | Identifiers → `validateFqn()` / `validateIdentifier()`. String literals → `escapeComment()`. Destructive patterns → blocklist. Never interpolate user input into raw SQL. |
 | 7 | **Reuse existing components** | Catalog selection → `CatalogBrowser`. Industry list → `GET /api/industries`. Never use `value=""` on Radix `<SelectItem>`. |
+| 8 | **User isolation** | Set `ownerEmail` on insert from `requireUser()`. Scope every list query by owner ∪ shared IDs. Use `loadXxxOrRespond` guards on per-resource routes. Add a `ResourceType` entry + a `lookupOwner` branch in `/api/share` if the resource should be shareable. |
+| 9 | **Embeddings scope** | If the feature stores vectors via `lib/embeddings/store.ts`, register the new `EmbeddingKind` in `lib/embeddings/kind-scope.ts` so RAG retrievers respect ACL. |
 
 Optional (case-by-case):
 
 | # | Integration Point | When Needed |
 |---|---|---|
-| 8 | **Stats** (`app/api/stats/route.ts`) | If the feature should show counts on the main dashboard. |
-| 9 | **Embeddings** (`lib/embeddings/store.ts`) | If the data should be searchable via Ask Forge RAG. |
+| 10 | **Stats** (`app/api/stats/route.ts`) | If the feature should show counts on the main dashboard. |
+| 11 | **Embeddings** (`lib/embeddings/store.ts`) | If the data should be searchable via Ask Forge RAG. |
+| 12 | **Quotas** (`lib/quotas.ts`) | If the feature spawns a background engine or long-running job that should respect per-user caps. |
 
 ## Testing Expectations
 

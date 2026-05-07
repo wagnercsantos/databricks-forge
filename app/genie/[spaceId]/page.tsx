@@ -21,6 +21,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 
 import { SpaceDetailHero } from "@/components/genie/space-detail-hero";
+import { ShareButton, SharedByBadge } from "@/components/share/share-button";
 import { SpaceOverviewTab, ImprovementAdvice } from "@/components/genie/space-overview-tab";
 import { SpaceConfigViewer } from "@/components/genie/space-config-viewer";
 import { SpaceHealthTab } from "@/components/genie/space-health-tab";
@@ -37,6 +38,9 @@ import { parseErrorResponse, safeJsonParse } from "@/lib/error-utils";
 
 interface SpaceDetail {
   spaceId: string;
+  // Forge tracking-row id; null for off-platform / untracked spaces.
+  // ShareButton and any other ACL helper must key on this, not spaceId.
+  trackingId: string | null;
   title: string;
   description: string;
   domain: string | null;
@@ -46,6 +50,7 @@ interface SpaceDetail {
   serializedSpace: string;
   metadata: SpaceMetadata | null;
   healthReport: SpaceHealthReport | null;
+  ownerEmail?: string | null;
 }
 
 interface FixResult {
@@ -586,6 +591,15 @@ export default function SpaceDetailPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
+      <div className="flex items-center justify-end gap-2">
+        <SharedByBadge ownerEmail={detail.ownerEmail} />
+        <ShareButton
+          resourceType="genie_space"
+          resourceId={detail.trackingId ?? ""}
+          ownerEmail={detail.ownerEmail}
+          resourceLabel={`"${detail.title}"`}
+        />
+      </div>
       <SpaceDetailHero
         title={detail.title}
         description={detail.description}

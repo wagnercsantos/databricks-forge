@@ -63,6 +63,7 @@ export async function runFabricScan(
   connection: ConnectionConfig,
   createdBy?: string | null,
   incremental?: boolean,
+  ownerEmail?: string | null,
 ): Promise<string> {
   const scanMode = incremental ? ("incremental" as const) : ("full" as const);
 
@@ -71,6 +72,7 @@ export async function runFabricScan(
     accessLevel: connection.accessLevel,
     scanMode,
     createdBy,
+    ownerEmail: ownerEmail ?? createdBy,
   });
 
   setScanProgress(scanId, {

@@ -22,10 +22,11 @@ import { generateJson } from "@/lib/export/json";
 import { generateExportSummaries } from "@/lib/export/summaries";
 import { loadLineageFqnsForRun } from "@/lib/lakebase/metadata-cache";
 import { ensureMigrated } from "@/lib/lakebase/schema";
-import { getConfig, getCurrentUserEmail } from "@/lib/dbx/client";
+import { getConfig } from "@/lib/dbx/client";
 import { insertExportRecord } from "@/lib/lakebase/exports";
 import { logActivity } from "@/lib/lakebase/activity-log";
 import type { ExportFormat } from "@/lib/domain/types";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 
 export async function GET(
   request: NextRequest,
@@ -52,11 +53,9 @@ export async function GET(
       );
     }
 
-    const run = await getRunById(runId);
-    if (!run) {
-      logger.warn("[api/export/runId] Run not found", { runId, format });
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const guard = await loadRunOrRespond(request, runId, "read");
+    if (!guard.ok) return guard.response;
+    const run = guard.value.run;
 
     if (run.status !== "completed") {
       logger.warn("[api/export/runId] Run not completed", {
@@ -77,7 +76,7 @@ export async function GET(
       // Non-critical
     }
 
-    const userEmail = await getCurrentUserEmail();
+    const userEmail = guard.user.email;
 
     // Generate LLM summaries for PDF/PPTX (non-blocking, with fallback)
     let summaries: Awaited<ReturnType<typeof generateExportSummaries>> = null;

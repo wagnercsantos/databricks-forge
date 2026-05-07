@@ -54,6 +54,7 @@ function dbRowToRun(row: {
   businessContext: string | null;
   errorMessage: string | null;
   createdBy: string | null;
+  ownerEmail?: string | null;
   contextSourcesJson: string | null;
   createdAt: Date;
   completedAt: Date | null;
@@ -99,6 +100,7 @@ function dbRowToRun(row: {
     industryAutoDetected: genOpts.industryAutoDetected,
     contextSources: parseJSON<RunContextSources | null>(row.contextSourcesJson, null),
     createdBy: row.createdBy ?? null,
+    ownerEmail: row.ownerEmail ?? null,
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
   };
@@ -213,6 +215,7 @@ export async function createRun(
   config: PipelineRunConfig,
   createdBy?: string | null,
 ): Promise<void> {
+  const owner = createdBy ? createdBy.toLowerCase().trim() : null;
   await withPrisma(async (prisma) => {
     await prisma.forgeRun.create({
       data: {
@@ -230,6 +233,7 @@ export async function createRun(
         generationOptions: serializeGenerationOptions(config),
         generationPath: config.generationPath,
         createdBy: createdBy ?? null,
+        ownerEmail: owner,
         status: "pending",
         progressPct: 0,
       },
@@ -248,13 +252,37 @@ export async function getRunById(runId: string): Promise<PipelineRun | null> {
   });
 }
 
+/**
+ * List runs visible to the calling user.
+ *
+ * When `userEmail` is provided, results include runs the user owns plus
+ * those shared with them via the ACL. When omitted, returns all runs
+ * (legacy behaviour, used by background callers and admin tools).
+ *
+ * `viewMode`:
+ *   - "all"    -- owner OR shared via ACL (default)
+ *   - "owned"  -- only rows where ownerEmail matches
+ *   - "shared" -- only rows with an ACL entry for the user
+ */
 export async function listRuns(
   limit = 50,
   offset = 0,
   userEmail?: string | null,
+  viewMode: "all" | "owned" | "shared" = "all",
+  sharedIds: string[] = [],
 ): Promise<PipelineRun[]> {
   return withPrisma(async (prisma) => {
-    const where = userEmail ? { createdBy: userEmail } : {};
+    let where: Record<string, unknown> = {};
+    if (userEmail) {
+      const email = userEmail.toLowerCase().trim();
+      if (viewMode === "owned") {
+        where = { ownerEmail: email };
+      } else if (viewMode === "shared") {
+        where = { runId: { in: sharedIds } };
+      } else {
+        where = { OR: [{ ownerEmail: email }, { runId: { in: sharedIds } }] };
+      }
+    }
     const rows = await prisma.forgeRun.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -296,12 +324,65 @@ export async function updateRunStatus(
   });
 }
 
+/**
+ * Startup helper: find every `running` run and re-queue it.
+ *
+ * Called once on app boot (`instrumentation.ts`). After a graceful
+ * redeploy, in-flight pipelines lost their AbortController -- we don't
+ * want to surface them as failed. Setting status back to `queued` lets
+ * the scheduler pick them up on the next tick.
+ *
+ * Returns the number of runs requeued.
+ */
+export async function requeueOrphanedRunsOnStartup(): Promise<number> {
+  return withPrisma(async (prisma) => {
+    const result = await prisma.forgeRun.updateMany({
+      where: { status: "running" },
+      data: {
+        status: "queued",
+        statusMessage: "Re-queued after app restart -- waiting for scheduler.",
+      },
+    });
+    return result.count;
+  });
+}
+
+/**
+ * Reconcile a `running` run that no longer has an active in-process
+ * controller. Two modes:
+ *
+ *   - `"fail"` (default, legacy behaviour) -- mark the run as failed
+ *     with a "interrupted by app restart" error message. The user can
+ *     manually resume from the run detail page.
+ *
+ *   - `"requeue"` -- transition the run back to `queued` so the
+ *     pipeline scheduler can promote it on the next tick. Use this when
+ *     a process restart is expected (graceful redeploy) and we don't
+ *     want to surface every in-flight run as failed to users.
+ *
+ * Both branches are atomic single-row updates and ignored when the run
+ * is not in `running` state (someone else already reconciled it).
+ */
 export async function failOrphanedRunningRun(
   runId: string,
   activeRunIds: string[],
+  mode: "fail" | "requeue" = "fail",
 ): Promise<boolean> {
   return withPrisma(async (prisma) => {
     if (activeRunIds.includes(runId)) return false;
+
+    if (mode === "requeue") {
+      const result = await prisma.forgeRun.updateMany({
+        where: { runId, status: "running" },
+        data: {
+          status: "queued",
+          statusMessage: "Re-queued after app restart -- waiting for scheduler.",
+          // Do NOT clear errorMessage here; if the run was in trouble before
+          // the restart, the next attempt should still surface that.
+        },
+      });
+      return result.count > 0;
+    }
 
     const result = await prisma.forgeRun.updateMany({
       where: {

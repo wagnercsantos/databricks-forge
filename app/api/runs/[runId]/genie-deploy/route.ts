@@ -42,6 +42,7 @@ import {
 } from "@/lib/lakebase/metric-view-proposals";
 import { rewriteDashboardMetricViewFqns } from "@/lib/genie/metric-view-dependencies";
 import { isMetricViewsEnabled } from "@/lib/genie/metric-views-config";
+import { loadRunOrRespond } from "@/lib/auth/route-guards";
 
 // ---------------------------------------------------------------------------
 // Request / response types
@@ -152,6 +153,10 @@ export async function POST(
     return NextResponse.json({ error: "Invalid runId" }, { status: 400 });
   }
 
+  const guard = await loadRunOrRespond(request, runId, "edit");
+  if (!guard.ok) return guard.response;
+  const ownerEmail = guard.user.email;
+
   try {
     const body = (await request.json()) as RequestBody;
 
@@ -190,7 +195,7 @@ export async function POST(
       error: null,
     });
 
-    runPipelineDeploy(jobId, runId, body, log).catch((err) => {
+    runPipelineDeploy(jobId, runId, body, log, ownerEmail).catch((err) => {
       const job = deployJobs.get(jobId);
       if (job && job.status === "deploying") {
         job.status = "failed";
@@ -217,6 +222,7 @@ async function runPipelineDeploy(
   runId: string,
   body: RequestBody,
   log: ReturnType<typeof apiLogger>,
+  ownerEmail: string | null = null,
 ): Promise<void> {
   const job = deployJobs.get(jobId);
   if (!job) return;
@@ -350,6 +356,7 @@ async function runPipelineDeploy(
             domainReq.title,
             deployedAssetsPayload,
             body.authMode,
+            ownerEmail,
           );
         } catch (trackErr) {
           log.error("Lakebase tracking failed after space creation", {
@@ -367,6 +374,7 @@ async function runPipelineDeploy(
               domainReq.title,
               deployedAssetsPayload,
               body.authMode,
+              ownerEmail,
             );
           } catch {
             /* exhausted retry */

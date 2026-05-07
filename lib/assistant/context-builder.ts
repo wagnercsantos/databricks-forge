@@ -28,6 +28,22 @@ import {
   buildIndustrySkillSections,
   type AskForgeIntent,
 } from "@/lib/skills";
+import { listAccessibleIds, type ResourceType } from "@/lib/lakebase/acl";
+
+/**
+ * Combined "owned + shared" id list for the calling user. Used by
+ * fetchDirectLakebaseContext to scope first-result-wins lookups.
+ *
+ * Note: this returns ONLY shared ids; the owner case is handled by an
+ * `ownerEmail` clause in the Prisma where filter at the call site so we
+ * avoid an extra round-trip just to pull the owner's own ids.
+ */
+async function listAccessibleIdsForOwner(
+  type: ResourceType,
+  ownerEmail: string,
+): Promise<string[]> {
+  return listAccessibleIds(ownerEmail, type);
+}
 
 const log = createScopedLogger({ origin: "AskForge", module: "assistant/context-builder" });
 
@@ -214,9 +230,10 @@ export async function buildAssistantContext(
   intent: AssistantIntent,
   history: ConversationTurn[] = [],
   persona: AssistantPersona = "business",
+  userEmail: string | null = null,
 ): Promise<AssistantContext> {
   // --- Strategy 1: Direct Lakebase context (always runs) ---
-  const directContext = await fetchDirectLakebaseContext();
+  const directContext = await fetchDirectLakebaseContext(userEmail);
 
   // --- Strategy 2: Vector semantic search (when embeddings enabled) ---
   let chunks: RetrievedChunk[] = [];
@@ -234,6 +251,7 @@ export async function buildAssistantContext(
       directContext.latestRunId,
       directContext.latestScanId,
       directContext.latestFabricScanId,
+      userEmail,
     );
 
     ragContext = formatRetrievedContext(chunks, 12000);
@@ -398,8 +416,14 @@ export function buildSourceReferences(chunks: RetrievedChunk[]): Array<{
 /**
  * Fetch structured context directly from Lakebase, independent of vector search.
  * Provides business grounding, estate overview, and deployed asset awareness.
+ *
+ * When `userEmail` is provided, queries are filtered to runs/scans visible to
+ * that user (owned + shared via ACL). When omitted, falls back to the legacy
+ * unscoped behaviour (used by background callers and tests).
  */
-async function fetchDirectLakebaseContext(): Promise<DirectContextResult> {
+async function fetchDirectLakebaseContext(
+  userEmail: string | null = null,
+): Promise<DirectContextResult> {
   try {
     return await withPrisma(async (prisma) => {
       const sections: string[] = [];
@@ -407,9 +431,34 @@ async function fetchDirectLakebaseContext(): Promise<DirectContextResult> {
       let latestScanId: string | null = null;
       let industryId: string | null = null;
 
+      // Resolve accessible run/scan ids for the calling user.
+      const ownerEmail = userEmail ? userEmail.toLowerCase().trim() : null;
+      let runFilter: Record<string, unknown> = { status: "completed" };
+      let scanFilter: Record<string, unknown> = {};
+      let fabricScanFilter: Record<string, unknown> = { status: "completed" };
+
+      if (ownerEmail) {
+        const [sharedRunIds, sharedScanIds, sharedFabricIds] = await Promise.all([
+          listAccessibleIdsForOwner("run", ownerEmail),
+          listAccessibleIdsForOwner("scan", ownerEmail),
+          listAccessibleIdsForOwner("fabric_scan", ownerEmail),
+        ]);
+        runFilter = {
+          status: "completed",
+          OR: [{ ownerEmail }, { runId: { in: sharedRunIds } }],
+        };
+        scanFilter = {
+          OR: [{ ownerEmail }, { scanId: { in: sharedScanIds } }],
+        };
+        fabricScanFilter = {
+          status: "completed",
+          OR: [{ ownerEmail }, { id: { in: sharedFabricIds } }],
+        };
+      }
+
       // 1. Business context from latest completed run
       const latestRun = await prisma.forgeRun.findFirst({
-        where: { status: "completed" },
+        where: runFilter,
         orderBy: { createdAt: "desc" },
         select: {
           runId: true,
@@ -466,6 +515,7 @@ async function fetchDirectLakebaseContext(): Promise<DirectContextResult> {
 
       // 3. Estate summary from latest scan
       const latestScan = await prisma.forgeEnvironmentScan.findFirst({
+        where: scanFilter,
         orderBy: { createdAt: "desc" },
         select: {
           scanId: true,
@@ -578,7 +628,7 @@ async function fetchDirectLakebaseContext(): Promise<DirectContextResult> {
       let latestFabricScanId: string | null = null;
       try {
         const latestFabricScan = await prisma.forgeFabricScan.findFirst({
-          where: { status: "completed" },
+          where: fabricScanFilter,
           orderBy: { createdAt: "desc" },
           select: { id: true },
         });
@@ -697,6 +747,7 @@ async function retrieveWithFallback(
   latestRunId: string | null,
   latestScanId: string | null,
   latestFabricScanId: string | null,
+  userEmail: string | null,
 ): Promise<RetrievedChunk[]> {
   const strict = await retrieveForPlans(
     question,
@@ -705,6 +756,7 @@ async function retrieveWithFallback(
     latestScanId,
     latestFabricScanId,
     false,
+    userEmail,
   );
   if (strict.length > 0) {
     return strict;
@@ -718,7 +770,15 @@ async function retrieveWithFallback(
   }
 
   log.info("Strict retrieval returned no chunks, retrying relaxed filters");
-  return retrieveForPlans(question, plans, latestRunId, latestScanId, latestFabricScanId, true);
+  return retrieveForPlans(
+    question,
+    plans,
+    latestRunId,
+    latestScanId,
+    latestFabricScanId,
+    true,
+    userEmail,
+  );
 }
 
 async function retrieveForPlans(
@@ -728,6 +788,7 @@ async function retrieveForPlans(
   latestScanId: string | null,
   latestFabricScanId: string | null,
   relaxed: boolean,
+  userEmail: string | null,
 ): Promise<RetrievedChunk[]> {
   const retrievals = await Promise.all(
     plans.map((plan) => {
@@ -746,6 +807,7 @@ async function retrieveForPlans(
         enforceSourcePriority: true,
         runId: !relaxed && plan.useLatestRun ? (latestRunId ?? undefined) : undefined,
         scanId,
+        userEmail,
       });
     }),
   );

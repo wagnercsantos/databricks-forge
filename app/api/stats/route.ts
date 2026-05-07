@@ -4,14 +4,16 @@
  * GET -- aggregate stats across all runs and use cases for the dashboard.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { isDatabaseReady, withPrisma } from "@/lib/prisma";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import { isBenchmarksEnabled } from "@/lib/benchmarks/config";
 import { logger } from "@/lib/logger";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
+import { listAccessibleIds } from "@/lib/lakebase/acl";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     if (!isDatabaseReady()) {
       return NextResponse.json(
@@ -21,17 +23,24 @@ export async function GET() {
     }
 
     await ensureMigrated();
+    const user = await requireUser(request);
+    const sharedRunIds = await listAccessibleIds(user.email, "run");
+    const runVisibility = {
+      OR: [{ ownerEmail: user.email }, { runId: { in: sharedRunIds } }],
+    };
+    const useCaseVisibility = {
+      run: { OR: [{ ownerEmail: user.email }, { runId: { in: sharedRunIds } }] },
+    };
 
-    // Sequential batches instead of 10-way Promise.all.
-    // Uses 2-3 pool connections at a time, avoiding Lakebase rate limits.
     const result = await withPrisma(async (prisma) => {
-      // Batch 1: Run data
       const [runStatusGroups, recentRuns] = await Promise.all([
         prisma.forgeRun.groupBy({
           by: ["status"],
           _count: { _all: true },
+          where: runVisibility,
         }),
         prisma.forgeRun.findMany({
+          where: runVisibility,
           orderBy: { createdAt: "desc" },
           take: 5,
           select: {
@@ -46,28 +55,32 @@ export async function GET() {
         }),
       ]);
 
-      // Batch 2: Use case data
       const [typeGroups, domainGroups, scoreRows] = await Promise.all([
         prisma.forgeUseCase.groupBy({
           by: ["type"],
           _count: { _all: true },
+          where: useCaseVisibility,
         }),
         prisma.forgeUseCase.groupBy({
           by: ["domain"],
           _count: { _all: true },
+          where: useCaseVisibility,
           orderBy: { _count: { domain: "desc" } },
         }),
         prisma.forgeUseCase.findMany({
           select: { overallScore: true },
-          where: { overallScore: { not: null } },
+          where: { overallScore: { not: null }, ...useCaseVisibility },
         }),
       ]);
 
-      // Batch 3: Governance and quality metrics
       const [qualityRows, benchmarkRows] = await Promise.all([
         prisma.forgeQualityMetric.findMany({
           where: {
             createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+            OR: [
+              { ownerEmail: user.email },
+              { run: runVisibility },
+            ],
           },
           select: {
             metricType: true,
@@ -178,10 +191,13 @@ export async function GET() {
 
     return NextResponse.json(result, {
       headers: {
-        "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
+        "Cache-Control": "private, no-store",
       },
     });
   } catch (error) {
+    if (error instanceof ForgeAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const msg = error instanceof Error ? error.message : String(error);
     logger.error("[api/stats] GET failed", { error: msg });
     return NextResponse.json({ error: safeErrorMessage(error) }, { status: 500 });

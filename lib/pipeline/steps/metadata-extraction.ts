@@ -309,6 +309,7 @@ export async function runMetadataExtraction(
         log,
         runId,
         config.industry || undefined,
+        ctx.ownerEmail ?? ctx.run.ownerEmail ?? null,
       );
     } catch (error) {
       log.error("Enrichment pass failed (non-fatal)", {
@@ -379,6 +380,7 @@ async function runEnrichmentPass(
   log: typeof fallbackLogger,
   runId?: string,
   industryId?: string,
+  ownerEmail: string | null = null,
 ): Promise<LineageGraph> {
   const scanId = uuidv4();
   const startTime = Date.now();
@@ -721,6 +723,7 @@ async function runEnrichmentPass(
     allColumns,
     allTableTags,
     allColumnTags,
+    ownerEmail,
   );
 
   log.info("Environment scan saved", {

@@ -36,7 +36,13 @@ export async function createFabricScan(opts: {
   accessLevel: "admin" | "workspace";
   scanMode?: "full" | "incremental";
   createdBy?: string | null;
+  ownerEmail?: string | null;
 }): Promise<string> {
+  const owner = opts.ownerEmail
+    ? opts.ownerEmail.toLowerCase().trim()
+    : opts.createdBy
+      ? opts.createdBy.toLowerCase().trim()
+      : null;
   return withPrisma(async (prisma) => {
     const id = randomUUID();
     await prisma.forgeFabricScan.create({
@@ -47,6 +53,7 @@ export async function createFabricScan(opts: {
         scanMode: opts.scanMode ?? "full",
         status: "pending",
         createdBy: opts.createdBy ?? null,
+        ownerEmail: owner,
       },
     });
     return id;
@@ -165,10 +172,27 @@ export async function insertScanArtifacts(
 // Read -- list
 // ---------------------------------------------------------------------------
 
-export async function listFabricScans(connectionId?: string): Promise<FabricScanSummary[]> {
+export async function listFabricScans(
+  connectionId?: string,
+  userEmail?: string | null,
+  viewMode: "all" | "owned" | "shared" = "all",
+  sharedIds: string[] = [],
+): Promise<FabricScanSummary[]> {
   return withPrisma(async (prisma) => {
+    const owner = userEmail ? userEmail.toLowerCase().trim() : null;
+    const where: Record<string, unknown> = {};
+    if (connectionId) where.connectionId = connectionId;
+    if (owner) {
+      if (viewMode === "owned") {
+        where.ownerEmail = owner;
+      } else if (viewMode === "shared") {
+        where.id = { in: sharedIds };
+      } else {
+        where.OR = [{ ownerEmail: owner }, { id: { in: sharedIds } }];
+      }
+    }
     const rows = await prisma.forgeFabricScan.findMany({
-      where: connectionId ? { connectionId } : undefined,
+      where,
       orderBy: { createdAt: "desc" },
     });
     return rows.map((r) => ({

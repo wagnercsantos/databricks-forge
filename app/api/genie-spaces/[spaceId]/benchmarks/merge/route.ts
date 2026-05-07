@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { mergeOptimizations, type OptimizationSuggestion } from "@/lib/genie/optimize";
+import { loadGenieSpaceBySpaceIdOrRespond } from "@/lib/auth/route-guards";
 import { isSafeId } from "@/lib/validation";
 import { logger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
@@ -20,6 +21,9 @@ export async function POST(
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
     }
+
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "edit");
+    if (!guard.ok) return guard.response;
 
     const body = await request.json();
     const { serializedSpace, suggestions } = body as {

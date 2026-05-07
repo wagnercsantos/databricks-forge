@@ -54,6 +54,7 @@ import {
 } from "@/lib/dashboard/engine-status";
 import { flushPromptLogs } from "@/lib/lakebase/prompt-logs";
 import { logMemoryUsage } from "@/lib/pipeline/memory-monitor";
+import { registerPipelineStarter, notifyScheduler } from "@/lib/pipeline/scheduler";
 
 // ---------------------------------------------------------------------------
 // Step definitions with progress percentages
@@ -147,13 +148,23 @@ export async function persistUseCases(
 // Engine
 // ---------------------------------------------------------------------------
 
+export interface PipelineRunOptions {
+  /** Owner email captured at request time. Falls back to run.ownerEmail. */
+  ownerEmail?: string | null;
+  /** OBO token captured at request time for user-as-actor calls. */
+  oboToken?: string | null;
+}
+
 /**
  * Start the pipeline for a given run. This is called asynchronously from
  * the API route -- the caller does not await the result.
  *
  * Progress is tracked in Lakebase so the frontend can poll.
  */
-export async function startPipeline(runId: string): Promise<void> {
+export async function startPipeline(
+  runId: string,
+  opts: PipelineRunOptions = {},
+): Promise<void> {
   const controller = new AbortController();
   activePipelineRuns.set(runId, controller);
   const log = createScopedLogger({ origin: "DiscoveryRun", module: "pipeline/engine", runId });
@@ -171,6 +182,8 @@ export async function startPipeline(runId: string): Promise<void> {
       discoveryResult: null,
       signal: controller.signal,
       logger: log,
+      ownerEmail: opts.ownerEmail ?? run.ownerEmail ?? null,
+      oboToken: opts.oboToken ?? null,
     };
 
     /** Helper: record step start/end timing in the run's stepLog. */
@@ -183,7 +196,11 @@ export async function startPipeline(runId: string): Promise<void> {
       logMemoryUsage(`Before step: ${step}`, { runId, step });
       stepLog.info("Step starting", { phase: "start" });
       try {
-        await fn();
+        // Wrap the step body in an AsyncLocalStorage context so any LLM
+        // call (no matter how deeply nested) can attribute waiting and
+        // throttle ms back to this (runId, step) pair.
+        const { runWithStep } = await import("@/lib/pipeline/run-context");
+        await runWithStep(runId, String(step), fn);
         const completedAt = new Date().toISOString();
         const durationMs = new Date(completedAt).getTime() - new Date(startedAt).getTime();
         logMemoryUsage(`After step: ${step}`, { runId, step, durationMs });
@@ -778,6 +795,13 @@ export async function startPipeline(runId: string): Promise<void> {
     await flushPromptLogs();
     clearRunCancelled(runId);
     activePipelineRuns.delete(runId);
+    try {
+      const { clearRunCounters } = await import("@/lib/pipeline/step-instrumentation");
+      clearRunCounters(runId);
+    } catch {
+      /* counters module may not have loaded */
+    }
+    notifyScheduler();
   }
 }
 
@@ -790,7 +814,10 @@ export async function startPipeline(runId: string): Promise<void> {
  * Restores persisted context (business context, metadata, filtered tables)
  * so that expensive early steps are not re-run.
  */
-export async function resumePipeline(runId: string): Promise<void> {
+export async function resumePipeline(
+  runId: string,
+  opts: PipelineRunOptions = {},
+): Promise<void> {
   const controller = new AbortController();
   activePipelineRuns.set(runId, controller);
   const log = createScopedLogger({
@@ -825,6 +852,8 @@ export async function resumePipeline(runId: string): Promise<void> {
       discoveryResult: null,
       signal: controller.signal,
       logger: log,
+      ownerEmail: opts.ownerEmail ?? run.ownerEmail ?? null,
+      oboToken: opts.oboToken ?? null,
     };
 
     // Restore business context (persisted after step 1)
@@ -889,7 +918,8 @@ export async function resumePipeline(runId: string): Promise<void> {
       const startedAt = new Date().toISOString();
       stepLog.info("Step starting", { phase: "start" });
       try {
-        await fn();
+        const { runWithStep } = await import("@/lib/pipeline/run-context");
+        await runWithStep(runId, String(step), fn);
         const completedAt = new Date().toISOString();
         const durationMs = new Date(completedAt).getTime() - new Date(startedAt).getTime();
         stepLog.info("Step completed", { phase: "end", durationMs });
@@ -1366,6 +1396,13 @@ export async function resumePipeline(runId: string): Promise<void> {
     await flushPromptLogs();
     clearRunCancelled(runId);
     activePipelineRuns.delete(runId);
+    try {
+      const { clearRunCounters } = await import("@/lib/pipeline/step-instrumentation");
+      clearRunCounters(runId);
+    } catch {
+      /* counters module may not have loaded */
+    }
+    notifyScheduler();
   }
 }
 
@@ -1456,18 +1493,51 @@ export function isPipelineActive(runId: string): boolean {
 }
 
 /**
- * Cancel a single pipeline run. Returns true if the run was active and
- * cancellation was triggered, false if the run was not active.
+ * Cancel a single pipeline run.
+ *
+ * - If the run is actively executing, signal the AbortController -- the
+ *   pipeline will tear down through the normal cancelled path.
+ * - If the run is `queued` (waiting for the scheduler to promote it),
+ *   atomically transition it to `cancelled` directly. There is no
+ *   AbortController to fire; the scheduler will skip it on next tick.
+ *
+ * Returns true on success, false if the run is not active and not queued.
  */
 export async function cancelPipeline(runId: string): Promise<boolean> {
   const controller = activePipelineRuns.get(runId);
-  if (!controller) return false;
-  markRunCancelled(runId);
-  controller.abort();
-  createScopedLogger({ origin: "DiscoveryRun", module: "pipeline/engine", runId }).info(
-    "Pipeline cancellation requested",
-  );
-  return true;
+  if (controller) {
+    markRunCancelled(runId);
+    controller.abort();
+    createScopedLogger({ origin: "DiscoveryRun", module: "pipeline/engine", runId }).info(
+      "Pipeline cancellation requested",
+    );
+    return true;
+  }
+
+  // Queued case: cancel via DB transition. Atomic so the scheduler can't
+  // race in and promote the run between the read and the write.
+  const { withPrisma } = await import("@/lib/prisma");
+  const queuedCancelled = await withPrisma(async (prisma) => {
+    const result = await prisma.forgeRun.updateMany({
+      where: { runId, status: "queued" },
+      data: {
+        status: "cancelled",
+        statusMessage: "Cancelled while queued",
+        completedAt: new Date(),
+      },
+    });
+    return result.count > 0;
+  });
+
+  if (queuedCancelled) {
+    createScopedLogger({ origin: "DiscoveryRun", module: "pipeline/engine", runId }).info(
+      "Queued pipeline cancelled",
+    );
+    notifyScheduler();
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -1487,3 +1557,13 @@ export async function cancelAllPipelines(): Promise<number> {
   }
   return runIds.length;
 }
+
+// ---------------------------------------------------------------------------
+// Scheduler wiring (registers a starter so the scheduler can promote queued runs)
+// ---------------------------------------------------------------------------
+
+registerPipelineStarter({
+  start: async (runId, opts) => {
+    await startPipeline(runId, opts);
+  },
+});

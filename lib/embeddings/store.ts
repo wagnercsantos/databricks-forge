@@ -166,7 +166,32 @@ export async function deleteEmbeddingsByKindAndRun(
 /**
  * Search embeddings by vector similarity using pgvector's <=> operator
  * (cosine distance). Returns results sorted by descending similarity score.
+ *
+ * User isolation is enforced via the `userScope` option (Phase 4 of the
+ * isolation refactor). When `userScope` is provided, results are limited to
+ * embeddings whose parent resource (run / scan / source) is owned by or
+ * shared with the calling user, plus any kinds in `userScope.globalKinds`
+ * which are always readable.
+ *
+ * When `userScope` is omitted, the legacy "see everything" behaviour is
+ * preserved for callers that haven't been migrated yet (system jobs,
+ * admin tasks, tests). In production all read paths should pass userScope.
  */
+export interface UserScope {
+  /** Run ids the user can read (owner or shared via ACL). */
+  accessibleRunIds: string[];
+  /** Scan ids the user can read (owner or shared via ACL). */
+  accessibleScanIds: string[];
+  /**
+   * Source-id-keyed embeddings the user can read, mapped to the kind that
+   * uses that source-id (so we don't accidentally widen visibility from a
+   * document into, say, demo research with the same UUID).
+   */
+  accessibleSourceIds: Array<{ sourceId: string; kind: EmbeddingKind }>;
+  /** Kinds always readable regardless of parent ownership (catalog kinds). */
+  globalKinds: readonly EmbeddingKind[];
+}
+
 export async function searchByVector(
   queryVector: number[],
   options: {
@@ -176,6 +201,7 @@ export async function searchByVector(
     metadataFilter?: Record<string, unknown>;
     topK?: number;
     minScore?: number;
+    userScope?: UserScope;
   } = {},
 ): Promise<SearchResult[]> {
   const prisma = await getPrisma();
@@ -204,6 +230,56 @@ export async function searchByVector(
   if (options.metadataFilter && Object.keys(options.metadataFilter).length > 0) {
     params.push(JSON.stringify(options.metadataFilter));
     conditions.push(`metadata_json @> $${params.length}::jsonb`);
+  }
+
+  if (options.userScope) {
+    const scope = options.userScope;
+    const orParts: string[] = [];
+
+    if (scope.globalKinds.length > 0) {
+      const placeholders = scope.globalKinds.map((_, idx) => `$${params.length + idx + 1}`);
+      orParts.push(`kind IN (${placeholders.join(",")})`);
+      params.push(...scope.globalKinds);
+    }
+
+    if (scope.accessibleRunIds.length > 0) {
+      const placeholders = scope.accessibleRunIds.map((_, idx) => `$${params.length + idx + 1}`);
+      orParts.push(`run_id IN (${placeholders.join(",")})`);
+      params.push(...scope.accessibleRunIds);
+    }
+
+    if (scope.accessibleScanIds.length > 0) {
+      const placeholders = scope.accessibleScanIds.map(
+        (_, idx) => `$${params.length + idx + 1}`,
+      );
+      orParts.push(`scan_id IN (${placeholders.join(",")})`);
+      params.push(...scope.accessibleScanIds);
+    }
+
+    // Group source-ids by kind so each kind only matches its own source-ids.
+    const byKind = new Map<EmbeddingKind, string[]>();
+    for (const entry of scope.accessibleSourceIds) {
+      const arr = byKind.get(entry.kind) ?? [];
+      arr.push(entry.sourceId);
+      byKind.set(entry.kind, arr);
+    }
+    for (const [kind, sourceIds] of byKind.entries()) {
+      if (sourceIds.length === 0) continue;
+      params.push(kind);
+      const kindParam = `$${params.length}`;
+      const idPlaceholders = sourceIds.map((_, idx) => `$${params.length + idx + 1}`);
+      params.push(...sourceIds);
+      orParts.push(`(kind = ${kindParam} AND source_id IN (${idPlaceholders.join(",")}))`);
+    }
+
+    if (orParts.length === 0) {
+      // User has access to nothing relevant -- return empty without hitting
+      // the database. (Bare `WHERE FALSE` is also safe; short-circuit is
+      // simpler and avoids a wasted query.)
+      return [];
+    }
+
+    conditions.push(`(${orParts.join(" OR ")})`);
   }
 
   params.push(topK);

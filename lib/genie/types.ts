@@ -457,6 +457,8 @@ export interface TrackedGenieSpace {
   } | null;
   /** Auth mode used when the space was created ("obo" = user token, "sp" = service principal). Null for legacy rows. */
   authMode?: "obo" | "sp" | null;
+  /** Owner email for per-user isolation. Null for legacy rows. */
+  ownerEmail?: string | null;
   createdAt: string;
   updatedAt: string;
 }

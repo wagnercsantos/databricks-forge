@@ -64,6 +64,7 @@ interface StoreEntry {
   progress: ScanProgress;
   startTime: number;
   expiresAt: number;
+  ownerEmail: string | null;
 }
 
 const store = new Map<string, StoreEntry>();
@@ -71,12 +72,13 @@ const store = new Map<string, StoreEntry>();
 /**
  * Initialize a scan progress entry.
  */
-export function initScanProgress(scanId: string): void {
+export function initScanProgress(scanId: string, ownerEmail: string | null = null): void {
   cleanup();
   const now = Date.now();
   store.set(scanId, {
     startTime: now,
     expiresAt: now + TTL_MS,
+    ownerEmail: ownerEmail ? ownerEmail.toLowerCase().trim() : null,
     progress: {
       scanId,
       phase: "starting",
@@ -94,6 +96,25 @@ export function initScanProgress(scanId: string): void {
       updatedAt: new Date().toISOString(),
     },
   });
+}
+
+/**
+ * Count of scans currently in-flight for the given user, used by quota checks.
+ *
+ * "In-flight" means present in the in-memory store and not yet in a terminal
+ * phase ("complete" or "failed").
+ */
+export function listInflightScansForUser(ownerEmail: string): number {
+  cleanup();
+  const target = ownerEmail.toLowerCase().trim();
+  let count = 0;
+  for (const entry of store.values()) {
+    if (entry.ownerEmail !== target) continue;
+    const phase = entry.progress.phase;
+    if (phase === "complete" || phase === "failed") continue;
+    count++;
+  }
+  return count;
 }
 
 /**

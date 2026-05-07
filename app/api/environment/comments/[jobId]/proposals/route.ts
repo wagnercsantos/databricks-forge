@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadCommentJobOrRespond } from "@/lib/auth/route-guards";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { updateProposalStatuses, type ProposalStatus } from "@/lib/lakebase/comment-proposals";
 
@@ -22,7 +23,10 @@ export async function PATCH(
   { params }: { params: Promise<{ jobId: string }> },
 ) {
   try {
-    await params; // validate route param exists
+    const { jobId } = await params;
+    const guard = await loadCommentJobOrRespond(request, jobId, "edit");
+    if (!guard.ok) return guard.response;
+
     const body = await request.json();
     const { proposals } = body as {
       proposals: Array<{ id: string; status: ProposalStatus; editedComment?: string | null }>;

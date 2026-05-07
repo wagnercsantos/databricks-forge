@@ -63,6 +63,7 @@ export interface MigrationState {
   nameMapping: NameMapping[];
   rlsWarnings: RlsWarning[];
   warnings: string[];
+  ownerEmail?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +86,7 @@ export async function runGoldSchemaStep(
   targetCatalog: string,
   targetSchema: string,
   resourcePrefix?: string,
+  ownerEmail: string | null = null,
 ): Promise<MigrationState> {
   const scan = await getFabricScanDetail(scanId);
   if (!scan) throw new Error("Scan not found");
@@ -104,6 +106,7 @@ export async function runGoldSchemaStep(
     nameMapping: [],
     rlsWarnings: [],
     warnings: [],
+    ownerEmail: ownerEmail ? ownerEmail.toLowerCase().trim() : null,
   };
   migrationStates.set(migrationId, state);
 
@@ -421,6 +424,7 @@ async function persistMigrationState(state: MigrationState): Promise<void> {
           genieSpacesJson: JSON.stringify(state.genieSpaces),
           nameMappingJson: JSON.stringify(state.nameMapping),
           rlsWarningsJson: state.rlsWarnings.length > 0 ? JSON.stringify(state.rlsWarnings) : null,
+          ownerEmail: state.ownerEmail ?? null,
         },
         update: {
           status: state.status,

@@ -7,11 +7,19 @@
  */
 
 import { generateEmbedding } from "./client";
-import { searchByVector } from "./store";
+import { searchByVector, type UserScope } from "./store";
 import type { EmbeddingKind, RetrievedChunk, SearchResult } from "./types";
 import { SEARCH_SCOPES } from "./types";
 import { isEmbeddingEnabled } from "./config";
 import { logger } from "@/lib/logger";
+import {
+  GLOBAL_KINDS,
+  KIND_SCOPE,
+  SOURCE_PARENT,
+  SOURCE_SCOPED_KINDS,
+} from "./kind-scope";
+import { listAccessibleIds, type ResourceType } from "@/lib/lakebase/acl";
+import { withPrisma } from "@/lib/prisma";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -34,6 +42,114 @@ export interface RetrieveOptions {
   metadataFilter?: Record<string, unknown>;
   /** Prioritize source types and freshness in final ranking. */
   enforceSourcePriority?: boolean;
+  /**
+   * The acting user's email. When set, results are limited to embeddings
+   * whose parent (run / scan / source-id) is owned by or shared with this
+   * user, plus globally readable catalog kinds. Background jobs should
+   * thread the run owner's email through to keep RAG retrieval consistent
+   * with sharing rules.
+   *
+   * Omit only for legitimately user-agnostic callers (system maintenance,
+   * tests, admin tools).
+   */
+  userEmail?: string | null;
+}
+
+/**
+ * Build a `UserScope` for the given user by querying ACL and ownership rows
+ * for the specific kinds the caller is asking about. Catalog (`global`)
+ * kinds bypass this.
+ */
+async function buildUserScope(
+  userEmail: string,
+  kinds: readonly EmbeddingKind[] | undefined,
+): Promise<UserScope> {
+  const wantedKinds = kinds && kinds.length > 0 ? kinds : (Object.keys(KIND_SCOPE) as EmbeddingKind[]);
+
+  const needsRunIds = wantedKinds.some((k) => KIND_SCOPE[k] === "run");
+  const needsScanIds = wantedKinds.some((k) => KIND_SCOPE[k] === "scan");
+  const sourceKindsWanted = wantedKinds.filter((k) => KIND_SCOPE[k] === "source");
+  const globalKinds = wantedKinds.filter((k) => KIND_SCOPE[k] === "global");
+
+  const accessibleRunIds = needsRunIds ? await accessibleIds("run", userEmail) : [];
+  const accessibleScanIds = needsScanIds
+    ? [
+        ...(await accessibleIds("scan", userEmail)),
+        ...(await accessibleIds("fabric_scan", userEmail)),
+      ]
+    : [];
+
+  const accessibleSourceIds: Array<{ sourceId: string; kind: EmbeddingKind }> = [];
+  for (const kind of sourceKindsWanted) {
+    const parent = SOURCE_PARENT[kind];
+    if (!parent) continue;
+    const resourceType: ResourceType = parent === "document" ? "document" : "demo_session";
+    const ids = await accessibleIds(resourceType, userEmail);
+    for (const id of ids) accessibleSourceIds.push({ sourceId: id, kind });
+  }
+
+  return {
+    accessibleRunIds,
+    accessibleScanIds,
+    accessibleSourceIds,
+    globalKinds,
+  };
+}
+
+/**
+ * Resolve all resource ids of `type` accessible to `userEmail` -- both
+ * owned and shared via ACL. Implemented as separate Prisma queries because
+ * each owning model lives in its own table.
+ */
+async function accessibleIds(type: ResourceType, userEmail: string): Promise<string[]> {
+  const email = userEmail.trim().toLowerCase();
+  const sharedIds = await listAccessibleIds(email, type);
+  const ownedIds = await listOwnedIds(type, email);
+  return Array.from(new Set([...ownedIds, ...sharedIds]));
+}
+
+async function listOwnedIds(type: ResourceType, email: string): Promise<string[]> {
+  return withPrisma(async (prisma) => {
+    switch (type) {
+      case "run": {
+        const rows = await prisma.forgeRun.findMany({
+          where: { ownerEmail: email },
+          select: { runId: true },
+        });
+        return rows.map((r) => r.runId);
+      }
+      case "scan": {
+        const rows = await prisma.forgeEnvironmentScan.findMany({
+          where: { ownerEmail: email },
+          select: { scanId: true },
+        });
+        return rows.map((r) => r.scanId);
+      }
+      case "fabric_scan": {
+        const rows = await prisma.forgeFabricScan.findMany({
+          where: { ownerEmail: email },
+          select: { id: true },
+        });
+        return rows.map((r) => r.id);
+      }
+      case "document": {
+        const rows = await prisma.forgeDocument.findMany({
+          where: { ownerEmail: email },
+          select: { id: true },
+        });
+        return rows.map((r) => r.id);
+      }
+      case "demo_session": {
+        const rows = await prisma.forgeDemoSession.findMany({
+          where: { ownerEmail: email },
+          select: { id: true },
+        });
+        return rows.map((r) => r.id);
+      }
+      default:
+        return [];
+    }
+  });
 }
 
 /**
@@ -51,6 +167,14 @@ export async function retrieveContext(
 
   const kinds = opts.kinds ?? (opts.scope ? SEARCH_SCOPES[opts.scope] : undefined);
 
+  // Build user-scope when an email is provided. When omitted (legacy /
+  // background callers), legacy behaviour is preserved: visibility is
+  // determined only by run/scan/metadata filters.
+  let userScope: UserScope | undefined = undefined;
+  if (opts.userEmail) {
+    userScope = await buildUserScope(opts.userEmail, kinds);
+  }
+
   const results: SearchResult[] = await searchByVector(queryVector, {
     kinds: kinds as EmbeddingKind[] | undefined,
     runId: opts.runId,
@@ -58,6 +182,7 @@ export async function retrieveContext(
     metadataFilter: opts.metadataFilter,
     topK: opts.topK ?? 10,
     minScore: opts.minScore ?? 0.4,
+    userScope,
   });
 
   logger.debug("[retriever] Retrieved chunks", {

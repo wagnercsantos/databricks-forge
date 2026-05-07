@@ -17,6 +17,8 @@ import { getPortfolioData, getPortfolioUseCases } from "@/lib/lakebase/portfolio
 import { formatCurrency } from "@/lib/utils";
 import type { BusinessValuePortfolio } from "@/lib/domain/types";
 import type { PortfolioUseCase } from "@/lib/lakebase/portfolio";
+import { requireUser } from "@/lib/auth/route-user";
+import { listAccessibleIds } from "@/lib/lakebase/acl";
 import {
   TrendingUp,
   Zap,
@@ -80,7 +82,12 @@ async function PortfolioContent() {
   let portfolio: BusinessValuePortfolio & { latestRunId: string | null };
   let useCases: PortfolioUseCase[];
   try {
-    [portfolio, useCases] = await Promise.all([getPortfolioData(), getPortfolioUseCases()]);
+    const user = await requireUser();
+    const accessibleRunIds = await listAccessibleIds(user.email, "run");
+    [portfolio, useCases] = await Promise.all([
+      getPortfolioData(user.email, accessibleRunIds),
+      getPortfolioUseCases(user.email, accessibleRunIds),
+    ]);
   } catch {
     return (
       <Card>

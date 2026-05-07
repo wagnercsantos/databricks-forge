@@ -4,6 +4,7 @@ import { getDemoSession, getDemoSessionResearch } from "@/lib/lakebase/demo-sess
 import { generateDemoResearchPptx } from "@/lib/export/demo-research-pptx";
 import { generateDemoResearchPdf } from "@/lib/export/demo-research-pdf";
 import { logger } from "@/lib/logger";
+import { loadDemoSessionOrRespond } from "@/lib/auth/route-guards";
 
 export async function GET(
   request: Request,
@@ -15,6 +16,8 @@ export async function GET(
     }
 
     const { sessionId } = await params;
+    const guard = await loadDemoSessionOrRespond(request, sessionId, "read");
+    if (!guard.ok) return guard.response;
     const session = await getDemoSession(sessionId);
 
     if (!session) {

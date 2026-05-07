@@ -195,6 +195,7 @@ export interface DemoSessionSummary {
   durationMs: number;
   createdAt: string;
   completedAt: string | null;
+  ownerEmail?: string | null;
 }
 
 // ---------------------------------------------------------------------------

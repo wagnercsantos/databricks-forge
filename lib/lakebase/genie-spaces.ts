@@ -36,6 +36,7 @@ function dbRowToTracked(row: {
   status: string;
   deployedAssetsJson: string | null;
   authMode: string | null;
+  ownerEmail?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): TrackedGenieSpace {
@@ -48,6 +49,7 @@ function dbRowToTracked(row: {
     status: row.status as GenieSpaceStatus,
     deployedAssets: parseDeployedAssets(row.deployedAssetsJson),
     authMode: (row.authMode as GenieAuthMode) ?? null,
+    ownerEmail: row.ownerEmail ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -66,10 +68,24 @@ function parseDeployedAssets(json: string | null): DeployedAssets | null {
 // CRUD
 // ---------------------------------------------------------------------------
 
-/** List all tracked Genie spaces (optionally filtered by runId). */
-export async function listTrackedGenieSpaces(runId?: string): Promise<TrackedGenieSpace[]> {
+/**
+ * List tracked Genie spaces.
+ *
+ * Filters can be combined:
+ *   - `runId`: restrict to one pipeline run
+ *   - `ownerEmail`: restrict to spaces owned by this user
+ *   - `idsIn`: restrict to specific tracking ids (used for ACL-shared lists)
+ *
+ * When all filters are omitted, returns ALL spaces (legacy / admin path).
+ */
+export async function listTrackedGenieSpaces(
+  filter: { runId?: string; ownerEmail?: string; idsIn?: string[] } = {},
+): Promise<TrackedGenieSpace[]> {
   return withPrisma(async (prisma) => {
-    const where = runId ? { runId } : {};
+    const where: Record<string, unknown> = {};
+    if (filter.runId) where.runId = filter.runId;
+    if (filter.ownerEmail) where.ownerEmail = filter.ownerEmail.toLowerCase().trim();
+    if (filter.idsIn) where.id = { in: filter.idsIn };
     const rows = await prisma.forgeGenieSpace.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -115,8 +131,10 @@ export async function trackGenieSpaceCreated(
   title: string,
   deployedAssets?: DeployedAssets,
   authMode?: GenieAuthMode,
+  ownerEmail: string | null = null,
 ): Promise<TrackedGenieSpace> {
   const assetsJson = deployedAssets ? JSON.stringify(deployedAssets) : null;
+  const owner = ownerEmail ? ownerEmail.toLowerCase().trim() : null;
   return withPrisma(async (prisma) => {
     if (runId) {
       const existing = await prisma.forgeGenieSpace.findFirst({
@@ -131,6 +149,8 @@ export async function trackGenieSpaceCreated(
             status: "created",
             deployedAssetsJson: assetsJson,
             authMode: authMode ?? null,
+            // Preserve original owner on re-deploy; only fill in when missing.
+            ownerEmail: existing.ownerEmail ?? owner,
           },
         });
         return dbRowToTracked(row);
@@ -146,6 +166,7 @@ export async function trackGenieSpaceCreated(
         status: "created",
         deployedAssetsJson: assetsJson,
         authMode: authMode ?? null,
+        ownerEmail: owner,
       },
     });
     return dbRowToTracked(row);

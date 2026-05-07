@@ -35,6 +35,14 @@ export interface ResearchEngineInput {
   onProgress?: (phase: ResearchPhase, percent: number, detail?: string) => void;
   onSourceReady?: (source: ResearchSource) => void;
   deps?: ResearchEngineDeps;
+  /**
+   * Email of the user who initiated the research. Required when the research
+   * job runs in a fire-and-forget background closure so isolation rules and
+   * embedding metadata stay correct.
+   */
+  ownerEmail?: string | null;
+  /** OBO token (Databricks user OAuth) captured at request time for SP-blocked APIs. */
+  oboToken?: string | null;
 }
 
 export interface ResearchEngineDeps {

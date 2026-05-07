@@ -7,9 +7,12 @@
 import { NextRequest } from "next/server";
 import { updateAssistantLog } from "@/lib/lakebase/assistant-log";
 import { logger } from "@/lib/logger";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
+import { withPrisma } from "@/lib/prisma";
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await requireUser(req);
     const body = await req.json();
     const logId = body.logId as string;
     const rating = body.rating as "up" | "down";
@@ -19,6 +22,19 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "logId and rating (up/down) are required" }, { status: 400 });
     }
 
+    const owned = await withPrisma(async (prisma) =>
+      prisma.forgeAssistantLog.findFirst({
+        where: { id: logId, userId: user.email },
+        select: { id: true },
+      }),
+    );
+    if (!owned) {
+      return Response.json(
+        { error: "Log not found or you do not have access" },
+        { status: 404 },
+      );
+    }
+
     await updateAssistantLog(logId, {
       feedbackRating: rating,
       feedbackText: text ?? undefined,
@@ -26,6 +42,9 @@ export async function POST(req: NextRequest) {
 
     return Response.json({ success: true });
   } catch (err) {
+    if (err instanceof ForgeAuthError) {
+      return Response.json({ error: err.message }, { status: err.status });
+    }
     logger.error("[api/assistant/feedback] Error", { error: String(err) });
     return Response.json({ error: "Failed to submit feedback" }, { status: 500 });
   }

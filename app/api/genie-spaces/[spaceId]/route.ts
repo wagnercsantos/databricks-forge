@@ -17,6 +17,7 @@ import { deleteCachedSpace } from "@/lib/lakebase/genie-space-cache";
 import { logger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { isSafeId, validateFqn } from "@/lib/validation";
+import { loadGenieSpaceBySpaceIdOrRespond } from "@/lib/auth/route-guards";
 
 export async function PATCH(
   request: NextRequest,
@@ -27,6 +28,8 @@ export async function PATCH(
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
     }
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "edit");
+    if (!guard.ok) return guard.response;
     const body = await request.json();
     const { title, description, serializedSpace } = body as {
       title?: string;
@@ -61,6 +64,14 @@ export async function DELETE(
     const { spaceId } = await params;
     if (!isSafeId(spaceId)) {
       return NextResponse.json({ error: "Invalid spaceId" }, { status: 400 });
+    }
+    const guard = await loadGenieSpaceBySpaceIdOrRespond(request, spaceId, "edit");
+    if (!guard.ok) return guard.response;
+    if (!guard.value.offPlatform && guard.permission !== "owner") {
+      return NextResponse.json(
+        { error: "Only the owner can delete a Genie space." },
+        { status: 403 },
+      );
     }
 
     // Parse optional body for asset cleanup

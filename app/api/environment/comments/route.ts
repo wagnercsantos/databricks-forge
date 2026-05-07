@@ -9,11 +9,30 @@ import { NextRequest, NextResponse } from "next/server";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { listCommentJobs, createCommentJob } from "@/lib/lakebase/comment-jobs";
 import { logActivity } from "@/lib/lakebase/activity-log";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
+import { listAccessibleIds } from "@/lib/lakebase/acl";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const jobs = await listCommentJobs();
-    return NextResponse.json({ jobs });
+    let user;
+    try {
+      user = await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
+    const view = (request.nextUrl.searchParams.get("view") ?? "all") as
+      | "all"
+      | "owned"
+      | "shared";
+    const sharedIds = view === "owned" ? [] : await listAccessibleIds(user.email, "comment_job");
+    const jobs = await listCommentJobs(user.email, view, sharedIds);
+    return NextResponse.json(
+      { jobs },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
   } catch (error) {
     return NextResponse.json({ error: safeErrorMessage(error) }, { status: 500 });
   }
@@ -21,6 +40,15 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    let user;
+    try {
+      user = await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
     const body = await request.json();
     const {
       catalogs,
@@ -51,9 +79,11 @@ export async function POST(request: NextRequest) {
       industryId: industryId ?? undefined,
       scanId: scanId ?? undefined,
       runId: runId ?? undefined,
+      ownerEmail: user.email,
     });
 
     logActivity("created_comment_job", {
+      userId: user.email,
       resourceId: job.id,
       metadata: { catalogs, industryId },
     });

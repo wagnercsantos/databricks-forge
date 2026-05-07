@@ -30,6 +30,7 @@ export interface CreateDemoSessionOpts {
   catalogCreated?: boolean;
   scope?: DemoScope;
   createdBy?: string;
+  ownerEmail?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,11 @@ export interface CreateDemoSessionOpts {
 
 export async function createDemoSession(opts: CreateDemoSessionOpts): Promise<string> {
   const id = randomUUID();
+  const owner = opts.ownerEmail
+    ? opts.ownerEmail.toLowerCase().trim()
+    : opts.createdBy
+      ? opts.createdBy.toLowerCase().trim()
+      : null;
   await withPrisma(async (prisma) => {
     await prisma.forgeDemoSession.create({
       data: {
@@ -51,6 +57,7 @@ export async function createDemoSession(opts: CreateDemoSessionOpts): Promise<st
         catalogCreated: opts.catalogCreated ?? false,
         scopeJson: opts.scope ? JSON.stringify(opts.scope) : null,
         createdBy: opts.createdBy ?? null,
+        ownerEmail: owner,
       },
     });
   });
@@ -69,9 +76,25 @@ export async function getDemoSession(sessionId: string): Promise<DemoSessionSumm
   });
 }
 
-export async function listDemoSessions(): Promise<DemoSessionSummary[]> {
+export async function listDemoSessions(
+  userEmail?: string | null,
+  viewMode: "all" | "owned" | "shared" = "all",
+  sharedIds: string[] = [],
+): Promise<DemoSessionSummary[]> {
   return withPrisma(async (prisma) => {
+    const owner = userEmail ? userEmail.toLowerCase().trim() : null;
+    const where: Record<string, unknown> = {};
+    if (owner) {
+      if (viewMode === "owned") {
+        where.ownerEmail = owner;
+      } else if (viewMode === "shared") {
+        where.id = { in: sharedIds };
+      } else {
+        where.OR = [{ ownerEmail: owner }, { id: { in: sharedIds } }];
+      }
+    }
     const rows = await prisma.forgeDemoSession.findMany({
+      where,
       orderBy: { createdAt: "desc" },
     });
     return rows.map(rowToSummary);
@@ -253,6 +276,7 @@ function rowToSummary(row: {
   durationMs: number;
   createdAt: Date;
   completedAt: Date | null;
+  ownerEmail?: string | null;
 }): DemoSessionSummary {
   return {
     sessionId: row.id,
@@ -267,5 +291,6 @@ function rowToSummary(row: {
     durationMs: row.durationMs,
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
+    ownerEmail: row.ownerEmail ?? null,
   };
 }

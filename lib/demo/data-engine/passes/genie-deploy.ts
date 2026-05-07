@@ -35,6 +35,8 @@ export interface GenieDeployInput {
   tableResults: TableResult[];
   research: ResearchEngineResult;
   oboToken?: string;
+  /** Email of the demo session owner; used to tag the new Genie space row. */
+  ownerEmail?: string | null;
   logger: Logger;
   signal?: AbortSignal;
   onProgress?: (msg: string, pct: number) => void;
@@ -57,6 +59,7 @@ export async function runGenieDeploy(
     tableResults,
     research,
     oboToken,
+    ownerEmail,
     logger: log,
     signal,
     onProgress,
@@ -190,6 +193,7 @@ export async function runGenieDeploy(
       fastResult.recommendation.title,
       { functions: [], metricViews: [], metadata: { promptVersion: "demo-genie-mode-v1" } },
       "obo",
+      ownerEmail ?? null,
     );
   } catch (err) {
     log.warn("trackGenieSpaceCreated failed (non-fatal)", {

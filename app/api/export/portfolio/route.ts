@@ -18,8 +18,9 @@ import { generateExecutivePdf } from "@/lib/export/executive-pdf";
 import { generateWorkshopPptx } from "@/lib/export/workshop-pptx";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import { logActivity } from "@/lib/lakebase/activity-log";
-import { getCurrentUserEmail } from "@/lib/dbx/client";
 import { today } from "@/lib/export/brand";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
+import { listAccessibleIds } from "@/lib/lakebase/acl";
 
 const VALID_FORMATS = ["excel", "pptx", "pdf", "workshop"] as const;
 type PortfolioFormat = (typeof VALID_FORMATS)[number];
@@ -27,6 +28,15 @@ type PortfolioFormat = (typeof VALID_FORMATS)[number];
 export async function GET(request: NextRequest) {
   try {
     await ensureMigrated();
+    let user;
+    try {
+      user = await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
     const { searchParams } = new URL(request.url);
     const format = searchParams.get("format") as PortfolioFormat | null;
 
@@ -37,10 +47,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const accessibleRunIds = await listAccessibleIds(user.email, "run");
     const [portfolio, useCases, { profiles: stakeholders }] = await Promise.all([
-      getPortfolioData(),
-      getPortfolioUseCases(),
-      getStakeholderProfilesForLatestRun(),
+      getPortfolioData(user.email, accessibleRunIds),
+      getPortfolioUseCases(user.email, accessibleRunIds),
+      getStakeholderProfilesForLatestRun(user.email, accessibleRunIds),
     ]);
 
     if (portfolio.totalUseCases === 0) {
@@ -50,7 +61,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const userEmail = await getCurrentUserEmail();
+    const userEmail = user.email;
     const dateStamp = today().replace(/-/g, "_");
 
     switch (format) {
