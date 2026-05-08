@@ -424,6 +424,8 @@
       "open_dashboard_title": "Open the Forge WAF Lakeview dashboard",
       "generate_dashboard": "Generate dashboard",
       "generate_dashboard_title": "Create the Forge WAF Lakeview dashboard",
+      "regenerate_dashboard": "Regenerate dashboard",
+      "regenerate_dashboard_title": "Update the Forge WAF Lakeview dashboard with the latest template",
       "open_genie": "Open Genie",
       "open_genie_title": "Open the Forge WAF Genie space",
       "generate_genie": "Generate Genie",

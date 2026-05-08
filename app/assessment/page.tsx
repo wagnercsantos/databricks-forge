@@ -487,12 +487,11 @@ export default function AssessmentPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {latest && (
-            <Button variant="outline" onClick={() => downloadCsv(latest)}>
-              <Download className="mr-2 h-4 w-4" /> {tPage("export_csv")}
-            </Button>
-          )}
-          {dashboardUrl ? (
+          <Button onClick={runAssessment} disabled={running}>
+            {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+            {latest ? tPage("rerun_assessment") : tPage("run_assessment")}
+          </Button>
+          {dashboardUrl && (
             <Button
               variant="outline"
               onClick={() => window.open(dashboardUrl, "_blank", "noopener")}
@@ -501,21 +500,22 @@ export default function AssessmentPage() {
               <ExternalLink className="mr-2 h-4 w-4" />
               {tPage("open_dashboard")}
             </Button>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={generateDashboard}
-              disabled={deployingDashboard}
-              title={tPage("generate_dashboard_title")}
-            >
-              {deployingDashboard ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <LayoutDashboard className="mr-2 h-4 w-4" />
-              )}
-              {tPage("generate_dashboard")}
-            </Button>
           )}
+          <Button
+            variant="outline"
+            onClick={generateDashboard}
+            disabled={deployingDashboard}
+            title={tPage(
+              dashboardUrl ? "regenerate_dashboard_title" : "generate_dashboard_title",
+            )}
+          >
+            {deployingDashboard ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <LayoutDashboard className="mr-2 h-4 w-4" />
+            )}
+            {tPage(dashboardUrl ? "regenerate_dashboard" : "generate_dashboard")}
+          </Button>
           {genieUrl ? (
             <Button
               variant="outline"
@@ -540,10 +540,11 @@ export default function AssessmentPage() {
               {tPage("generate_genie")}
             </Button>
           )}
-          <Button onClick={runAssessment} disabled={running}>
-            {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-            {latest ? tPage("rerun_assessment") : tPage("run_assessment")}
-          </Button>
+          {latest && (
+            <Button variant="outline" onClick={() => downloadCsv(latest)}>
+              <Download className="mr-2 h-4 w-4" /> {tPage("export_csv")}
+            </Button>
+          )}
         </div>
       </div>
 
