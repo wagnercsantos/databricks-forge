@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getConfig } from "@/lib/dbx/client";
 import {
   createDashboard,
+  getDashboard,
   listDashboards,
   publishDashboard,
   updateDashboard,
@@ -32,21 +33,54 @@ export async function POST(request: NextRequest) {
 
     const serializedDashboard = await buildWafDashboardJson();
 
-    const existing = (await listDashboards()).find(
+    // listDashboards can return entries that no longer fetch successfully (e.g.
+    // half-deleted or otherwise broken). Validate via getDashboard before
+    // updating; if it fails, fall through to create.
+    const candidate = (await listDashboards()).find(
       (d) => d.display_name === WAF_DASHBOARD_DISPLAY_NAME,
     );
+
+    let existingId: string | null = null;
+    if (candidate) {
+      try {
+        const fetched = await getDashboard(candidate.dashboard_id);
+        if (fetched && fetched.lifecycle_state !== "TRASHED") {
+          existingId = fetched.dashboard_id ?? candidate.dashboard_id;
+        }
+      } catch (err) {
+        logger.warn("WAF dashboard candidate not retrievable, will recreate", {
+          dashboardId: candidate.dashboard_id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     let dashboardId: string;
     let action: "created" | "updated";
 
-    if (existing) {
-      const result = await updateDashboard(existing.dashboard_id, {
-        displayName: WAF_DASHBOARD_DISPLAY_NAME,
-        serializedDashboard,
-        warehouseId: config.warehouseId,
-      });
-      dashboardId = result.dashboard_id;
-      action = "updated";
+    if (existingId) {
+      try {
+        const result = await updateDashboard(existingId, {
+          displayName: WAF_DASHBOARD_DISPLAY_NAME,
+          serializedDashboard,
+          warehouseId: config.warehouseId,
+        });
+        dashboardId = result.dashboard_id;
+        action = "updated";
+      } catch (err) {
+        logger.warn("WAF dashboard update failed, recreating", {
+          dashboardId: existingId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        const result = await createDashboard({
+          displayName: WAF_DASHBOARD_DISPLAY_NAME,
+          serializedDashboard,
+          warehouseId: config.warehouseId,
+          parentPath,
+        });
+        dashboardId = result.dashboard_id;
+        action = "created";
+      }
     } else {
       const result = await createDashboard({
         displayName: WAF_DASHBOARD_DISPLAY_NAME,
@@ -72,8 +106,8 @@ export async function POST(request: NextRequest) {
     }
 
     const dashboardUrl = published
-      ? `${config.host}/sql/dashboardsv3/${dashboardId}/published`
-      : `${config.host}/sql/dashboardsv3/${dashboardId}`;
+      ? `${config.host}/dashboardsv3/${dashboardId}/published`
+      : `${config.host}/dashboardsv3/${dashboardId}`;
 
     logger.info(`WAF dashboard ${action}`, { dashboardId });
 

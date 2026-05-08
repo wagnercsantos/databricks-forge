@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useL10n } from "@/i18n/format";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -240,6 +240,7 @@ function downloadCsv(latest: WafAssessmentDetail): void {
 }
 
 export default function AssessmentPage() {
+  const locale = useLocale();
   const tPage = useTranslations("assessment.page");
   const tEmpty = useTranslations("assessment.empty_state");
   const tPartial = useTranslations("assessment.partial_run");
@@ -350,7 +351,7 @@ export default function AssessmentPage() {
       const res = await fetch("/api/assessment/genie", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ locale }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? `Genie deploy failed (${res.status})`);
@@ -368,7 +369,7 @@ export default function AssessmentPage() {
       setDeployingGenie(false);
       void refreshAssets();
     }
-  }, [refreshAssets, tToasts]);
+  }, [locale, refreshAssets, tToasts]);
 
   const saveQualitative = useCallback(
     async (input: { wafId: string; response: WafQualitativeAnswer; notes: string | null }) => {
@@ -486,7 +487,7 @@ export default function AssessmentPage() {
             {tPage("subtitle_post")}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button onClick={runAssessment} disabled={running}>
             {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
             {latest ? tPage("rerun_assessment") : tPage("run_assessment")}
@@ -516,7 +517,7 @@ export default function AssessmentPage() {
             )}
             {tPage(dashboardUrl ? "regenerate_dashboard" : "generate_dashboard")}
           </Button>
-          {genieUrl ? (
+          {genieUrl && (
             <Button
               variant="outline"
               onClick={() => window.open(genieUrl, "_blank", "noopener")}
@@ -525,25 +526,26 @@ export default function AssessmentPage() {
               <ExternalLink className="mr-2 h-4 w-4" />
               {tPage("open_genie")}
             </Button>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={generateGenie}
-              disabled={deployingGenie}
-              title={tPage("generate_genie_title")}
-            >
-              {deployingGenie ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <MessageCircle className="mr-2 h-4 w-4" />
-              )}
-              {tPage("generate_genie")}
-            </Button>
           )}
+          <Button
+            variant="outline"
+            onClick={generateGenie}
+            disabled={deployingGenie}
+            title={tPage(genieUrl ? "regenerate_genie_title" : "generate_genie_title")}
+          >
+            {deployingGenie ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <MessageCircle className="mr-2 h-4 w-4" />
+            )}
+            {tPage(genieUrl ? "regenerate_genie" : "generate_genie")}
+          </Button>
           {latest && (
-            <Button variant="outline" onClick={() => downloadCsv(latest)}>
-              <Download className="mr-2 h-4 w-4" /> {tPage("export_csv")}
-            </Button>
+            <div className="ml-1 flex items-center gap-2 border-l border-border pl-3">
+              <Button variant="outline" onClick={() => downloadCsv(latest)}>
+                <Download className="mr-2 h-4 w-4" /> {tPage("export_csv")}
+              </Button>
+            </div>
           )}
         </div>
       </div>

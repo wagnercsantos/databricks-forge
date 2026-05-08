@@ -430,6 +430,8 @@
       "open_genie_title": "Open the Forge WAF Genie space",
       "generate_genie": "Generate Genie",
       "generate_genie_title": "Create the Forge WAF Genie space",
+      "regenerate_genie": "Regenerate Genie",
+      "regenerate_genie_title": "Update the Forge WAF Genie space with the latest instructions and language",
       "run_assessment": "Run assessment",
       "rerun_assessment": "Re-run assessment"
     },

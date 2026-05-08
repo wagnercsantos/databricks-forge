@@ -13,6 +13,7 @@ import type {
   DataSourceTable,
   ExampleQuestionSql,
   SampleQuestion,
+  SerializedInstructions,
   SerializedSpace,
   TextInstruction,
 } from "@/lib/genie/types";
@@ -82,6 +83,18 @@ const TABLES: Array<Omit<DataSourceTable, "description"> & { description: string
       "Catalog inventory. `data_source_format` (DELTA / ICEBERG / DELTASHARING), `comment` (DG-01-04), and `storage_path` (SCP-02-01 — DBFS detection).",
   },
 ];
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English",
+  "pt-BR": "Brazilian Portuguese",
+  es: "Spanish",
+};
+
+function languageDirective(locale?: string): string {
+  if (!locale) return "";
+  const name = LANGUAGE_NAMES[locale] ?? locale;
+  return `Respond preferentially in ${name}. Translate column names, labels, and explanatory prose into ${name} when possible; keep SQL identifiers, table names, and WAF control IDs (e.g. SCP-01-13) unchanged.\n\n`;
+}
 
 const TEXT_INSTRUCTION = `You are an assistant for the Databricks Well-Architected Framework (WAF).
 
@@ -163,14 +176,14 @@ WHERE table_type IN ('MANAGED', 'EXTERNAL')
  * Build a `SerializedSpace` ready to be passed to `createGenieSpace`.
  * The Genie API will further sanitise it (`sanitizeSerializedSpace`).
  */
-export function buildWafGenieSpace(): SerializedSpace {
+export function buildWafGenieSpace(locale?: string): SerializedSpace {
   const tables: DataSourceTable[] = TABLES.map((t) => ({
     identifier: t.identifier,
     description: [t.description],
   }));
 
   const textInstructions: TextInstruction[] = [
-    { id: newId(), content: [TEXT_INSTRUCTION] },
+    { id: newId(), content: [languageDirective(locale) + TEXT_INSTRUCTION] },
   ];
 
   const sampleQuestions: SampleQuestion[] = SAMPLE_QUESTIONS.map((q) => ({
@@ -198,6 +211,60 @@ export function buildWafGenieSpace(): SerializedSpace {
 }
 
 /** Return the `serialized_space` string ready for the Genie API. */
-export function buildWafGenieSerializedSpace(): string {
-  return JSON.stringify(buildWafGenieSpace());
+export function buildWafGenieSerializedSpace(locale?: string): string {
+  return JSON.stringify(buildWafGenieSpace(locale));
+}
+
+/**
+ * Merge user-curated joins, filters, measures, and expressions from an existing
+ * Genie space into the freshly built one. Lets users hand-tune the WAF space in
+ * the UI without losing their work on the next regenerate.
+ *
+ * Curated text_instructions and example_question_sqls beyond our defaults are
+ * also preserved (matched by id). Our default content always wins.
+ */
+export function mergeWafGenieSerializedSpace(
+  newSerialized: string,
+  existingSerialized: string | undefined,
+): string {
+  if (!existingSerialized) return newSerialized;
+
+  let next: SerializedSpace;
+  let prev: Partial<SerializedSpace> & {
+    instructions?: Partial<SerializedInstructions>;
+  };
+  try {
+    next = JSON.parse(newSerialized) as SerializedSpace;
+    prev = JSON.parse(existingSerialized) as SerializedSpace;
+  } catch {
+    return newSerialized;
+  }
+
+  const prevInstr: Partial<SerializedInstructions> = prev.instructions ?? {};
+  const nextInstr = next.instructions;
+
+  const prevJoins = Array.isArray(prevInstr.join_specs) ? prevInstr.join_specs : [];
+  if (prevJoins.length > 0) nextInstr.join_specs = prevJoins;
+
+  const prevSnippets = prevInstr.sql_snippets ?? {
+    measures: [],
+    filters: [],
+    expressions: [],
+  };
+  nextInstr.sql_snippets = {
+    measures:
+      Array.isArray(prevSnippets.measures) && prevSnippets.measures.length > 0
+        ? prevSnippets.measures
+        : nextInstr.sql_snippets.measures,
+    filters:
+      Array.isArray(prevSnippets.filters) && prevSnippets.filters.length > 0
+        ? prevSnippets.filters
+        : nextInstr.sql_snippets.filters,
+    expressions:
+      Array.isArray(prevSnippets.expressions) && prevSnippets.expressions.length > 0
+        ? prevSnippets.expressions
+        : nextInstr.sql_snippets.expressions,
+  };
+
+  return JSON.stringify(next);
 }
