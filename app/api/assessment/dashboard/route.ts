@@ -58,11 +58,11 @@ export async function POST(request: NextRequest) {
       action = "created";
     }
 
-    const dashboardUrl = `${config.host}/sql/dashboardsv3/${dashboardId}`;
-
+    let published = false;
     if (shouldPublish) {
       try {
         await publishDashboard(dashboardId, config.warehouseId);
+        published = true;
       } catch (err) {
         logger.warn("WAF dashboard publish failed (dashboard still saved)", {
           dashboardId,
@@ -70,6 +70,10 @@ export async function POST(request: NextRequest) {
         });
       }
     }
+
+    const dashboardUrl = published
+      ? `${config.host}/sql/dashboardsv3/${dashboardId}/published`
+      : `${config.host}/sql/dashboardsv3/${dashboardId}`;
 
     logger.info(`WAF dashboard ${action}`, { dashboardId });
 

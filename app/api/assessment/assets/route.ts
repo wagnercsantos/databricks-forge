@@ -36,7 +36,7 @@ export async function GET() {
       dashboard: dashboard
         ? {
             id: dashboard.dashboard_id,
-            url: `${config.host}/sql/dashboardsv3/${dashboard.dashboard_id}`,
+            url: `${config.host}/sql/dashboardsv3/${dashboard.dashboard_id}/published`,
           }
         : null,
       genie: genieMatch
