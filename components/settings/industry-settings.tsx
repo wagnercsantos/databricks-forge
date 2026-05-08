@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Building2 } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useIndustryOutcomes } from "@/lib/hooks/use-industry-outcomes";
 
 interface IndustrySettingsProps {
@@ -18,6 +19,7 @@ interface IndustrySettingsProps {
 }
 
 export function IndustrySettings({ industry, onIndustryChange }: IndustrySettingsProps) {
+  const t = useTranslations("settings.industry");
   const { getOptions, loading } = useIndustryOutcomes();
   const options = getOptions();
 
@@ -26,17 +28,13 @@ export function IndustrySettings({ industry, onIndustryChange }: IndustrySetting
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Building2 className="h-5 w-5" />
-          Industry
+          {t("title")}
         </CardTitle>
-        <CardDescription>
-          Set your organisation&apos;s industry once here and it will be applied automatically to all
-          new pipeline runs, AI comment jobs, and other kickoff flows. Per-job industry dropdowns are
-          hidden when this is set.
-        </CardDescription>
+        <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="globalIndustry">Industry</Label>
+          <Label htmlFor="globalIndustry">{t("label")}</Label>
           <Select
             value={industry || "__none__"}
             onValueChange={(v) => onIndustryChange(v === "__none__" ? "" : v)}
@@ -45,11 +43,11 @@ export function IndustrySettings({ industry, onIndustryChange }: IndustrySetting
             <SelectTrigger id="globalIndustry" className="w-80">
               <div className="flex items-center gap-2">
                 <Building2 className="h-4 w-4 text-muted-foreground" />
-                <SelectValue placeholder="Select an industry..." />
+                <SelectValue placeholder={t("placeholder")} />
               </div>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__none__">Not set</SelectItem>
+              <SelectItem value="__none__">{t("not_set")}</SelectItem>
               {options.map((opt) => (
                 <SelectItem key={opt.id} value={opt.id}>
                   {opt.name}
@@ -58,9 +56,7 @@ export function IndustrySettings({ industry, onIndustryChange }: IndustrySetting
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
-            {industry
-              ? "All new jobs will use this industry. You can still change it per-run from the run detail page."
-              : "When not set, each job kickoff will show an industry dropdown for per-run selection."}
+            {industry ? t("when_set") : t("when_unset")}
           </p>
         </div>
       </CardContent>

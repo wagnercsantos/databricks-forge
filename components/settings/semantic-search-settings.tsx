@@ -3,6 +3,8 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BrainCircuit, Loader2, RefreshCw } from "lucide-react";
+import { useTranslations } from "next-intl";
+import { useL10n } from "@/i18n/format";
 
 interface SemanticSearchSettingsProps {
   semanticSearchEnabled: boolean;
@@ -37,18 +39,16 @@ export function SemanticSearchSettings({
   rebuildingEmbeddings,
   onRebuildEmbeddings,
 }: SemanticSearchSettingsProps) {
+  const t = useTranslations("settings.semantic_search");
+  const { integer } = useL10n();
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <BrainCircuit className="h-5 w-5" />
-          Semantic Search &amp; RAG
+          {t("title")}
         </CardTitle>
-        <CardDescription>
-          Enable semantic search, knowledge base, and AI-grounded retrieval across your data estate.
-          Turning this off hides search and knowledge base features but does not delete existing
-          embeddings.
-        </CardDescription>
+        <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div
@@ -57,11 +57,9 @@ export function SemanticSearchSettings({
           }`}
         >
           <div>
-            <p className="text-sm font-medium">Semantic Search &amp; RAG</p>
+            <p className="text-sm font-medium">{t("toggle.label")}</p>
             <p className="text-xs text-muted-foreground">
-              {semanticSearchEnabled
-                ? "Enabled — global search, knowledge base, and AI-grounded retrieval are active"
-                : "Disabled — search bar and knowledge base are hidden; embeddings are preserved for re-activation"}
+              {semanticSearchEnabled ? t("toggle.enabled") : t("toggle.disabled")}
             </p>
           </div>
           <ToggleButton
@@ -72,12 +70,12 @@ export function SemanticSearchSettings({
 
         <div className="flex items-center justify-between rounded-lg border p-4">
           <div>
-            <p className="text-sm font-medium">Rebuild Embeddings</p>
+            <p className="text-sm font-medium">{t("rebuild.label")}</p>
             <p className="text-xs text-muted-foreground">
-              Re-generate the vector knowledge base from all estate scans, pipelines, and documents.
+              {t("rebuild.description")}
               {embeddingCount !== null && (
                 <span className="ml-1 font-medium">
-                  {embeddingCount.toLocaleString()} vectors currently stored.
+                  {t("rebuild.vectors_stored", { count: integer(embeddingCount) })}
                 </span>
               )}
             </p>
@@ -94,7 +92,7 @@ export function SemanticSearchSettings({
             ) : (
               <RefreshCw className="size-3.5" />
             )}
-            {rebuildingEmbeddings ? "Rebuilding..." : "Rebuild"}
+            {rebuildingEmbeddings ? t("rebuild.running") : t("rebuild.idle")}
           </Button>
         </div>
       </CardContent>

@@ -14,8 +14,13 @@ import { resolveEndpoint } from "@/lib/dbx/client";
 import { logger as fallbackLogger } from "@/lib/logger";
 import type { Logger } from "@/lib/ports/logger";
 import type { ChatMessage } from "@/lib/dbx/model-serving";
-import type { TableCommentInput, CommentProgressCallback, MetadataCounters } from "./types";
-import { TABLE_COMMENT_PROMPT } from "./prompts";
+import type {
+  TableCommentInput,
+  CommentProgressCallback,
+  MetadataCounters,
+  CommentOutputLanguage,
+} from "./types";
+import { TABLE_COMMENT_PROMPT, buildLanguageDirective } from "./prompts";
 
 // ---------------------------------------------------------------------------
 // Context blocks
@@ -28,6 +33,7 @@ export interface TablePassContext {
   useCaseLinkage: string;
   schemaSummary: string;
   lineageContext: string;
+  outputLanguage: CommentOutputLanguage;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,8 +124,10 @@ export async function runTableCommentPass(
   if (tables.length === 0) return descriptions;
 
   const endpoint = resolveEndpoint("classification");
+  const languageDirective = buildLanguageDirective(context.outputLanguage);
 
-  const basePrompt = TABLE_COMMENT_PROMPT.replace("{industry_context}", context.industryContext)
+  const basePrompt = TABLE_COMMENT_PROMPT.replace("{language_directive}", languageDirective)
+    .replace("{industry_context}", context.industryContext)
     .replace(
       "{business_context_block}",
       context.businessContext ? `### BUSINESS CONTEXT\n${context.businessContext}` : "",
@@ -142,7 +150,8 @@ export async function runTableCommentPass(
 
     const tableList = batch.map(renderTableInput).join("\n\n");
 
-    const prompt = TABLE_COMMENT_PROMPT.replace("{industry_context}", context.industryContext)
+    const prompt = TABLE_COMMENT_PROMPT.replace("{language_directive}", languageDirective)
+      .replace("{industry_context}", context.industryContext)
       .replace(
         "{business_context_block}",
         context.businessContext ? `### BUSINESS CONTEXT\n${context.businessContext}` : "",

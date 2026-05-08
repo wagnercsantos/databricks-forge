@@ -7,6 +7,15 @@
 
 import type { DiscoveryDepth, DiscoveryDepthConfig } from "@/lib/domain/types";
 import { DISCOVERY_DEPTHS, DEFAULT_DEPTH_CONFIGS } from "@/lib/domain/types";
+import {
+  COMMENT_OUTPUT_LANGUAGES,
+  DEFAULT_COMMENT_OUTPUT_LANGUAGE,
+  isCommentOutputLanguage,
+  type CommentOutputLanguage,
+} from "@/lib/ai/comment-engine/types";
+
+export type { CommentOutputLanguage };
+export { COMMENT_OUTPUT_LANGUAGES, DEFAULT_COMMENT_OUTPUT_LANGUAGE };
 
 export type GenieAuthMode = "obo" | "sp";
 const VALID_AUTH_MODES = new Set<GenieAuthMode>(["obo", "sp"]);
@@ -67,6 +76,8 @@ export interface AppSettings {
   catalogResourcePrefix: string;
   /** Global industry outcome map id. When set, kickoff forms skip the per-job industry dropdown and use this value. Empty string = not set. */
   industry: string;
+  /** Output language for AI-generated table/column comments. Independent from the UI locale. */
+  aiCommentLanguage: CommentOutputLanguage;
 }
 
 const STORAGE_KEY = "forge-settings";
@@ -118,6 +129,7 @@ const DEFAULTS: AppSettings = {
   questionComplexity: { ...DEFAULT_QUESTION_COMPLEXITY },
   catalogResourcePrefix: DEFAULT_CATALOG_RESOURCE_PREFIX,
   industry: "",
+  aiCommentLanguage: DEFAULT_COMMENT_OUTPUT_LANGUAGE,
 };
 
 export function loadSettings(): AppSettings {
@@ -169,6 +181,9 @@ export function loadSettings(): AppSettings {
       questionComplexity: parseQuestionComplexity(parsed.questionComplexity),
       catalogResourcePrefix: parseCatalogResourcePrefix(parsed.catalogResourcePrefix),
       industry: typeof parsed.industry === "string" ? parsed.industry : DEFAULTS.industry,
+      aiCommentLanguage: isCommentOutputLanguage(parsed.aiCommentLanguage)
+        ? parsed.aiCommentLanguage
+        : DEFAULTS.aiCommentLanguage,
     };
   } catch {
     return { ...DEFAULTS };

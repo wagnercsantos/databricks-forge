@@ -34,6 +34,7 @@ import type {
   ColumnCommentInput,
   MetadataCounters,
 } from "./types";
+import { DEFAULT_COMMENT_OUTPUT_LANGUAGE } from "./types";
 
 // ---------------------------------------------------------------------------
 // Main entry point
@@ -47,6 +48,7 @@ export async function runCommentEngine(
   const {
     industryId,
     businessContext,
+    outputLanguage = DEFAULT_COMMENT_OUTPUT_LANGUAGE,
     enableConsistencyReview = true,
     enableLineage = true,
     enableHistory = true,
@@ -175,6 +177,7 @@ export async function runCommentEngine(
       useCaseLinkage,
       schemaSummary: schemaContext.schemaSummary,
       lineageContext,
+      outputLanguage,
     },
     {
       signal,
@@ -248,7 +251,7 @@ export async function runCommentEngine(
     };
   });
 
-  const columnComments = await runColumnCommentPass(columnInputs, industryContext, {
+  const columnComments = await runColumnCommentPass(columnInputs, industryContext, outputLanguage, {
     signal,
     onProgress,
     onCounters: (c) => {
@@ -280,6 +283,7 @@ export async function runCommentEngine(
         tableComments,
         columnComments,
         schemaContext.schemaSummary,
+        outputLanguage,
         { signal, onProgress, logger: log },
       );
 

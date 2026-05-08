@@ -10,6 +10,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { useFormatter, useTranslations } from "next-intl";
 import { loadSettings } from "@/lib/settings";
 import {
   Search,
@@ -53,14 +54,14 @@ interface SearchResult {
 
 type Scope = "all" | "estate" | "usecases" | "genie" | "insights" | "documents";
 
-const SCOPE_LABELS: Record<Scope, string> = {
-  all: "All",
-  estate: "Tables",
-  usecases: "Use Cases",
-  genie: "Genie",
-  insights: "Insights",
-  documents: "Documents",
-};
+const SCOPES: readonly Scope[] = [
+  "all",
+  "estate",
+  "usecases",
+  "genie",
+  "insights",
+  "documents",
+] as const;
 
 const KIND_ICON: Record<string, React.ReactNode> = {
   table_detail: <Table2 className="size-4 text-blue-500" />,
@@ -77,20 +78,6 @@ const KIND_ICON: Record<string, React.ReactNode> = {
   document_chunk: <FileText className="size-4 text-gray-400" />,
 };
 
-const KIND_LABEL: Record<string, string> = {
-  table_detail: "Table",
-  column_profile: "Columns",
-  use_case: "Use Case",
-  business_context: "Business Context",
-  genie_recommendation: "Genie Space",
-  genie_question: "Genie Question",
-  environment_insight: "Insight",
-  table_health: "Health",
-  data_product: "Data Product",
-  outcome_map: "Outcome Map",
-  lineage_context: "Lineage",
-  document_chunk: "Document",
-};
 
 // ---------------------------------------------------------------------------
 // Provenance
@@ -98,27 +85,12 @@ const KIND_LABEL: Record<string, string> = {
 
 type Provenance = "platform" | "insight" | "generated" | "uploaded" | "template";
 
-const PROVENANCE_CONFIG: Record<Provenance, { label: string; className: string }> = {
-  platform: {
-    label: "Platform",
-    className: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-  },
-  insight: {
-    label: "Insight",
-    className: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
-  },
-  generated: {
-    label: "Generated",
-    className: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
-  },
-  uploaded: {
-    label: "Uploaded",
-    className: "bg-gray-100 text-gray-700 dark:bg-gray-800/60 dark:text-gray-300",
-  },
-  template: {
-    label: "Template",
-    className: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300",
-  },
+const PROVENANCE_CLASSNAMES: Record<Provenance, string> = {
+  platform: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  insight: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
+  generated: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+  uploaded: "bg-gray-100 text-gray-700 dark:bg-gray-800/60 dark:text-gray-300",
+  template: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300",
 };
 
 function getProvenance(kind: string): Provenance {
@@ -145,7 +117,10 @@ function getProvenance(kind: string): Provenance {
   }
 }
 
-function resultSubtitle(r: SearchResult): string {
+function buildSubtitle(
+  r: SearchResult,
+  fallback: (key: string, values?: Record<string, string | number>) => string,
+): string {
   const m = r.metadata ?? {};
   switch (r.kind) {
     case "table_detail":
@@ -155,9 +130,11 @@ function resultSubtitle(r: SearchResult): string {
       return [r.sourceId, m.domain, m.tier].filter(Boolean).join(" · ");
     case "document_chunk":
       return [
-        (m.filename as string) || "Document",
+        (m.filename as string) || fallback("document"),
         m.category,
-        m.chunkIndex != null ? `Chunk ${Number(m.chunkIndex) + 1}` : null,
+        m.chunkIndex != null
+          ? fallback("chunk", { index: Number(m.chunkIndex) + 1 })
+          : null,
       ]
         .filter(Boolean)
         .join(" · ");
@@ -166,15 +143,23 @@ function resultSubtitle(r: SearchResult): string {
     case "genie_recommendation":
       return [(m.spaceTitle as string) || m.domain, m.catalog].filter(Boolean).join(" · ");
     case "genie_question":
-      return [(m.spaceTitle as string) || "Genie Space", m.domain].filter(Boolean).join(" · ");
+      return [(m.spaceTitle as string) || fallback("genie_space"), m.domain]
+        .filter(Boolean)
+        .join(" · ");
     case "environment_insight":
-      return [(m.insightType as string) || "Insight", r.sourceId].filter(Boolean).join(" · ");
+      return [(m.insightType as string) || fallback("insight"), r.sourceId]
+        .filter(Boolean)
+        .join(" · ");
     case "data_product":
       return [r.sourceId, m.domain].filter(Boolean).join(" · ");
     case "business_context":
-      return [(m.businessName as string) || "Business Context"].filter(Boolean).join(" · ");
+      return [(m.businessName as string) || fallback("business_context")]
+        .filter(Boolean)
+        .join(" · ");
     case "outcome_map":
-      return [(m.name as string) || "Outcome Map", m.industry].filter(Boolean).join(" · ");
+      return [(m.name as string) || fallback("outcome_map"), m.industry]
+        .filter(Boolean)
+        .join(" · ");
     default:
       return [m.catalog, m.domain, m.tier].filter(Boolean).join(" · ");
   }
@@ -194,6 +179,13 @@ export function SearchBar() {
   const [enabled, setEnabled] = React.useState<boolean | null>(null);
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
+  const t = useTranslations("search");
+  const formatter = useFormatter();
+  const tFallbacks = useTranslations("search.fallbacks");
+  const fallback = React.useCallback(
+    (key: string, values?: Record<string, string | number>) => tFallbacks(key, values),
+    [tFallbacks],
+  );
 
   // Check if embedding feature is enabled (infra) AND user setting allows it
   React.useEffect(() => {
@@ -376,7 +368,7 @@ export function SearchBar() {
         className="hidden md:flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
       >
         <Search className="size-3.5" />
-        <span>Search…</span>
+        <span>{t("trigger")}</span>
         <kbd className="ml-4 inline-flex h-5 items-center rounded border bg-background px-1.5 text-[10px] font-mono font-medium text-muted-foreground">
           ⌘K
         </kbd>
@@ -385,18 +377,18 @@ export function SearchBar() {
       <CommandDialog
         open={open}
         onOpenChange={handleOpenChange}
-        title="Search"
-        description="Semantic search across tables, use cases, insights, and documents"
+        title={t("dialog_title")}
+        description={t("dialog_description")}
       >
         <CommandInput
-          placeholder="Search across your entire data estate…"
+          placeholder={t("placeholder")}
           value={query}
           onValueChange={setQuery}
         />
 
         {/* Scope tabs */}
         <div className="flex items-center gap-1 border-b px-3 py-1.5">
-          {(Object.keys(SCOPE_LABELS) as Scope[]).map((s) => (
+          {SCOPES.map((s) => (
             <button
               key={s}
               onClick={() => setScope(s)}
@@ -406,7 +398,7 @@ export function SearchBar() {
                   : "text-muted-foreground hover:bg-muted"
               }`}
             >
-              {SCOPE_LABELS[s]}
+              {t(`scopes.${s}`)}
             </button>
           ))}
         </div>
@@ -415,23 +407,22 @@ export function SearchBar() {
           {loading && (
             <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
               <div className="animate-spin mr-2 size-4 border-2 border-primary border-t-transparent rounded-full" />
-              Searching…
+              {t("searching")}
             </div>
           )}
 
           {!loading && searched && results.length === 0 && (
-            <CommandEmpty>No results found for &ldquo;{query}&rdquo;</CommandEmpty>
+            <CommandEmpty>{t("no_results", { query })}</CommandEmpty>
           )}
 
           {!loading &&
             Array.from(grouped.entries()).map(([kind, items], idx) => (
               <React.Fragment key={kind}>
                 {idx > 0 && <CommandSeparator />}
-                <CommandGroup heading={KIND_LABEL[kind] || kind}>
+                <CommandGroup heading={t.has(`kinds.${kind}`) ? t(`kinds.${kind}`) : kind}>
                   {items.map((r) => {
                     const prov = getProvenance(r.kind);
-                    const provCfg = PROVENANCE_CONFIG[prov];
-                    const subtitle = resultSubtitle(r);
+                    const subtitle = buildSubtitle(r, fallback);
                     return (
                       <CommandItem
                         key={r.id}
@@ -447,9 +438,9 @@ export function SearchBar() {
                             <p className="text-sm truncate">{firstLine(r.content)}</p>
                             <Badge
                               variant="outline"
-                              className={`shrink-0 text-[9px] px-1 py-0 leading-tight font-medium ${provCfg.className}`}
+                              className={`shrink-0 text-[9px] px-1 py-0 leading-tight font-medium ${PROVENANCE_CLASSNAMES[prov]}`}
                             >
-                              {provCfg.label}
+                              {t(`provenance.${prov}`)}
                             </Badge>
                           </div>
                           {subtitle && (
@@ -460,7 +451,10 @@ export function SearchBar() {
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <span className={`text-[10px] font-mono ${scoreColor(r.score)}`}>
-                            {(r.score * 100).toFixed(0)}%
+                            {formatter.number(r.score, {
+                              style: "percent",
+                              maximumFractionDigits: 0,
+                            })}
                           </span>
                           <ArrowRight className="size-3 text-muted-foreground" />
                         </div>
@@ -474,8 +468,8 @@ export function SearchBar() {
           {!loading && !searched && !query && (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
               <Search className="mx-auto mb-2 size-8 opacity-30" />
-              <p>Search tables, use cases, insights, and more</p>
-              <p className="mt-1 text-xs">Results are ranked by semantic similarity</p>
+              <p>{t("empty_heading")}</p>
+              <p className="mt-1 text-xs">{t("empty_subtitle")}</p>
             </div>
           )}
         </CommandList>

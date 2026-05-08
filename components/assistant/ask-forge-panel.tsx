@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { BrainCircuit } from "lucide-react";
 
@@ -12,6 +13,7 @@ import { BrainCircuit } from "lucide-react";
 export function AskForgePanel() {
   const router = useRouter();
   const pathname = usePathname();
+  const t = useTranslations("ask_forge");
 
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -38,7 +40,7 @@ export function AskForgePanel() {
       onClick={() => router.push("/ask-forge")}
     >
       <BrainCircuit className="size-4" />
-      Ask Forge
+      {t("label")}
       <kbd className="ml-1 inline-flex h-5 items-center rounded border bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
         ⌘J
       </kbd>

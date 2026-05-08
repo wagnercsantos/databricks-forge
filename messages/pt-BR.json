@@ -1,0 +1,575 @@
+{
+  "common": {
+    "language": "Idioma",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "loading": "Carregando…",
+    "close": "Fechar"
+  },
+  "accessibility": {
+    "skip_to_main": "Ir para o conteúdo principal",
+    "toggle_nav": "Alternar navegação",
+    "navigation": "Navegação"
+  },
+  "language_toggle": {
+    "label": "Idioma",
+    "tooltip": "Alterar idioma da interface"
+  },
+  "theme_toggle": {
+    "label": "Alternar tema",
+    "active": "Ativo",
+    "options": {
+      "light": "Claro",
+      "dark": "Escuro",
+      "system": "Sistema"
+    }
+  },
+  "sidebar": {
+    "expand": "Expandir menu lateral",
+    "collapse": "Recolher menu lateral",
+    "sections": {
+      "explore": "Explorar",
+      "genie": "Genie Studio",
+      "estate": "Patrimônio de Dados",
+      "business_value": "Valor de Negócio",
+      "demo": "Demo",
+      "migrate": "Migrar",
+      "admin": "Administração"
+    },
+    "items": {
+      "dashboard": "Painel",
+      "ask_forge": "Pergunte ao Forge",
+      "new_discovery": "Nova Descoberta",
+      "runs": "Execuções",
+      "genie_studio": "Genie Studio",
+      "metadata_genie": "Genie de Metadados",
+      "overview": "Visão Geral",
+      "ai_comments": "Comentários de IA",
+      "waf_assessment": "Avaliação WAF",
+      "portfolio": "Portfólio",
+      "roadmap": "Roadmap",
+      "stakeholders": "Stakeholders",
+      "value_tracking": "Acompanhamento de Valor",
+      "strategy": "Estratégia",
+      "outcome_maps": "Mapas de Resultados",
+      "benchmarks": "Benchmarks",
+      "demo_studio": "Demo Studio",
+      "fabric_pbi": "Fabric / PBI",
+      "connections": "Conexões",
+      "knowledge_base": "Base de Conhecimento",
+      "settings": "Configurações",
+      "help": "Ajuda"
+    }
+  },
+  "header": {
+    "page_titles": {
+      "dashboard": "Painel",
+      "new_discovery": "Nova Descoberta",
+      "runs": "Execuções de Pipeline",
+      "compare_runs": "Comparar Execuções",
+      "estate_overview": "Visão Geral do Patrimônio",
+      "waf_assessment": "Avaliação WAF",
+      "compare_assessments": "Comparar Avaliações",
+      "benchmark_catalog": "Catálogo de Benchmarks",
+      "outcome_maps": "Mapas de Resultados",
+      "ingest_outcome_map": "Importar Mapa de Resultados",
+      "genie_spaces": "Genie Spaces",
+      "metadata_genie": "Genie de Metadados",
+      "settings": "Configurações",
+      "help": "Ajuda",
+      "run_detail": "Detalhe da Execução"
+    }
+  },
+  "ask_forge": {
+    "label": "Pergunte ao Forge"
+  },
+  "search": {
+    "trigger": "Buscar…",
+    "dialog_title": "Buscar",
+    "dialog_description": "Busca semântica em tabelas, casos de uso, insights e documentos",
+    "placeholder": "Busque em todo o seu patrimônio de dados…",
+    "searching": "Buscando…",
+    "no_results": "Nenhum resultado para \u201c{query}\u201d",
+    "empty_heading": "Busque tabelas, casos de uso, insights e mais",
+    "empty_subtitle": "Resultados ordenados por similaridade semântica",
+    "scopes": {
+      "all": "Todos",
+      "estate": "Tabelas",
+      "usecases": "Casos de Uso",
+      "genie": "Genie",
+      "insights": "Insights",
+      "documents": "Documentos"
+    },
+    "kinds": {
+      "table_detail": "Tabela",
+      "column_profile": "Colunas",
+      "use_case": "Caso de Uso",
+      "business_context": "Contexto de Negócio",
+      "genie_recommendation": "Genie Space",
+      "genie_question": "Pergunta Genie",
+      "environment_insight": "Insight",
+      "table_health": "Saúde",
+      "data_product": "Produto de Dados",
+      "outcome_map": "Mapa de Resultados",
+      "lineage_context": "Linhagem",
+      "document_chunk": "Documento"
+    },
+    "provenance": {
+      "platform": "Plataforma",
+      "insight": "Insight",
+      "generated": "Gerado",
+      "uploaded": "Enviado",
+      "template": "Modelo"
+    },
+    "fallbacks": {
+      "document": "Documento",
+      "business_context": "Contexto de Negócio",
+      "genie_space": "Genie Space",
+      "outcome_map": "Mapa de Resultados",
+      "insight": "Insight",
+      "chunk": "Trecho {index}"
+    }
+  },
+  "settings": {
+    "page": {
+      "title": "Configurações",
+      "subtitle": "Configure padrões e preferências para toda a aplicação.",
+      "save_button": "Salvar Configurações"
+    },
+    "toasts": {
+      "settings_saved": "Configurações salvas",
+      "embeddings_rebuilt": "Embeddings reconstruídos com sucesso",
+      "embeddings_failed": "Falha ao reconstruir embeddings",
+      "embeddings_network_error": "Erro de rede ao reconstruir embeddings",
+      "local_cleared": "Configurações locais limpas",
+      "all_data_deleted": "Todos os dados foram excluídos — a aplicação foi redefinida",
+      "delete_failed": "Falha ao excluir dados"
+    },
+    "profile": {
+      "title": "Perfil",
+      "description": "Identidade do seu workspace e informações de conexão",
+      "email_label": "E-mail do Usuário",
+      "email_unavailable": "Indisponível (dev local)",
+      "host_label": "Workspace Databricks",
+      "host_disconnected": "Não conectado"
+    },
+    "industry": {
+      "title": "Setor",
+      "description": "Defina o setor da sua organização aqui uma vez e ele será aplicado automaticamente a todas as novas execuções de pipeline, jobs de comentários de IA e outros fluxos de início. Os dropdowns de setor por job ficam ocultos quando isso é definido.",
+      "label": "Setor",
+      "placeholder": "Selecione um setor...",
+      "not_set": "Não definido",
+      "when_set": "Todos os novos jobs usarão este setor. Você ainda pode alterá-lo por execução na página de detalhes da execução.",
+      "when_unset": "Quando não definido, cada início de job mostrará um dropdown de setor para seleção por execução."
+    },
+    "ai_output": {
+      "title": "Idioma das saídas de IA",
+      "description": "Escolha o idioma que o Forge usa para gerar descrições de IA para tabelas e colunas. É independente do idioma da interface — identificadores (nomes de tabelas, colunas, tipos de dados) permanecem sempre no original.",
+      "comment_language_label": "Idioma da geração de comentários",
+      "comment_language_hint": "Usado como padrão para novos jobs de AI Comments. Você ainda pode alterá-lo em cada job a partir da página de AI Comments."
+    },
+    "data_sampling": {
+      "title": "Amostragem de Dados",
+      "description": "Controla se linhas de exemplo são lidas das tabelas durante a descoberta de casos de uso e geração de SQL. Valores reais ajudam a IA a entender o conteúdo de cada tabela, produzindo casos de uso mais relevantes e SQL mais preciso. Trade-off: lê dados a nível de linha e aumenta o tempo de execução.",
+      "rows_label": "Linhas por tabela",
+      "options": {
+        "disabled": "Desativado (apenas metadados)",
+        "n5": "5 linhas por tabela",
+        "n10": "10 linhas por tabela",
+        "n25": "25 linhas por tabela",
+        "n50": "50 linhas por tabela"
+      },
+      "privacy_heading": "Privacidade e acesso a dados",
+      "privacy_body_pre": "Quando a amostragem está ativada, o Forge lê algumas linhas de cada tabela durante a descoberta de casos de uso e geração de SQL. Esses dados são enviados ao modelo de IA junto com o esquema para que ele entenda valores, formatos e padrões reais — produzindo melhores casos de uso e SQL mais preciso. Os dados amostrados",
+      "privacy_body_emphasis": "não",
+      "privacy_body_post": "são persistidos."
+    },
+    "estate_scan": {
+      "title": "Varredura do Patrimônio",
+      "description": "Executa inteligência de ambiente (classificação de domínio, detecção de PII, scoring de saúde, enriquecimento de linhagem) durante execuções de pipeline. Aumenta o tempo de execução, mas fornece uma visão abrangente do patrimônio junto com a descoberta de casos de uso.",
+      "scan": {
+        "label": "Varredura do Patrimônio durante execuções de pipeline",
+        "enabled": "Ativado — a extração de metadados incluirá enriquecimento completo de inteligência de ambiente",
+        "disabled": "Desativado — execuções de pipeline pularão o passo de enriquecimento (execuções mais rápidas)"
+      },
+      "asset_discovery": {
+        "label": "Descoberta de Ativos durante execuções de pipeline",
+        "enabled": "Ativado — Genie Spaces, dashboards e metric views existentes serão descobertos e usados para melhorar recomendações",
+        "disabled": "Desativado — recomendações são geradas sem ciência dos ativos analíticos existentes (execuções mais rápidas)"
+      },
+      "benchmarks": {
+        "label": "Catálogo de Benchmarks",
+        "unavailable": "Indisponível — flag do servidor FORGE_BENCHMARKS_ENABLED não está definida na configuração do deploy",
+        "enabled": "Ativado — benchmarks setoriais são incorporados e injetados em prompts e na recuperação do Ask Forge",
+        "disabled": "Desativado — pipeline usa contexto consultivo genérico; página e API do catálogo ficam ocultas"
+      }
+    },
+    "semantic_search": {
+      "title": "Busca Semântica e RAG",
+      "description": "Habilita busca semântica, base de conhecimento e recuperação fundamentada em IA em todo o patrimônio de dados. Desativar oculta busca e base de conhecimento, mas não exclui embeddings existentes.",
+      "toggle": {
+        "label": "Busca Semântica e RAG",
+        "enabled": "Ativado — busca global, base de conhecimento e recuperação fundamentada em IA estão ativas",
+        "disabled": "Desativado — barra de busca e base de conhecimento ficam ocultas; embeddings são preservados para reativação"
+      },
+      "rebuild": {
+        "label": "Reconstruir Embeddings",
+        "description": "Regenera a base vetorial de conhecimento a partir de todas as varreduras, pipelines e documentos.",
+        "vectors_stored": "{count} vetores armazenados atualmente.",
+        "running": "Reconstruindo...",
+        "idle": "Reconstruir"
+      }
+    },
+    "discovery_depth": {
+      "title": "Profundidade de Descoberta",
+      "description": "Configure os parâmetros de cada nível de profundidade e escolha o padrão. Cada nível controla quantos casos de uso são gerados por lote, o limite mínimo de qualidade e o volume máximo de saída. Você ainda pode sobrescrever a profundidade por execução.",
+      "default_label": "Profundidade padrão para novas execuções",
+      "default_badge": "Padrão",
+      "options": {
+        "focused": {
+          "label": "Focada",
+          "description": "Menos casos de uso, com a maior qualidade"
+        },
+        "balanced": {
+          "label": "Equilibrada",
+          "description": "Bom equilíbrio entre amplitude e qualidade"
+        },
+        "comprehensive": {
+          "label": "Abrangente",
+          "description": "Cobertura máxima entre domínios"
+        }
+      },
+      "batch_target_label": "Alvo do lote (mín-máx casos de uso por lote)",
+      "batch_target_to": "a",
+      "quality_floor_label": "Piso de qualidade (0-1, score mínimo geral)",
+      "adaptive_cap_label": "Limite adaptativo (máx casos de uso na saída)",
+      "lineage_depth_label": "Profundidade de linhagem (máx hops a percorrer)",
+      "reset_defaults": "Restaurar padrões"
+    },
+    "genie": {
+      "title": "Engine Genie",
+      "description": "Padrões globais para geração de Genie Spaces. Aplicam-se a todas as novas execuções. A configuração por execução (glossário, SQL customizado, overrides de coluna, benchmarks, instruções) continua editável dentro de cada execução.",
+      "engine": {
+        "label": "Engine Genie",
+        "enabled": "Ativado — geração de Genie Space com LLM está ativa para todas as execuções",
+        "disabled": "Desativado — config do Engine ficará somente leitura nas execuções; apenas geração legada disponível"
+      },
+      "quality_preset": {
+        "label": "Preset de Qualidade",
+        "options": {
+          "speed": {
+            "label": "Velocidade",
+            "desc": "Geração mais rápida com saída enxuta"
+          },
+          "balanced": {
+            "label": "Equilibrado",
+            "desc": "Boa qualidade em velocidade razoável"
+          },
+          "premium": {
+            "label": "Premium",
+            "desc": "Riqueza máxima, geração mais longa"
+          }
+        }
+      },
+      "max_tables": {
+        "label": "Máx. tabelas por space",
+        "suffix": "Até 30 tabelas por space"
+      },
+      "fiscal_month": {
+        "label": "Mês de início do ano fiscal"
+      },
+      "max_auto_spaces": {
+        "label": "Máx. spaces para auto-análise",
+        "suffix": "0 = todos os domínios (padrão). Limita a auto-geração; você sempre pode regenerar mais a partir do Genie Workbench."
+      },
+      "entity_matching": {
+        "label": "Correspondência de Entidades",
+        "options": {
+          "auto": "Automático (a partir de dados de amostra)",
+          "manual": "Apenas manual",
+          "off": "Desativado"
+        },
+        "hint": "Automático usa dados de amostra para detectar aliases (por ex. \"Florida\" → \"FL\")"
+      },
+      "question_complexity": {
+        "label": "Complexidade das Perguntas",
+        "tip": "Controla o estilo de linguagem das perguntas de exemplo geradas para Genie Spaces. Simples: perguntas curtas em linguagem cotidiana. Médio: um pouco mais específicas com conceitos de negócio. Complexo: linguagem analítica com tendências, correlações e termos técnicos.",
+        "surfaces": {
+          "genie_engine": "Engine Genie",
+          "adhoc_genie": "Genie Adhoc",
+          "metadata_genie": "Genie de Metadados"
+        },
+        "options": {
+          "simple": "Simples",
+          "medium": "Médio",
+          "complex": "Complexo"
+        },
+        "hint": "Simples gera perguntas curtas e cotidianas. Médio adiciona contexto de negócio. Complexo usa linguagem analítica."
+      },
+      "deploy_auth": {
+        "label": "Autenticação no Deploy",
+        "tip": "Controla qual identidade é usada ao criar, atualizar ou excluir Genie Spaces no Databricks. Usuário (OBO) usa as credenciais do usuário logado; Service Principal usa o service principal da aplicação.",
+        "options": {
+          "obo": "Usuário (recomendado)",
+          "sp": "Service Principal"
+        },
+        "hint_obo": "Os spaces são criados sob sua identidade. Você precisa ter acesso às tabelas referenciadas.",
+        "hint_sp": "Os spaces são criados sob o service principal da aplicação. O SP precisa ter acesso SELECT às tabelas referenciadas."
+      },
+      "toggles": {
+        "llm_refinement": {
+          "label": "Refinamento por LLM",
+          "description": "Usar IA para gerar expressões semânticas, instruções e ativos confiáveis"
+        },
+        "trusted_assets": {
+          "label": "Ativos Confiáveis",
+          "description": "Gerar consultas SQL parametrizadas e definições de UDF"
+        },
+        "auto_benchmarks": {
+          "label": "Benchmarks Automáticos",
+          "description": "Gerar perguntas de teste com SQL esperado para avaliar a precisão do Genie"
+        },
+        "metric_views": {
+          "label": "Metric Views",
+          "description": "Propor definições de metric views (KPIs, dimensões, medidas)"
+        },
+        "auto_time_periods": {
+          "label": "Períodos Automáticos",
+          "description": "Gerar filtros e dimensões de data padrão (última semana, último mês, trimestres fiscais)"
+        }
+      },
+      "months": {
+        "1": "Janeiro",
+        "2": "Fevereiro",
+        "3": "Março",
+        "4": "Abril",
+        "5": "Maio",
+        "6": "Junho",
+        "7": "Julho",
+        "8": "Agosto",
+        "9": "Setembro",
+        "10": "Outubro",
+        "11": "Novembro",
+        "12": "Dezembro"
+      }
+    },
+    "export": {
+      "title": "Exportação e Nomeação",
+      "description": "Formato padrão de exportação, caminho do notebook e prefixo de nomeação para recursos do Unity Catalog",
+      "format_label": "Formato padrão de exportação",
+      "format_options": {
+        "excel": "Excel (.xlsx)",
+        "pdf": "PDF",
+        "pptx": "PowerPoint (.pptx)",
+        "notebooks": "Notebooks Databricks"
+      },
+      "notebook_path_label": "Caminho de deploy de notebooks",
+      "prefix_label": "Prefixo de recursos do catálogo",
+      "prefix_tip": "Prefixo aplicado a todos os recursos do Unity Catalog (views, metric views, tabelas) criados pelo Forge. Facilita identificar objetos gerados pelo Forge no banco. Deve ser alfanumérico minúsculo / sublinhados e terminar com underscore.",
+      "prefix_example_pre": "Exemplo: com prefixo",
+      "prefix_example_view": "uma metric view chamada",
+      "prefix_example_becomes": "torna-se"
+    },
+    "about": {
+      "title": "Sobre",
+      "description": "Versão da aplicação e informações de build",
+      "version_label": "Versão",
+      "app_label": "Aplicação",
+      "app_value": "Databricks Forge",
+      "runtime_label": "Runtime",
+      "runtime_apps": "Next.js / Databricks Apps",
+      "runtime_local": "Next.js / Dev Local"
+    },
+    "data_management": {
+      "title": "Gerenciamento de Dados",
+      "description": "Gerencie configurações locais e dados em cache",
+      "clear": {
+        "label": "Limpar configurações locais",
+        "description": "Restaurar todas as preferências para os padrões. Não afeta execuções de pipeline nem casos de uso armazenados no Lakebase.",
+        "button": "Limpar",
+        "dialog": {
+          "title": "Limpar configurações locais?",
+          "body": "Isto restaurará todas as preferências (amostragem, formato de exportação, caminho de notebook) para os padrões. Execuções de pipeline e dados não são afetados.",
+          "cancel": "Cancelar",
+          "confirm": "Limpar Configurações"
+        }
+      },
+      "delete": {
+        "label": "Excluir todos os dados",
+        "description": "Excluir permanentemente todas as execuções, casos de uso, varreduras de ambiente, Genie Spaces, conversas, exportações e dados em cache. Não pode ser desfeito.",
+        "button_idle": "Excluir Tudo",
+        "button_busy": "Excluindo…",
+        "dialog": {
+          "title": "Excluir todos os dados da aplicação?",
+          "body": "Isto excluirá permanentemente todas as execuções, casos de uso, varreduras de ambiente, recomendações Genie, dashboards, exportações, logs de prompt e metadados em cache. As configurações locais também serão redefinidas. Esta ação não pode ser desfeita.",
+          "cancel": "Cancelar",
+          "confirm": "Excluir Tudo"
+        }
+      }
+    },
+    "demo": {
+      "title": "Modo Demo",
+      "description": "Gere conjuntos sintéticos personalizados de dados de demo para engajamentos com clientes. Pesquise uma empresa, projete tabelas e escreva diretamente no Unity Catalog.",
+      "launch_button": "Iniciar Assistente Demo",
+      "view_sessions": "Ver Todas as Sessões"
+    }
+  },
+  "assessment": {
+    "page": {
+      "title": "Avaliação WAF",
+      "subtitle_pre": "Avalie seu workspace contra o Databricks Well-Architected Framework. O Forge executa SQL determinístico em",
+      "subtitle_post": "e liga controles que não passaram a engines de remediação.",
+      "export_csv": "Exportar CSV",
+      "open_dashboard": "Abrir dashboard",
+      "open_dashboard_title": "Abrir o dashboard Lakeview do Forge WAF",
+      "generate_dashboard": "Gerar dashboard",
+      "generate_dashboard_title": "Criar o dashboard Lakeview do Forge WAF",
+      "open_genie": "Abrir Genie",
+      "open_genie_title": "Abrir o Genie space do Forge WAF",
+      "generate_genie": "Gerar Genie",
+      "generate_genie_title": "Criar o Genie space do Forge WAF",
+      "run_assessment": "Executar avaliação",
+      "rerun_assessment": "Executar novamente"
+    },
+    "empty_state": {
+      "title": "Nenhuma avaliação ainda",
+      "description_pre": "Clique em",
+      "description_run": "Executar avaliação",
+      "description_post": "para pontuar este workspace contra o WAF da Databricks. A primeira execução leva cerca de 20-40 segundos em um warehouse aquecido."
+    },
+    "partial_run": {
+      "title": "Execução parcial"
+    },
+    "score_label": {
+      "mature": "Maduro",
+      "progressing": "Em evolução",
+      "at_risk": "Em risco",
+      "critical": "Crítico",
+      "none": "—"
+    },
+    "overview": {
+      "overall": "Geral",
+      "controls_met": "{met} de {total} controles atendidos",
+      "last_run_pre": "última execução",
+      "qualitative": "Qualitativo",
+      "no_controls": "Sem controles",
+      "complete": "Completo",
+      "pending": "{count} pendente(s)",
+      "answer_pending": "Responda os controles manuais na aba Qualitativo.",
+      "all_answered": "Todos os controles manuais foram respondidos."
+    },
+    "tabs": {
+      "failing": "Falhando ({count})",
+      "qualitative": "Qualitativo ({answered}/{total})",
+      "ignored": "Ignorados ({count})",
+      "history": "Histórico ({count})",
+      "all_passed": "Todos os controles atingiram seus thresholds. Bom trabalho."
+    },
+    "pillar_short": {
+      "governance": "Governança",
+      "interoperability_usability": "Interop. & Usabilidade",
+      "operational_excellence": "Excelência Operacional",
+      "security_compliance_privacy": "Segurança & Compliance",
+      "reliability": "Confiabilidade",
+      "cost_optimisation": "Custo",
+      "performance_efficiency": "Performance"
+    },
+    "pillar_full": {
+      "governance": "Governança de Dados e IA",
+      "interoperability_usability": "Interoperabilidade e Usabilidade",
+      "operational_excellence": "Excelência Operacional",
+      "security_compliance_privacy": "Segurança, Compliance e Privacidade",
+      "reliability": "Confiabilidade",
+      "performance_efficiency": "Eficiência de Performance",
+      "cost_optimisation": "Otimização de Custo"
+    },
+    "pillar_header": {
+      "controls_met": "{met} / {total} controles atendidos",
+      "failing_sorted": "{count} falhando — ordenados no topo"
+    },
+    "results_table": {
+      "control": "Controle",
+      "pillar": "Pilar",
+      "best_practice": "Boa prática",
+      "score": "Pontuação",
+      "threshold": "Threshold",
+      "status": "Status",
+      "action": "Ação",
+      "met": "Atendido",
+      "not_met": "Não atendido",
+      "recommendation": "Recomendação",
+      "ask_forge": "Perguntar ao Forge",
+      "ignore_title": "Marcar este controle como não aplicável a este workspace"
+    },
+    "history": {
+      "no_runs": "Sem execuções anteriores.",
+      "when": "Quando",
+      "status": "Status",
+      "overall": "Geral",
+      "governance": "Governança",
+      "iu": "IU",
+      "oe": "OE",
+      "scp": "SCP",
+      "reliability": "Confiab.",
+      "cost": "Custo",
+      "performance": "Performance",
+      "met_total": "Atendidos / Total",
+      "compare": "Comparar",
+      "vs_latest": "vs. mais recente",
+      "latest": "(mais recente)"
+    },
+    "ignored": {
+      "empty": "Nenhum controle ou recurso está atualmente excluído da pontuação.",
+      "control": "Controle",
+      "scope": "Escopo",
+      "reason": "Motivo",
+      "ignored_at": "Ignorado em",
+      "by": "Por",
+      "restore": "Restaurar",
+      "whole_control": "Controle inteiro"
+    },
+    "qualitative": {
+      "empty": "Nenhum controle qualitativo no catálogo.",
+      "intro_pre": "Responda cada boa prática com",
+      "yes": "Sim",
+      "partial": "Parcial",
+      "no": "Não",
+      "na": "N/A",
+      "intro_yes_score": "(100)",
+      "intro_partial_score": "(50)",
+      "intro_no_score": "(0)",
+      "intro_na_score": "(excluído)",
+      "intro_post": "Respostas salvas alimentam todas as execuções futuras — re-execute a avaliação para ver as pontuações atualizadas.",
+      "answered": "Respondido",
+      "pending_response": "Resposta pendente",
+      "notes_placeholder": "Notas opcionais (evidência, dono, prazo de remediação)...",
+      "save": "Salvar",
+      "last_updated": "Atualizado em {date}",
+      "saved_toast": "{wafId} salvo",
+      "pick_answer": "Escolha uma resposta primeiro",
+      "save_failed": "Falha ao salvar resposta"
+    },
+    "actions": {
+      "fix_with_forge": "Corrigir com Forge",
+      "open_estate": "Abrir Estate",
+      "ask_forge": "Perguntar ao Forge",
+      "open_docs": "Abrir docs"
+    },
+    "toasts": {
+      "completed": "Avaliação concluída",
+      "failed": "Avaliação falhou",
+      "load_failed": "Falha ao carregar avaliação",
+      "start_failed": "Falha ao iniciar avaliação",
+      "dashboard_failed": "Falha ao publicar dashboard",
+      "genie_failed": "Falha ao publicar Genie space",
+      "dashboard_action": "Dashboard {action}",
+      "genie_action": "Genie space {action}",
+      "open": "Abrir",
+      "ignore_prompt": "Por que {wafId} não é aplicável a este workspace? (será persistido como trilha de auditoria)",
+      "ignored_success": "{wafId} será excluído da próxima execução",
+      "restore_success": "{wafId} restaurado",
+      "ignore_failed": "Falha ao ignorar {wafId}",
+      "restore_failed": "Falha ao restaurar {wafId}"
+    }
+  }
+}

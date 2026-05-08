@@ -39,9 +39,15 @@ import {
   Trash2,
   ArrowLeft,
   Building2,
+  Languages,
 } from "lucide-react";
 import Link from "next/link";
-import { loadSettings } from "@/lib/settings";
+import {
+  loadSettings,
+  COMMENT_OUTPUT_LANGUAGES,
+  DEFAULT_COMMENT_OUTPUT_LANGUAGE,
+  type CommentOutputLanguage,
+} from "@/lib/settings";
 import { CatalogBrowser } from "@/components/pipeline/catalog-browser";
 import { CommentTableNav, type TableSummary } from "@/components/environment/comment-table-nav";
 import { CommentReviewPanel, type Proposal } from "@/components/environment/comment-review-panel";
@@ -60,8 +66,15 @@ interface CommentJob {
   columnCount: number;
   appliedCount: number;
   industryId: string | null;
+  outputLanguage: CommentOutputLanguage;
   createdAt: string;
 }
+
+const LANGUAGE_NATIVE_LABELS: Record<CommentOutputLanguage, string> = {
+  en: "English",
+  "pt-BR": "Português (Brasil)",
+  es: "Español",
+};
 
 export default function AICommentsPage() {
   // -- State --
@@ -82,8 +95,15 @@ export default function AICommentsPage() {
   const [exclusionPatterns, setExclusionPatterns] = useState<string[]>([]);
   const [industries, setIndustries] = useState<Array<{ id: string; name: string }>>([]);
   const settingsIndustry = typeof window !== "undefined" ? loadSettings().industry : "";
+  const settingsAiCommentLanguage =
+    typeof window !== "undefined"
+      ? loadSettings().aiCommentLanguage
+      : DEFAULT_COMMENT_OUTPUT_LANGUAGE;
   const [selectedIndustry, setSelectedIndustry] = useState<string>(
     settingsIndustry || "none",
+  );
+  const [selectedLanguage, setSelectedLanguage] = useState<CommentOutputLanguage>(
+    settingsAiCommentLanguage,
   );
   const [genProgress, setGenProgress] = useState<CommentProgressData | null>(null);
   const [pollTimerRef, setPollTimerRef] = useState<ReturnType<typeof setInterval> | null>(null);
@@ -193,6 +213,7 @@ export default function AICommentsPage() {
           excludedTables: exTables.length > 0 ? exTables : undefined,
           exclusionPatterns: exclusionPatterns.length > 0 ? exclusionPatterns : undefined,
           industryId: selectedIndustry === "none" ? undefined : selectedIndustry,
+          outputLanguage: selectedLanguage,
         }),
       });
 
@@ -208,7 +229,7 @@ export default function AICommentsPage() {
       toast.error(err instanceof Error ? err.message : "Generation failed");
       setPageState("jobs");
     }
-  }, [selectedSources, selectedIndustry]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedSources, selectedIndustry, selectedLanguage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -- Poll progress --
   const startProgressPolling = useCallback(
@@ -511,6 +532,7 @@ export default function AICommentsPage() {
               onClick={() => {
                 setSelectedSources([]);
                 setSelectedIndustry("none");
+                setSelectedLanguage(settingsAiCommentLanguage);
                 setNewJobOpen(true);
               }}
             >
@@ -575,6 +597,12 @@ export default function AICommentsPage() {
                           {job.status}
                         </Badge>
                         {job.industryId && <Badge variant="outline">{job.industryId}</Badge>}
+                        {job.outputLanguage && job.outputLanguage !== "en" && (
+                          <Badge variant="outline" className="gap-1">
+                            <Languages className="h-3 w-3" />
+                            {LANGUAGE_NATIVE_LABELS[job.outputLanguage]}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {job.tableCount} tables, {job.columnCount} columns
@@ -759,6 +787,36 @@ export default function AICommentsPage() {
                   </SelectContent>
                 </Select>
               )}
+            </div>
+
+            <div>
+              <h3 className="text-sm font-medium mb-2">Output Language</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Language for the generated descriptions. Identifiers (table names, columns,
+                data types) stay verbatim. Default comes from{" "}
+                <Link href="/settings" className="underline text-primary hover:text-primary/80">
+                  Settings
+                </Link>
+                .
+              </p>
+              <Select
+                value={selectedLanguage}
+                onValueChange={(v) => setSelectedLanguage(v as CommentOutputLanguage)}
+              >
+                <SelectTrigger className="w-[300px]">
+                  <div className="flex items-center gap-2">
+                    <Languages className="h-4 w-4 text-muted-foreground" />
+                    <SelectValue />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  {COMMENT_OUTPUT_LANGUAGES.map((lang) => (
+                    <SelectItem key={lang} value={lang}>
+                      {LANGUAGE_NATIVE_LABELS[lang]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">

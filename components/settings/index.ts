@@ -1,5 +1,6 @@
 export { ProfileSettings } from "./profile-settings";
 export { IndustrySettings } from "./industry-settings";
+export { AiOutputSettings } from "./ai-output-settings";
 export { DataSamplingSettings } from "./data-sampling-settings";
 export { EstateScanSettings } from "./estate-scan-settings";
 export { SemanticSearchSettings } from "./semantic-search-settings";

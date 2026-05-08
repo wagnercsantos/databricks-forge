@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Database, Shield } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { InfoTip } from "@/components/ui/info-tip";
 import { SETTINGS } from "@/lib/help-text";
 
@@ -22,24 +23,20 @@ export function DataSamplingSettings({
   sampleRowsPerTable,
   onSampleRowsPerTableChange,
 }: DataSamplingSettingsProps) {
+  const t = useTranslations("settings.data_sampling");
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Database className="h-5 w-5" />
-          Data Sampling
+          {t("title")}
         </CardTitle>
-        <CardDescription>
-          Control whether sample rows are fetched from tables during use case discovery and SQL
-          generation. Real data values help the AI understand what each table contains, producing
-          more relevant use cases and more accurate SQL queries. Trade-off: reads row-level data and
-          increases run time.
-        </CardDescription>
+        <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
           <div className="flex items-center gap-1.5">
-            <Label htmlFor="sampleRows">Rows per table</Label>
+            <Label htmlFor="sampleRows">{t("rows_label")}</Label>
             <InfoTip tip={SETTINGS.sampleRows} />
           </div>
           <Select
@@ -50,11 +47,11 @@ export function DataSamplingSettings({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="0">Disabled (metadata only)</SelectItem>
-              <SelectItem value="5">5 rows per table</SelectItem>
-              <SelectItem value="10">10 rows per table</SelectItem>
-              <SelectItem value="25">25 rows per table</SelectItem>
-              <SelectItem value="50">50 rows per table</SelectItem>
+              <SelectItem value="0">{t("options.disabled")}</SelectItem>
+              <SelectItem value="5">{t("options.n5")}</SelectItem>
+              <SelectItem value="10">{t("options.n10")}</SelectItem>
+              <SelectItem value="25">{t("options.n25")}</SelectItem>
+              <SelectItem value="50">{t("options.n50")}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -63,13 +60,10 @@ export function DataSamplingSettings({
           <div className="flex items-start gap-2">
             <Shield className="mt-0.5 h-4 w-4 text-amber-500" />
             <div className="text-sm text-muted-foreground">
-              <p className="font-medium text-foreground">Privacy &amp; data access</p>
+              <p className="font-medium text-foreground">{t("privacy_heading")}</p>
               <p className="mt-1">
-                When data sampling is enabled, Forge reads a small number of rows from each table
-                during use case discovery and SQL generation. This data is sent to the AI model
-                alongside the schema so it can understand real data values, formats, and patterns --
-                producing better use cases and more accurate SQL. Sampled data is{" "}
-                <strong>not</strong> persisted.
+                {t("privacy_body_pre")} <strong>{t("privacy_body_emphasis")}</strong>{" "}
+                {t("privacy_body_post")}
               </p>
             </div>
           </div>

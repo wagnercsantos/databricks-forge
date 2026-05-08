@@ -617,6 +617,7 @@ async function passEnhancedDescriptions(
       useCaseLinkage,
       schemaSummary: schemaCtx.schemaSummary,
       lineageContext,
+      outputLanguage: "en",
     },
     { signal: undefined, onProgress: undefined },
   );

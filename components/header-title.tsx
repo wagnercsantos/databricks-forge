@@ -1,30 +1,35 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 
-const PAGE_TITLES: Record<string, string> = {
-  "/": "Dashboard",
-  "/configure": "New Discovery",
-  "/runs": "Pipeline Runs",
-  "/runs/compare": "Compare Runs",
-  "/environment": "Estate Overview",
-  "/assessment": "WAF Assessment",
-  "/assessment/compare": "Compare Assessments",
-  "/benchmarks": "Benchmark Catalog",
-  "/outcomes": "Outcome Maps",
-  "/outcomes/ingest": "Ingest Outcome Map",
-  "/genie": "Genie Spaces",
-  "/metadata-genie": "Meta Data Genie",
-  "/settings": "Settings",
-  "/help": "Help",
+const PAGE_TITLE_KEYS: Record<string, string> = {
+  "/": "dashboard",
+  "/configure": "new_discovery",
+  "/runs": "runs",
+  "/runs/compare": "compare_runs",
+  "/environment": "estate_overview",
+  "/assessment": "waf_assessment",
+  "/assessment/compare": "compare_assessments",
+  "/benchmarks": "benchmark_catalog",
+  "/outcomes": "outcome_maps",
+  "/outcomes/ingest": "ingest_outcome_map",
+  "/genie": "genie_spaces",
+  "/metadata-genie": "metadata_genie",
+  "/settings": "settings",
+  "/help": "help",
 };
 
 export function HeaderPageTitle() {
   const pathname = usePathname();
+  const t = useTranslations("header.page_titles");
 
-  const title = PAGE_TITLES[pathname] ?? (pathname.startsWith("/runs/") ? "Run Detail" : null);
+  const key =
+    PAGE_TITLE_KEYS[pathname] ?? (pathname.startsWith("/runs/") ? "run_detail" : null);
 
-  if (!title) return null;
+  if (!key) return null;
 
-  return <span className="hidden text-sm font-semibold text-foreground/80 md:block">{title}</span>;
+  return (
+    <span className="hidden text-sm font-semibold text-foreground/80 md:block">{t(key)}</span>
+  );
 }

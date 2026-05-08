@@ -15,8 +15,13 @@ import { resolveEndpoint } from "@/lib/dbx/client";
 import { logger as fallbackLogger } from "@/lib/logger";
 import type { Logger } from "@/lib/ports/logger";
 import type { ChatMessage } from "@/lib/dbx/model-serving";
-import type { ColumnCommentInput, CommentProgressCallback, MetadataCounters } from "./types";
-import { COLUMN_COMMENT_PROMPT } from "./prompts";
+import type {
+  ColumnCommentInput,
+  CommentProgressCallback,
+  MetadataCounters,
+  CommentOutputLanguage,
+} from "./types";
+import { COLUMN_COMMENT_PROMPT, buildLanguageDirective } from "./prompts";
 
 const COLUMN_CONCURRENCY = 8;
 
@@ -57,6 +62,7 @@ function renderRelatedTables(related: ColumnCommentInput["relatedTables"]): stri
 export async function runColumnCommentPass(
   inputs: ColumnCommentInput[],
   industryContext: string,
+  outputLanguage: CommentOutputLanguage,
   options: {
     signal?: AbortSignal;
     onProgress?: CommentProgressCallback;
@@ -70,6 +76,7 @@ export async function runColumnCommentPass(
   if (inputs.length === 0) return results;
 
   const endpoint = resolveEndpoint("classification");
+  const languageDirective = buildLanguageDirective(outputLanguage);
   let completed = 0;
   let totalColumnsGenerated = 0;
 
@@ -91,7 +98,8 @@ export async function runColumnCommentPass(
         ? `Data Asset: ${input.dataAssetId} -- ${input.dataAssetDescription}`
         : "";
 
-    const prompt = COLUMN_COMMENT_PROMPT.replace("{industry_context}", industryContext)
+    const prompt = COLUMN_COMMENT_PROMPT.replace("{language_directive}", languageDirective)
+      .replace("{industry_context}", industryContext)
       .replace("{table_fqn}", input.tableFqn)
       .replace("{table_description}", input.tableDescription)
       .replace("{table_domain}", input.tableDomain ?? "Unknown")

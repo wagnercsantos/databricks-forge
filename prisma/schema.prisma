@@ -1272,12 +1272,13 @@ model ForgeStakeholderProfile {
 // ---------------------------------------------------------------------------
 
 model ForgeCommentJob {
-  id           String   @id @default(uuid()) @map("job_id")
-  scanId       String?  @map("scan_id")
-  runId        String?  @map("run_id")
-  scopeJson    String   @map("scope_json")
-  industryId   String?  @map("industry_id")
-  status       String   @default("draft") // draft | queued | generating | ready | applying | completed | failed
+  id             String   @id @default(uuid()) @map("job_id")
+  scanId         String?  @map("scan_id")
+  runId          String?  @map("run_id")
+  scopeJson      String   @map("scope_json")
+  industryId     String?  @map("industry_id")
+  outputLanguage String   @default("en") @map("output_language")
+  status         String   @default("draft") // draft | queued | generating | ready | applying | completed | failed
   tableCount   Int      @default(0) @map("table_count")
   columnCount  Int      @default(0) @map("column_count")
   appliedCount Int      @default(0) @map("applied_count")

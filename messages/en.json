@@ -1,0 +1,575 @@
+{
+  "common": {
+    "language": "Language",
+    "save": "Save",
+    "cancel": "Cancel",
+    "loading": "Loading…",
+    "close": "Close"
+  },
+  "accessibility": {
+    "skip_to_main": "Skip to main content",
+    "toggle_nav": "Toggle navigation",
+    "navigation": "Navigation"
+  },
+  "language_toggle": {
+    "label": "Language",
+    "tooltip": "Change interface language"
+  },
+  "theme_toggle": {
+    "label": "Toggle theme",
+    "active": "Active",
+    "options": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    }
+  },
+  "sidebar": {
+    "expand": "Expand sidebar",
+    "collapse": "Collapse sidebar",
+    "sections": {
+      "explore": "Explore",
+      "genie": "Genie Studio",
+      "estate": "Estate",
+      "business_value": "Business Value",
+      "demo": "Demo",
+      "migrate": "Migrate",
+      "admin": "Admin"
+    },
+    "items": {
+      "dashboard": "Dashboard",
+      "ask_forge": "Ask Forge",
+      "new_discovery": "New Discovery",
+      "runs": "Runs",
+      "genie_studio": "Genie Studio",
+      "metadata_genie": "Metadata Genie",
+      "overview": "Overview",
+      "ai_comments": "AI Comments",
+      "waf_assessment": "WAF Assessment",
+      "portfolio": "Portfolio",
+      "roadmap": "Roadmap",
+      "stakeholders": "Stakeholders",
+      "value_tracking": "Value Tracking",
+      "strategy": "Strategy",
+      "outcome_maps": "Outcome Maps",
+      "benchmarks": "Benchmarks",
+      "demo_studio": "Demo Studio",
+      "fabric_pbi": "Fabric / PBI",
+      "connections": "Connections",
+      "knowledge_base": "Knowledge Base",
+      "settings": "Settings",
+      "help": "Help"
+    }
+  },
+  "header": {
+    "page_titles": {
+      "dashboard": "Dashboard",
+      "new_discovery": "New Discovery",
+      "runs": "Pipeline Runs",
+      "compare_runs": "Compare Runs",
+      "estate_overview": "Estate Overview",
+      "waf_assessment": "WAF Assessment",
+      "compare_assessments": "Compare Assessments",
+      "benchmark_catalog": "Benchmark Catalog",
+      "outcome_maps": "Outcome Maps",
+      "ingest_outcome_map": "Ingest Outcome Map",
+      "genie_spaces": "Genie Spaces",
+      "metadata_genie": "Meta Data Genie",
+      "settings": "Settings",
+      "help": "Help",
+      "run_detail": "Run Detail"
+    }
+  },
+  "ask_forge": {
+    "label": "Ask Forge"
+  },
+  "search": {
+    "trigger": "Search…",
+    "dialog_title": "Search",
+    "dialog_description": "Semantic search across tables, use cases, insights, and documents",
+    "placeholder": "Search across your entire data estate…",
+    "searching": "Searching…",
+    "no_results": "No results found for \u201c{query}\u201d",
+    "empty_heading": "Search tables, use cases, insights, and more",
+    "empty_subtitle": "Results are ranked by semantic similarity",
+    "scopes": {
+      "all": "All",
+      "estate": "Tables",
+      "usecases": "Use Cases",
+      "genie": "Genie",
+      "insights": "Insights",
+      "documents": "Documents"
+    },
+    "kinds": {
+      "table_detail": "Table",
+      "column_profile": "Columns",
+      "use_case": "Use Case",
+      "business_context": "Business Context",
+      "genie_recommendation": "Genie Space",
+      "genie_question": "Genie Question",
+      "environment_insight": "Insight",
+      "table_health": "Health",
+      "data_product": "Data Product",
+      "outcome_map": "Outcome Map",
+      "lineage_context": "Lineage",
+      "document_chunk": "Document"
+    },
+    "provenance": {
+      "platform": "Platform",
+      "insight": "Insight",
+      "generated": "Generated",
+      "uploaded": "Uploaded",
+      "template": "Template"
+    },
+    "fallbacks": {
+      "document": "Document",
+      "business_context": "Business Context",
+      "genie_space": "Genie Space",
+      "outcome_map": "Outcome Map",
+      "insight": "Insight",
+      "chunk": "Chunk {index}"
+    }
+  },
+  "settings": {
+    "page": {
+      "title": "Settings",
+      "subtitle": "Configure application-wide defaults and preferences.",
+      "save_button": "Save Settings"
+    },
+    "toasts": {
+      "settings_saved": "Settings saved",
+      "embeddings_rebuilt": "Embeddings rebuilt successfully",
+      "embeddings_failed": "Failed to rebuild embeddings",
+      "embeddings_network_error": "Network error while rebuilding embeddings",
+      "local_cleared": "Local settings cleared",
+      "all_data_deleted": "All data deleted — app has been reset",
+      "delete_failed": "Failed to delete data"
+    },
+    "profile": {
+      "title": "Profile",
+      "description": "Your workspace identity and connection information",
+      "email_label": "User Email",
+      "email_unavailable": "Not available (local dev)",
+      "host_label": "Databricks Workspace",
+      "host_disconnected": "Not connected"
+    },
+    "industry": {
+      "title": "Industry",
+      "description": "Set your organisation's industry once here and it will be applied automatically to all new pipeline runs, AI comment jobs, and other kickoff flows. Per-job industry dropdowns are hidden when this is set.",
+      "label": "Industry",
+      "placeholder": "Select an industry...",
+      "not_set": "Not set",
+      "when_set": "All new jobs will use this industry. You can still change it per-run from the run detail page.",
+      "when_unset": "When not set, each job kickoff will show an industry dropdown for per-run selection."
+    },
+    "ai_output": {
+      "title": "AI Output Language",
+      "description": "Choose the language used by Forge when generating AI descriptions for tables and columns. This is independent from the UI language — identifiers (table names, columns, data types) always stay verbatim.",
+      "comment_language_label": "Comment generation language",
+      "comment_language_hint": "Used as the default for new AI Comment jobs. You can still override it per-job from the AI Comments page."
+    },
+    "data_sampling": {
+      "title": "Data Sampling",
+      "description": "Control whether sample rows are fetched from tables during use case discovery and SQL generation. Real data values help the AI understand what each table contains, producing more relevant use cases and more accurate SQL queries. Trade-off: reads row-level data and increases run time.",
+      "rows_label": "Rows per table",
+      "options": {
+        "disabled": "Disabled (metadata only)",
+        "n5": "5 rows per table",
+        "n10": "10 rows per table",
+        "n25": "25 rows per table",
+        "n50": "50 rows per table"
+      },
+      "privacy_heading": "Privacy & data access",
+      "privacy_body_pre": "When data sampling is enabled, Forge reads a small number of rows from each table during use case discovery and SQL generation. This data is sent to the AI model alongside the schema so it can understand real data values, formats, and patterns -- producing better use cases and more accurate SQL. Sampled data is",
+      "privacy_body_emphasis": "not",
+      "privacy_body_post": "persisted."
+    },
+    "estate_scan": {
+      "title": "Estate Scan",
+      "description": "Run environment intelligence (domain classification, PII detection, health scoring, lineage enrichment) during pipeline runs. This increases run time but provides a comprehensive estate view alongside use case discovery.",
+      "scan": {
+        "label": "Estate Scan during pipeline runs",
+        "enabled": "Enabled — metadata extraction will include full environment intelligence enrichment",
+        "disabled": "Disabled — pipeline runs will skip the estate scan enrichment pass (faster runs)"
+      },
+      "asset_discovery": {
+        "label": "Asset Discovery during pipeline runs",
+        "enabled": "Enabled — existing Genie spaces, dashboards, and metric views will be discovered and used to improve recommendations",
+        "disabled": "Disabled — recommendations are generated without awareness of existing analytics assets (faster runs)"
+      },
+      "benchmarks": {
+        "label": "Benchmark Catalog",
+        "unavailable": "Unavailable — server-side flag FORGE_BENCHMARKS_ENABLED is not set in the deployment configuration",
+        "enabled": "Enabled — industry benchmarks are embedded and injected into pipeline prompts and Ask Forge retrieval",
+        "disabled": "Disabled — pipeline uses generic advisory context; benchmark catalog page and API are hidden"
+      }
+    },
+    "semantic_search": {
+      "title": "Semantic Search & RAG",
+      "description": "Enable semantic search, knowledge base, and AI-grounded retrieval across your data estate. Turning this off hides search and knowledge base features but does not delete existing embeddings.",
+      "toggle": {
+        "label": "Semantic Search & RAG",
+        "enabled": "Enabled — global search, knowledge base, and AI-grounded retrieval are active",
+        "disabled": "Disabled — search bar and knowledge base are hidden; embeddings are preserved for re-activation"
+      },
+      "rebuild": {
+        "label": "Rebuild Embeddings",
+        "description": "Re-generate the vector knowledge base from all estate scans, pipelines, and documents.",
+        "vectors_stored": "{count} vectors currently stored.",
+        "running": "Rebuilding...",
+        "idle": "Rebuild"
+      }
+    },
+    "discovery_depth": {
+      "title": "Discovery Depth",
+      "description": "Configure the parameters for each discovery depth level and choose the default. Each level controls how many use cases are generated per batch, the minimum quality threshold, and the maximum output volume. You can still override the depth level per-run.",
+      "default_label": "Default depth for new runs",
+      "default_badge": "Default",
+      "options": {
+        "focused": {
+          "label": "Focused",
+          "description": "Fewer, highest-quality use cases"
+        },
+        "balanced": {
+          "label": "Balanced",
+          "description": "Good mix of breadth and quality"
+        },
+        "comprehensive": {
+          "label": "Comprehensive",
+          "description": "Maximum coverage across domains"
+        }
+      },
+      "batch_target_label": "Batch target (min-max use cases per batch)",
+      "batch_target_to": "to",
+      "quality_floor_label": "Quality floor (0-1, minimum overall score)",
+      "adaptive_cap_label": "Adaptive cap (max use cases in output)",
+      "lineage_depth_label": "Lineage depth (max hops to walk)",
+      "reset_defaults": "Reset to defaults"
+    },
+    "genie": {
+      "title": "Genie Engine",
+      "description": "Global defaults for Genie Space generation. These apply to all new runs. Per-run configuration (glossary, custom SQL, column overrides, benchmarks, instructions) is still editable within each run.",
+      "engine": {
+        "label": "Genie Engine",
+        "enabled": "Enabled — LLM-powered Genie Space generation is active for all runs",
+        "disabled": "Disabled — Engine config will be read-only in runs; only legacy generation available"
+      },
+      "quality_preset": {
+        "label": "Quality Preset",
+        "options": {
+          "speed": {
+            "label": "Speed",
+            "desc": "Fastest generation with lean output"
+          },
+          "balanced": {
+            "label": "Balanced",
+            "desc": "Good quality at reasonable speed"
+          },
+          "premium": {
+            "label": "Premium",
+            "desc": "Maximum richness, longest generation"
+          }
+        }
+      },
+      "max_tables": {
+        "label": "Max tables per space",
+        "suffix": "Up to 30 tables per space"
+      },
+      "fiscal_month": {
+        "label": "Fiscal year start month"
+      },
+      "max_auto_spaces": {
+        "label": "Max spaces to auto-analyse",
+        "suffix": "0 = all domains (default). Limits auto-generation; you can always regenerate more from the Genie Workbench."
+      },
+      "entity_matching": {
+        "label": "Entity Matching",
+        "options": {
+          "auto": "Auto (from sample data)",
+          "manual": "Manual only",
+          "off": "Disabled"
+        },
+        "hint": "Auto uses sample data to detect value aliases (e.g. \"Florida\" → \"FL\")"
+      },
+      "question_complexity": {
+        "label": "Question Complexity",
+        "tip": "Controls the language style of sample questions generated for Genie Spaces. Simple: short plain-English questions. Medium: slightly more specific with business concepts. Complex: analytical language with trends, correlations, and technical terms.",
+        "surfaces": {
+          "genie_engine": "Genie Engine",
+          "adhoc_genie": "Adhoc Genie",
+          "metadata_genie": "Metadata Genie"
+        },
+        "options": {
+          "simple": "Simple",
+          "medium": "Medium",
+          "complex": "Complex"
+        },
+        "hint": "Simple produces short, everyday questions. Medium adds business context. Complex uses analytical language."
+      },
+      "deploy_auth": {
+        "label": "Deploy Authentication",
+        "tip": "Controls which identity is used when creating, updating, or deleting Genie Spaces in Databricks. User (OBO) uses the logged-in user's credentials; Service Principal uses the app's service principal.",
+        "options": {
+          "obo": "User (recommended)",
+          "sp": "Service Principal"
+        },
+        "hint_obo": "Spaces are created under your identity. You must have access to the referenced tables.",
+        "hint_sp": "Spaces are created under the app's service principal. The SP must have SELECT access to the referenced tables."
+      },
+      "toggles": {
+        "llm_refinement": {
+          "label": "LLM Refinement",
+          "description": "Use AI to generate semantic expressions, instructions, and trusted assets"
+        },
+        "trusted_assets": {
+          "label": "Trusted Assets",
+          "description": "Generate parameterized SQL queries and UDF definitions"
+        },
+        "auto_benchmarks": {
+          "label": "Auto Benchmarks",
+          "description": "Generate test questions with expected SQL to evaluate Genie accuracy"
+        },
+        "metric_views": {
+          "label": "Metric Views",
+          "description": "Propose metric view definitions (KPIs, dimensions, measures)"
+        },
+        "auto_time_periods": {
+          "label": "Auto Time Periods",
+          "description": "Generate standard date filters and dimensions (last week, last month, fiscal quarters)"
+        }
+      },
+      "months": {
+        "1": "January",
+        "2": "February",
+        "3": "March",
+        "4": "April",
+        "5": "May",
+        "6": "June",
+        "7": "July",
+        "8": "August",
+        "9": "September",
+        "10": "October",
+        "11": "November",
+        "12": "December"
+      }
+    },
+    "export": {
+      "title": "Export & Naming",
+      "description": "Default export format, notebook path, and naming prefix for Unity Catalog resources",
+      "format_label": "Default export format",
+      "format_options": {
+        "excel": "Excel (.xlsx)",
+        "pdf": "PDF",
+        "pptx": "PowerPoint (.pptx)",
+        "notebooks": "Databricks Notebooks"
+      },
+      "notebook_path_label": "Notebook deployment path",
+      "prefix_label": "Catalog resource prefix",
+      "prefix_tip": "Prefix applied to all Unity Catalog resources (views, metric views, tables) created by Forge. Makes it easy to identify Forge-generated objects in your database. Must be lowercase alphanumeric/underscores and end with an underscore.",
+      "prefix_example_pre": "Example: with prefix",
+      "prefix_example_view": "a metric view named",
+      "prefix_example_becomes": "becomes"
+    },
+    "about": {
+      "title": "About",
+      "description": "Application version and build information",
+      "version_label": "Version",
+      "app_label": "Application",
+      "app_value": "Databricks Forge",
+      "runtime_label": "Runtime",
+      "runtime_apps": "Next.js / Databricks Apps",
+      "runtime_local": "Next.js / Local Dev"
+    },
+    "data_management": {
+      "title": "Data Management",
+      "description": "Manage local settings and cached data",
+      "clear": {
+        "label": "Clear local settings",
+        "description": "Reset all preferences to their defaults. This does not affect pipeline runs or use cases stored in Lakebase.",
+        "button": "Clear",
+        "dialog": {
+          "title": "Clear local settings?",
+          "body": "This will reset all preferences (data sampling, export format, notebook path) to their defaults. Pipeline runs and data are not affected.",
+          "cancel": "Cancel",
+          "confirm": "Clear Settings"
+        }
+      },
+      "delete": {
+        "label": "Delete all data",
+        "description": "Permanently delete all pipeline runs, use cases, environment scans, Genie spaces, conversations, exports, and cached data. This cannot be undone.",
+        "button_idle": "Delete All",
+        "button_busy": "Deleting…",
+        "dialog": {
+          "title": "Delete all application data?",
+          "body": "This will permanently delete all pipeline runs, use cases, environment scans, Genie recommendations, dashboards, exports, prompt logs, and cached metadata. Local settings will also be reset. This action cannot be undone.",
+          "cancel": "Cancel",
+          "confirm": "Delete Everything"
+        }
+      }
+    },
+    "demo": {
+      "title": "Demo Mode",
+      "description": "Generate custom synthetic demo datasets for customer engagements. Research a company, design tables, and write directly to Unity Catalog.",
+      "launch_button": "Launch Demo Wizard",
+      "view_sessions": "View All Sessions"
+    }
+  },
+  "assessment": {
+    "page": {
+      "title": "WAF Assessment",
+      "subtitle_pre": "Self-assess your workspace against the Databricks Well-Architected Framework. Forge runs deterministic SQL over",
+      "subtitle_post": "and links failing controls to remediation engines.",
+      "export_csv": "Export CSV",
+      "open_dashboard": "Open dashboard",
+      "open_dashboard_title": "Open the Forge WAF Lakeview dashboard",
+      "generate_dashboard": "Generate dashboard",
+      "generate_dashboard_title": "Create the Forge WAF Lakeview dashboard",
+      "open_genie": "Open Genie",
+      "open_genie_title": "Open the Forge WAF Genie space",
+      "generate_genie": "Generate Genie",
+      "generate_genie_title": "Create the Forge WAF Genie space",
+      "run_assessment": "Run assessment",
+      "rerun_assessment": "Re-run assessment"
+    },
+    "empty_state": {
+      "title": "No assessment yet",
+      "description_pre": "Click",
+      "description_run": "Run assessment",
+      "description_post": "to score this workspace against the Databricks WAF. The first run takes about 20-40 seconds on a warm warehouse."
+    },
+    "partial_run": {
+      "title": "Partial run"
+    },
+    "score_label": {
+      "mature": "Mature",
+      "progressing": "Progressing",
+      "at_risk": "At Risk",
+      "critical": "Critical",
+      "none": "—"
+    },
+    "overview": {
+      "overall": "Overall",
+      "controls_met": "{met} of {total} controls met",
+      "last_run_pre": "last run",
+      "qualitative": "Qualitative",
+      "no_controls": "No controls",
+      "complete": "Complete",
+      "pending": "{count} pending",
+      "answer_pending": "Answer the manual controls in the Qualitative tab.",
+      "all_answered": "All manual controls answered."
+    },
+    "tabs": {
+      "failing": "Failing ({count})",
+      "qualitative": "Qualitative ({answered}/{total})",
+      "ignored": "Ignored ({count})",
+      "history": "History ({count})",
+      "all_passed": "All controls passed their thresholds. Nice work."
+    },
+    "pillar_short": {
+      "governance": "Governance",
+      "interoperability_usability": "Interop & Usability",
+      "operational_excellence": "Operational Excellence",
+      "security_compliance_privacy": "Security & Compliance",
+      "reliability": "Reliability",
+      "cost_optimisation": "Cost",
+      "performance_efficiency": "Performance"
+    },
+    "pillar_full": {
+      "governance": "Data and AI Governance",
+      "interoperability_usability": "Interoperability and Usability",
+      "operational_excellence": "Operational Excellence",
+      "security_compliance_privacy": "Security, Compliance and Privacy",
+      "reliability": "Reliability",
+      "performance_efficiency": "Performance Efficiency",
+      "cost_optimisation": "Cost Optimisation"
+    },
+    "pillar_header": {
+      "controls_met": "{met} / {total} controls met",
+      "failing_sorted": "{count} failing — sorted to the top"
+    },
+    "results_table": {
+      "control": "Control",
+      "pillar": "Pillar",
+      "best_practice": "Best practice",
+      "score": "Score",
+      "threshold": "Threshold",
+      "status": "Status",
+      "action": "Action",
+      "met": "Met",
+      "not_met": "Not Met",
+      "recommendation": "Recommendation",
+      "ask_forge": "Ask Forge",
+      "ignore_title": "Mark this control as not applicable to this workspace"
+    },
+    "history": {
+      "no_runs": "No previous runs.",
+      "when": "When",
+      "status": "Status",
+      "overall": "Overall",
+      "governance": "Governance",
+      "iu": "IU",
+      "oe": "OE",
+      "scp": "SCP",
+      "reliability": "Reliability",
+      "cost": "Cost",
+      "performance": "Performance",
+      "met_total": "Met / Total",
+      "compare": "Compare",
+      "vs_latest": "vs. latest",
+      "latest": "(latest)"
+    },
+    "ignored": {
+      "empty": "No controls or resources are currently excluded from scoring.",
+      "control": "Control",
+      "scope": "Scope",
+      "reason": "Reason",
+      "ignored_at": "Ignored at",
+      "by": "By",
+      "restore": "Restore",
+      "whole_control": "Whole control"
+    },
+    "qualitative": {
+      "empty": "No qualitative controls in the catalog.",
+      "intro_pre": "Answer each best practice with",
+      "yes": "Yes",
+      "partial": "Partial",
+      "no": "No",
+      "na": "N/A",
+      "intro_yes_score": "(100)",
+      "intro_partial_score": "(50)",
+      "intro_no_score": "(0)",
+      "intro_na_score": "(excluded)",
+      "intro_post": "Saved responses feed every future assessment run — re-run the assessment to see the updated pillar scores.",
+      "answered": "Answered",
+      "pending_response": "Pending response",
+      "notes_placeholder": "Optional notes (evidence, owner, expected remediation date)...",
+      "save": "Save",
+      "last_updated": "Last updated {date}",
+      "saved_toast": "Saved {wafId}",
+      "pick_answer": "Pick an answer first",
+      "save_failed": "Failed to save response"
+    },
+    "actions": {
+      "fix_with_forge": "Fix with Forge",
+      "open_estate": "Open Estate",
+      "ask_forge": "Ask Forge",
+      "open_docs": "Open docs"
+    },
+    "toasts": {
+      "completed": "Assessment completed",
+      "failed": "Assessment failed",
+      "load_failed": "Failed to load assessment",
+      "start_failed": "Failed to start assessment",
+      "dashboard_failed": "Failed to deploy dashboard",
+      "genie_failed": "Failed to deploy Genie space",
+      "dashboard_action": "Dashboard {action}",
+      "genie_action": "Genie space {action}",
+      "open": "Open",
+      "ignore_prompt": "Why is {wafId} not applicable to this workspace? (this will be persisted as an audit trail)",
+      "ignored_success": "{wafId} will be excluded from the next run",
+      "restore_success": "{wafId} restored",
+      "ignore_failed": "Failed to ignore {wafId}",
+      "restore_failed": "Failed to restore {wafId}"
+    }
+  }
+}

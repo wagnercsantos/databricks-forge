@@ -15,6 +15,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { useL10n } from "@/i18n/format";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -75,13 +77,6 @@ interface ApiState {
   ignored: WafIgnoredResource[];
 }
 
-const QUALITATIVE_LABEL: Record<WafQualitativeAnswer, string> = {
-  yes: "Yes",
-  partial: "Partial",
-  no: "No",
-  not_applicable: "N/A",
-};
-
 const PILLAR_ORDER: WafPillar[] = [
   "governance",
   "interoperability_usability",
@@ -92,16 +87,6 @@ const PILLAR_ORDER: WafPillar[] = [
   "cost_optimisation",
 ];
 
-const SHORT_PILLAR_LABEL: Record<WafPillar, string> = {
-  governance: "Governance",
-  interoperability_usability: "Interop & Usability",
-  operational_excellence: "Operational Excellence",
-  security_compliance_privacy: "Security & Compliance",
-  reliability: "Reliability",
-  cost_optimisation: "Cost",
-  performance_efficiency: "Performance",
-};
-
 function scoreToVariant(score: number | null | undefined): "default" | "secondary" | "destructive" {
   if (score == null) return "secondary";
   if (score >= 75) return "default";
@@ -109,21 +94,24 @@ function scoreToVariant(score: number | null | undefined): "default" | "secondar
   return "destructive";
 }
 
-function scoreLabel(score: number | null | undefined): string {
-  if (score == null) return "—";
-  if (score >= 75) return "Mature";
-  if (score >= 50) return "Progressing";
-  if (score >= 25) return "At Risk";
-  return "Critical";
+function useScoreLabel() {
+  const t = useTranslations("assessment.score_label");
+  return useCallback(
+    (score: number | null | undefined): string => {
+      if (score == null) return t("none");
+      if (score >= 75) return t("mature");
+      if (score >= 50) return t("progressing");
+      if (score >= 25) return t("at_risk");
+      return t("critical");
+    },
+    [t],
+  );
 }
 
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleString();
-}
-
+type FixActionLabelKey = "fix_with_forge" | "open_estate" | "ask_forge" | "open_docs";
 type FixAction =
-  | { kind: "engine"; href: string; label: string }
-  | { kind: "docs"; href: string; label: string };
+  | { kind: "engine"; href: string; labelKey: FixActionLabelKey }
+  | { kind: "docs"; href: string; labelKey: FixActionLabelKey };
 
 /** Allow only http(s) absolute URLs or root-relative paths — blocks `javascript:`, `data:`, etc. */
 const SAFE_HREF_RE = /^(https?:\/\/|\/)/;
@@ -145,24 +133,24 @@ function fixAction(engine: string | null, paramsJson: string | null): FixAction 
   }
   switch (engine) {
     case "comment-engine":
-      return { kind: "engine", href: "/environment/comments", label: "Fix with Forge" };
+      return { kind: "engine", href: "/environment/comments", labelKey: "fix_with_forge" };
     case "estate-scan": {
       const reasonRaw = typeof params.reason === "string" ? params.reason : "";
       const reason = /^[a-z][a-z0-9-]{0,40}$/.test(reasonRaw) ? reasonRaw : "";
       const href = reason ? `/environment?reason=${reason}` : "/environment";
-      return { kind: "engine", href, label: "Open Estate" };
+      return { kind: "engine", href, labelKey: "open_estate" };
     }
     case "tag-engine":
-      return { kind: "engine", href: "/environment?tab=governance", label: "Fix with Forge" };
+      return { kind: "engine", href: "/environment?tab=governance", labelKey: "fix_with_forge" };
     case "ask-forge": {
       const personaRaw = typeof params.persona === "string" ? params.persona : "";
       const persona = /^[a-z-]{1,32}$/.test(personaRaw) ? personaRaw : "tech";
-      return { kind: "engine", href: `/ask-forge?persona=${persona}`, label: "Ask Forge" };
+      return { kind: "engine", href: `/ask-forge?persona=${persona}`, labelKey: "ask_forge" };
     }
     case "docs":
     default: {
       const href = safeDocHref(params.href);
-      return href ? { kind: "docs", href, label: "Open docs" } : null;
+      return href ? { kind: "docs", href, labelKey: "open_docs" } : null;
     }
   }
 }
@@ -252,6 +240,12 @@ function downloadCsv(latest: WafAssessmentDetail): void {
 }
 
 export default function AssessmentPage() {
+  const tPage = useTranslations("assessment.page");
+  const tEmpty = useTranslations("assessment.empty_state");
+  const tPartial = useTranslations("assessment.partial_run");
+  const tTabs = useTranslations("assessment.tabs");
+  const tToasts = useTranslations("assessment.toasts");
+  const tShortPillar = useTranslations("assessment.pillar_short");
   const [data, setData] = useState<ApiState | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -286,12 +280,12 @@ export default function AssessmentPage() {
       const json = (await res.json()) as ApiState;
       setData(json);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load assessment";
+      const message = error instanceof Error ? error.message : tToasts("load_failed");
       toast.error(message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [tToasts]);
 
   useEffect(() => {
     void refresh();
@@ -311,18 +305,18 @@ export default function AssessmentPage() {
       }
       const summary = (await res.json()) as WafAssessmentSummary;
       if (summary.status === "failed") {
-        toast.error(summary.errorMessage ?? "Assessment failed");
+        toast.error(summary.errorMessage ?? tToasts("failed"));
       } else {
-        toast.success("Assessment completed");
+        toast.success(tToasts("completed"));
       }
       await refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to start assessment";
+      const message = error instanceof Error ? error.message : tToasts("start_failed");
       toast.error(message);
     } finally {
       setRunning(false);
     }
-  }, [refresh]);
+  }, [refresh, tToasts]);
 
   const generateDashboard = useCallback(async () => {
     setDeployingDashboard(true);
@@ -336,19 +330,19 @@ export default function AssessmentPage() {
       if (!res.ok) throw new Error(body.error ?? `Dashboard deploy failed (${res.status})`);
       const url = body.dashboardUrl as string | undefined;
       if (url) setDashboardUrl(url);
-      toast.success(`Dashboard ${body.action ?? "ready"}`, {
+      toast.success(tToasts("dashboard_action", { action: body.action ?? "ready" }), {
         action: url
-          ? { label: "Open", onClick: () => window.open(url, "_blank", "noopener") }
+          ? { label: tToasts("open"), onClick: () => window.open(url, "_blank", "noopener") }
           : undefined,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to deploy dashboard";
+      const message = error instanceof Error ? error.message : tToasts("dashboard_failed");
       toast.error(message);
     } finally {
       setDeployingDashboard(false);
       void refreshAssets();
     }
-  }, [refreshAssets]);
+  }, [refreshAssets, tToasts]);
 
   const generateGenie = useCallback(async () => {
     setDeployingGenie(true);
@@ -362,19 +356,19 @@ export default function AssessmentPage() {
       if (!res.ok) throw new Error(body.error ?? `Genie deploy failed (${res.status})`);
       const url = body.spaceUrl as string | undefined;
       if (url) setGenieUrl(url);
-      toast.success(`Genie space ${body.action ?? "ready"}`, {
+      toast.success(tToasts("genie_action", { action: body.action ?? "ready" }), {
         action: url
-          ? { label: "Open", onClick: () => window.open(url, "_blank", "noopener") }
+          ? { label: tToasts("open"), onClick: () => window.open(url, "_blank", "noopener") }
           : undefined,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to deploy Genie space";
+      const message = error instanceof Error ? error.message : tToasts("genie_failed");
       toast.error(message);
     } finally {
       setDeployingGenie(false);
       void refreshAssets();
     }
-  }, [refreshAssets]);
+  }, [refreshAssets, tToasts]);
 
   const saveQualitative = useCallback(
     async (input: { wafId: string; response: WafQualitativeAnswer; notes: string | null }) => {
@@ -394,9 +388,7 @@ export default function AssessmentPage() {
 
   const ignoreControl = useCallback(
     async (wafId: string) => {
-      const reason = window.prompt(
-        `Why is ${wafId} not applicable to this workspace? (this will be persisted as an audit trail)`,
-      );
+      const reason = window.prompt(tToasts("ignore_prompt", { wafId }));
       if (!reason || !reason.trim()) return;
       const res = await fetch("/api/assessment/ignored", {
         method: "POST",
@@ -405,13 +397,13 @@ export default function AssessmentPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        toast.error(body.error ?? `Failed to ignore ${wafId}`);
+        toast.error(body.error ?? tToasts("ignore_failed", { wafId }));
         return;
       }
-      toast.success(`${wafId} will be excluded from the next run`);
+      toast.success(tToasts("ignored_success", { wafId }));
       await refresh();
     },
-    [refresh],
+    [refresh, tToasts],
   );
 
   const restoreIgnored = useCallback(
@@ -423,13 +415,13 @@ export default function AssessmentPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        toast.error(body.error ?? `Failed to restore ${wafId}`);
+        toast.error(body.error ?? tToasts("restore_failed", { wafId }));
         return;
       }
-      toast.success(`${wafId} restored`);
+      toast.success(tToasts("restore_success", { wafId }));
       await refresh();
     },
-    [refresh],
+    [refresh, tToasts],
   );
 
   const latest = data?.latest ?? null;
@@ -488,70 +480,69 @@ export default function AssessmentPage() {
     <div className="mx-auto max-w-[1400px] space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">WAF Assessment</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{tPage("title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Self-assess your workspace against the Databricks Well-Architected Framework. Forge
-            runs deterministic SQL over <code className="text-xs">system.*</code> and links failing
-            controls to remediation engines.
+            {tPage("subtitle_pre")} <code className="text-xs">system.*</code>{" "}
+            {tPage("subtitle_post")}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {latest && (
             <Button variant="outline" onClick={() => downloadCsv(latest)}>
-              <Download className="mr-2 h-4 w-4" /> Export CSV
+              <Download className="mr-2 h-4 w-4" /> {tPage("export_csv")}
             </Button>
           )}
           {dashboardUrl ? (
             <Button
               variant="outline"
               onClick={() => window.open(dashboardUrl, "_blank", "noopener")}
-              title="Open the Forge WAF Lakeview dashboard"
+              title={tPage("open_dashboard_title")}
             >
               <ExternalLink className="mr-2 h-4 w-4" />
-              Open dashboard
+              {tPage("open_dashboard")}
             </Button>
           ) : (
             <Button
               variant="outline"
               onClick={generateDashboard}
               disabled={deployingDashboard}
-              title="Create the Forge WAF Lakeview dashboard"
+              title={tPage("generate_dashboard_title")}
             >
               {deployingDashboard ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <LayoutDashboard className="mr-2 h-4 w-4" />
               )}
-              Generate dashboard
+              {tPage("generate_dashboard")}
             </Button>
           )}
           {genieUrl ? (
             <Button
               variant="outline"
               onClick={() => window.open(genieUrl, "_blank", "noopener")}
-              title="Open the Forge WAF Genie space"
+              title={tPage("open_genie_title")}
             >
               <ExternalLink className="mr-2 h-4 w-4" />
-              Open Genie
+              {tPage("open_genie")}
             </Button>
           ) : (
             <Button
               variant="outline"
               onClick={generateGenie}
               disabled={deployingGenie}
-              title="Create the Forge WAF Genie space"
+              title={tPage("generate_genie_title")}
             >
               {deployingGenie ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <MessageCircle className="mr-2 h-4 w-4" />
               )}
-              Generate Genie
+              {tPage("generate_genie")}
             </Button>
           )}
           <Button onClick={runAssessment} disabled={running}>
             {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-            {latest ? "Re-run assessment" : "Run assessment"}
+            {latest ? tPage("rerun_assessment") : tPage("run_assessment")}
           </Button>
         </div>
       </div>
@@ -565,10 +556,10 @@ export default function AssessmentPage() {
       ) : !latest ? (
         <Card>
           <CardHeader>
-            <CardTitle>No assessment yet</CardTitle>
+            <CardTitle>{tEmpty("title")}</CardTitle>
             <CardDescription>
-              Click <strong>Run assessment</strong> to score this workspace against the Databricks
-              WAF. The first run takes about 20-40 seconds on a warm warehouse.
+              {tEmpty("description_pre")} <strong>{tEmpty("description_run")}</strong>{" "}
+              {tEmpty("description_post")}
             </CardDescription>
           </CardHeader>
         </Card>
@@ -585,7 +576,7 @@ export default function AssessmentPage() {
               <CardContent className="flex items-start gap-3 py-4 text-sm">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                 <div>
-                  <p className="font-medium">Partial run</p>
+                  <p className="font-medium">{tPartial("title")}</p>
                   <p className="mt-1 text-muted-foreground">{latest.errorMessage}</p>
                 </div>
               </CardContent>
@@ -595,20 +586,26 @@ export default function AssessmentPage() {
           <Tabs defaultValue="failing">
             <ScrollableTabsRow>
               <TabsList className="w-max min-w-full justify-start [&>button]:flex-none">
-                <TabsTrigger value="failing">Failing ({notMet.length})</TabsTrigger>
+                <TabsTrigger value="failing">
+                  {tTabs("failing", { count: notMet.length })}
+                </TabsTrigger>
                 {PILLAR_ORDER.map((p) => (
                   <TabsTrigger key={p} value={p}>
-                    {SHORT_PILLAR_LABEL[p]} ({pillarStats[p].met}/{pillarStats[p].total})
+                    {tShortPillar(p)} ({pillarStats[p].met}/{pillarStats[p].total})
                   </TabsTrigger>
                 ))}
                 <TabsTrigger value="qualitative">
-                  Qualitative ({data?.qualitativeResponses.length ?? 0}/
-                  {data?.qualitativeControls.length ?? 0})
+                  {tTabs("qualitative", {
+                    answered: data?.qualitativeResponses.length ?? 0,
+                    total: data?.qualitativeControls.length ?? 0,
+                  })}
                 </TabsTrigger>
                 <TabsTrigger value="ignored">
-                  Ignored ({data?.ignored.length ?? 0})
+                  {tTabs("ignored", { count: data?.ignored.length ?? 0 })}
                 </TabsTrigger>
-                <TabsTrigger value="history">History ({data?.history.length ?? 0})</TabsTrigger>
+                <TabsTrigger value="history">
+                  {tTabs("history", { count: data?.history.length ?? 0 })}
+                </TabsTrigger>
               </TabsList>
             </ScrollableTabsRow>
 
@@ -617,7 +614,7 @@ export default function AssessmentPage() {
                 <Card>
                   <CardContent className="flex items-center gap-3 py-8">
                     <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                    <p className="text-sm">All controls passed their thresholds. Nice work.</p>
+                    <p className="text-sm">{tTabs("all_passed")}</p>
                   </CardContent>
                 </Card>
               ) : (
@@ -740,21 +737,31 @@ function ScoreOverview({
   qualitativeAnswered: number;
   qualitativeTotal: number;
 }) {
+  const tOverview = useTranslations("assessment.overview");
+  const tFullPillar = useTranslations("assessment.pillar_full");
+  const getScoreLabel = useScoreLabel();
+  const l10n = useL10n();
   const qualitativePending = qualitativeTotal - qualitativeAnswered;
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
       <Card>
         <CardHeader className="pb-2">
-          <CardDescription>Overall</CardDescription>
-          <CardTitle className="text-3xl">{summary.overallScore?.toFixed(1) ?? "—"}</CardTitle>
+          <CardDescription>{tOverview("overall")}</CardDescription>
+          <CardTitle className="text-3xl">
+            {summary.overallScore == null ? "—" : l10n.number(summary.overallScore)}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <Badge variant={scoreToVariant(summary.overallScore)}>
-            {scoreLabel(summary.overallScore)}
+            {getScoreLabel(summary.overallScore)}
           </Badge>
           <p className="mt-2 text-xs text-muted-foreground">
-            {summary.metControls} of {summary.totalControls} controls met · last run{" "}
-            {fmtDate(summary.completedAt ?? summary.createdAt)}
+            {tOverview("controls_met", {
+              met: summary.metControls,
+              total: summary.totalControls,
+            })}{" "}
+            · {tOverview("last_run_pre")}{" "}
+            {l10n.dateTime(summary.completedAt ?? summary.createdAt)}
           </p>
         </CardContent>
       </Card>
@@ -763,34 +770,34 @@ function ScoreOverview({
         return (
           <Card key={p}>
             <CardHeader className="pb-2">
-              <CardDescription>{PILLAR_LABEL[p]}</CardDescription>
-              <CardTitle className="text-3xl">{score?.toFixed(1) ?? "—"}</CardTitle>
+              <CardDescription>{tFullPillar(p)}</CardDescription>
+              <CardTitle className="text-3xl">{score == null ? "—" : l10n.number(score)}</CardTitle>
             </CardHeader>
             <CardContent>
-              <Badge variant={scoreToVariant(score)}>{scoreLabel(score)}</Badge>
+              <Badge variant={scoreToVariant(score)}>{getScoreLabel(score)}</Badge>
             </CardContent>
           </Card>
         );
       })}
       <Card>
         <CardHeader className="pb-2">
-          <CardDescription>Qualitative</CardDescription>
+          <CardDescription>{tOverview("qualitative")}</CardDescription>
           <CardTitle className="text-3xl tabular-nums">
             {qualitativeAnswered}/{qualitativeTotal || "—"}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {qualitativeTotal === 0 ? (
-            <Badge variant="secondary">No controls</Badge>
+            <Badge variant="secondary">{tOverview("no_controls")}</Badge>
           ) : qualitativePending === 0 ? (
-            <Badge variant="default">Complete</Badge>
+            <Badge variant="default">{tOverview("complete")}</Badge>
           ) : (
-            <Badge variant="destructive">{qualitativePending} pending</Badge>
+            <Badge variant="destructive">
+              {tOverview("pending", { count: qualitativePending })}
+            </Badge>
           )}
           <p className="mt-2 text-xs text-muted-foreground">
-            {qualitativePending > 0
-              ? "Answer the manual controls in the Qualitative tab."
-              : "All manual controls answered."}
+            {qualitativePending > 0 ? tOverview("answer_pending") : tOverview("all_answered")}
           </p>
         </CardContent>
       </Card>
@@ -809,22 +816,30 @@ function PillarHeader({
   met: number;
   total: number;
 }) {
+  const tFullPillar = useTranslations("assessment.pillar_full");
+  const tHeader = useTranslations("assessment.pillar_header");
+  const getScoreLabel = useScoreLabel();
+  const l10n = useL10n();
   return (
     <Card>
       <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
         <div>
-          <div className="text-sm text-muted-foreground">{PILLAR_LABEL[pillar]}</div>
+          <div className="text-sm text-muted-foreground">{tFullPillar(pillar)}</div>
           <div className="mt-1 flex items-baseline gap-3">
-            <span className="text-3xl font-semibold tabular-nums">{score?.toFixed(1) ?? "—"}</span>
-            <Badge variant={scoreToVariant(score)}>{scoreLabel(score)}</Badge>
+            <span className="text-3xl font-semibold tabular-nums">
+              {score == null ? "—" : l10n.number(score)}
+            </span>
+            <Badge variant={scoreToVariant(score)}>{getScoreLabel(score)}</Badge>
           </div>
         </div>
         <div className="text-right text-sm text-muted-foreground">
           <div className="font-medium text-foreground">
-            {met} / {total} controls met
+            {tHeader("controls_met", { met, total })}
           </div>
           {total > met && (
-            <div className="mt-1 text-xs">{total - met} failing — sorted to the top</div>
+            <div className="mt-1 text-xs">
+              {tHeader("failing_sorted", { count: total - met })}
+            </div>
           )}
         </div>
       </CardContent>
@@ -841,18 +856,22 @@ function ResultsTable({
   showPillar?: boolean;
   onIgnore?: (wafId: string) => Promise<void>;
 }) {
+  const tResults = useTranslations("assessment.results_table");
+  const tShortPillar = useTranslations("assessment.pillar_short");
+  const tActions = useTranslations("assessment.actions");
+  const l10n = useL10n();
   return (
     <Card>
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[100px]">Control</TableHead>
-            {showPillar && <TableHead>Pillar</TableHead>}
-            <TableHead>Best practice</TableHead>
-            <TableHead className="text-right">Score</TableHead>
-            <TableHead className="text-right">Threshold</TableHead>
-            <TableHead className="w-[100px]">Status</TableHead>
-            <TableHead className="w-[160px]">Action</TableHead>
+            <TableHead className="w-[100px]">{tResults("control")}</TableHead>
+            {showPillar && <TableHead>{tResults("pillar")}</TableHead>}
+            <TableHead>{tResults("best_practice")}</TableHead>
+            <TableHead className="text-right">{tResults("score")}</TableHead>
+            <TableHead className="text-right">{tResults("threshold")}</TableHead>
+            <TableHead className="w-[100px]">{tResults("status")}</TableHead>
+            <TableHead className="w-[160px]">{tResults("action")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -862,7 +881,7 @@ function ResultsTable({
               <TableRow key={r.wafId}>
                 <TableCell className="font-mono text-xs">{r.wafId}</TableCell>
                 {showPillar && (
-                  <TableCell className="text-sm">{SHORT_PILLAR_LABEL[r.pillar]}</TableCell>
+                  <TableCell className="text-sm">{tShortPillar(r.pillar)}</TableCell>
                 )}
                 <TableCell className="text-sm">
                   <div className="font-medium">{r.control.bestPractice}</div>
@@ -870,7 +889,7 @@ function ResultsTable({
                   {!r.thresholdMet && r.control.recommendationIfNotMet && (
                     <details className="mt-2 text-xs">
                       <summary className="cursor-pointer text-muted-foreground">
-                        Recommendation
+                        {tResults("recommendation")}
                       </summary>
                       <pre className="mt-1 max-w-3xl whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
                         {r.control.recommendationIfNotMet}
@@ -880,19 +899,19 @@ function ResultsTable({
                   <CrossRefBadges wafId={r.wafId} pillar={r.pillar} />
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {r.scorePercentage.toFixed(1)}
+                  {l10n.number(r.scorePercentage)}
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-muted-foreground">
-                  {r.thresholdPercentage.toFixed(0)}
+                  {l10n.integer(r.thresholdPercentage)}
                 </TableCell>
                 <TableCell>
                   {r.thresholdMet ? (
                     <Badge variant="default" className="gap-1">
-                      <CheckCircle2 className="h-3 w-3" /> Met
+                      <CheckCircle2 className="h-3 w-3" /> {tResults("met")}
                     </Badge>
                   ) : (
                     <Badge variant="destructive" className="gap-1">
-                      <AlertCircle className="h-3 w-3" /> Not Met
+                      <AlertCircle className="h-3 w-3" /> {tResults("not_met")}
                     </Badge>
                   )}
                 </TableCell>
@@ -902,18 +921,18 @@ function ResultsTable({
                       <Button size="sm" variant="outline" asChild>
                         {action.kind === "docs" ? (
                           <a href={action.href} target="_blank" rel="noopener noreferrer">
-                            <BookOpen className="mr-1.5 h-3.5 w-3.5" /> {action.label}
+                            <BookOpen className="mr-1.5 h-3.5 w-3.5" /> {tActions(action.labelKey)}
                           </a>
                         ) : (
                           <Link href={action.href}>
-                            <Wrench className="mr-1.5 h-3.5 w-3.5" /> {action.label}
+                            <Wrench className="mr-1.5 h-3.5 w-3.5" /> {tActions(action.labelKey)}
                           </Link>
                         )}
                       </Button>
                     ) : !r.thresholdMet ? (
                       <Button size="sm" variant="ghost" asChild>
                         <Link href="/ask-forge">
-                          <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Ask Forge
+                          <Sparkles className="mr-1.5 h-3.5 w-3.5" /> {tResults("ask_forge")}
                         </Link>
                       </Button>
                     ) : (
@@ -923,7 +942,7 @@ function ResultsTable({
                       <Button
                         size="sm"
                         variant="ghost"
-                        title="Mark this control as not applicable to this workspace"
+                        title={tResults("ignore_title")}
                         onClick={() => void onIgnore(r.wafId)}
                       >
                         <EyeOff className="h-3.5 w-3.5" />
@@ -947,11 +966,14 @@ function HistoryTable({
   history: WafAssessmentSummary[];
   latestId: string;
 }) {
+  const tHistory = useTranslations("assessment.history");
+  const l10n = useL10n();
+  const fmt = (v: number | null | undefined) => (v == null ? "—" : l10n.number(v));
   if (history.length === 0) {
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          No previous runs.
+          {tHistory("no_runs")}
         </CardContent>
       </Card>
     );
@@ -961,18 +983,18 @@ function HistoryTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>When</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Overall</TableHead>
-            <TableHead className="text-right">Governance</TableHead>
-            <TableHead className="text-right">IU</TableHead>
-            <TableHead className="text-right">OE</TableHead>
-            <TableHead className="text-right">SCP</TableHead>
-            <TableHead className="text-right">Reliability</TableHead>
-            <TableHead className="text-right">Cost</TableHead>
-            <TableHead className="text-right">Performance</TableHead>
-            <TableHead className="text-right">Met / Total</TableHead>
-            <TableHead className="w-[140px]">Compare</TableHead>
+            <TableHead>{tHistory("when")}</TableHead>
+            <TableHead>{tHistory("status")}</TableHead>
+            <TableHead className="text-right">{tHistory("overall")}</TableHead>
+            <TableHead className="text-right">{tHistory("governance")}</TableHead>
+            <TableHead className="text-right">{tHistory("iu")}</TableHead>
+            <TableHead className="text-right">{tHistory("oe")}</TableHead>
+            <TableHead className="text-right">{tHistory("scp")}</TableHead>
+            <TableHead className="text-right">{tHistory("reliability")}</TableHead>
+            <TableHead className="text-right">{tHistory("cost")}</TableHead>
+            <TableHead className="text-right">{tHistory("performance")}</TableHead>
+            <TableHead className="text-right">{tHistory("met_total")}</TableHead>
+            <TableHead className="w-[140px]">{tHistory("compare")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -982,9 +1004,9 @@ function HistoryTable({
             return (
               <TableRow key={h.assessmentId}>
                 <TableCell className="text-sm">
-                  {fmtDate(h.createdAt)}
+                  {l10n.dateTime(h.createdAt)}
                   {isLatest && (
-                    <span className="ml-2 text-xs text-muted-foreground">(latest)</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{tHistory("latest")}</span>
                   )}
                 </TableCell>
                 <TableCell>
@@ -992,30 +1014,14 @@ function HistoryTable({
                     {h.status}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {h.overallScore?.toFixed(1) ?? "—"}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {h.governanceScore?.toFixed(1) ?? "—"}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {h.iuScore?.toFixed(1) ?? "—"}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {h.oeScore?.toFixed(1) ?? "—"}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {h.scpScore?.toFixed(1) ?? "—"}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {h.reliabilityScore?.toFixed(1) ?? "—"}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {h.costScore?.toFixed(1) ?? "—"}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {h.performanceScore?.toFixed(1) ?? "—"}
-                </TableCell>
+                <TableCell className="text-right tabular-nums">{fmt(h.overallScore)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmt(h.governanceScore)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmt(h.iuScore)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmt(h.oeScore)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmt(h.scpScore)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmt(h.reliabilityScore)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmt(h.costScore)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmt(h.performanceScore)}</TableCell>
                 <TableCell className="text-right tabular-nums">
                   {h.metControls} / {h.totalControls}
                 </TableCell>
@@ -1027,7 +1033,7 @@ function HistoryTable({
                           h.assessmentId,
                         )}&to=${encodeURIComponent(latestId)}`}
                       >
-                        <ArrowLeftRight className="mr-1.5 h-3.5 w-3.5" /> vs. latest
+                        <ArrowLeftRight className="mr-1.5 h-3.5 w-3.5" /> {tHistory("vs_latest")}
                       </Link>
                     </Button>
                   ) : (
@@ -1050,11 +1056,13 @@ function IgnoredTab({
   ignored: WafIgnoredResource[];
   onRestore: (id: string, wafId: string) => Promise<void>;
 }) {
+  const tIgnored = useTranslations("assessment.ignored");
+  const l10n = useL10n();
   if (ignored.length === 0) {
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          No controls or resources are currently excluded from scoring.
+          {tIgnored("empty")}
         </CardContent>
       </Card>
     );
@@ -1064,12 +1072,12 @@ function IgnoredTab({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[120px]">Control</TableHead>
-            <TableHead className="w-[140px]">Scope</TableHead>
-            <TableHead>Reason</TableHead>
-            <TableHead className="w-[160px]">Ignored at</TableHead>
-            <TableHead className="w-[160px]">By</TableHead>
-            <TableHead className="w-[100px]">Restore</TableHead>
+            <TableHead className="w-[120px]">{tIgnored("control")}</TableHead>
+            <TableHead className="w-[140px]">{tIgnored("scope")}</TableHead>
+            <TableHead>{tIgnored("reason")}</TableHead>
+            <TableHead className="w-[160px]">{tIgnored("ignored_at")}</TableHead>
+            <TableHead className="w-[160px]">{tIgnored("by")}</TableHead>
+            <TableHead className="w-[100px]">{tIgnored("restore")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -1077,14 +1085,14 @@ function IgnoredTab({
             const scope =
               row.resourceType && row.resourceId
                 ? `${row.resourceType}: ${row.resourceId}`
-                : "Whole control";
+                : tIgnored("whole_control");
             return (
               <TableRow key={row.id}>
                 <TableCell className="font-mono text-xs">{row.wafId}</TableCell>
                 <TableCell className="text-xs">{scope}</TableCell>
                 <TableCell className="text-sm whitespace-pre-wrap">{row.reason}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">
-                  {fmtDate(row.createdAt)}
+                  {l10n.dateTime(row.createdAt)}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
                   {row.ignoredBy ?? "—"}
@@ -1095,7 +1103,7 @@ function IgnoredTab({
                     variant="ghost"
                     onClick={() => void onRestore(row.id, row.wafId)}
                   >
-                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Restore
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> {tIgnored("restore")}
                   </Button>
                 </TableCell>
               </TableRow>
@@ -1120,6 +1128,7 @@ function QualitativeTab({
     notes: string | null;
   }) => Promise<void>;
 }) {
+  const tQualitative = useTranslations("assessment.qualitative");
   const responseByWafId = useMemo(() => {
     const map = new Map<string, WafQualitativeResponse>();
     for (const r of responses) map.set(r.wafId, r);
@@ -1130,7 +1139,7 @@ function QualitativeTab({
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          No qualitative controls in the catalog.
+          {tQualitative("empty")}
         </CardContent>
       </Card>
     );
@@ -1140,9 +1149,11 @@ function QualitativeTab({
     <div className="space-y-3">
       <Card>
         <CardContent className="py-4 text-xs text-muted-foreground">
-          Answer each best practice with <strong>Yes</strong> (100), <strong>Partial</strong> (50),{" "}
-          <strong>No</strong> (0), or <strong>N/A</strong> (excluded). Saved responses feed every
-          future assessment run — re-run the assessment to see the updated pillar scores.
+          {tQualitative("intro_pre")} <strong>{tQualitative("yes")}</strong>{" "}
+          {tQualitative("intro_yes_score")}, <strong>{tQualitative("partial")}</strong>{" "}
+          {tQualitative("intro_partial_score")}, <strong>{tQualitative("no")}</strong>{" "}
+          {tQualitative("intro_no_score")}, <strong>{tQualitative("na")}</strong>{" "}
+          {tQualitative("intro_na_score")}. {tQualitative("intro_post")}
         </CardContent>
       </Card>
       {controls.map((control) => (
@@ -1170,28 +1181,34 @@ function QualitativeRow({
     notes: string | null;
   }) => Promise<void>;
 }) {
+  const tQualitative = useTranslations("assessment.qualitative");
+  const tFullPillar = useTranslations("assessment.pillar_full");
+  const l10n = useL10n();
   const [answer, setAnswer] = useState<WafQualitativeAnswer | "">(response?.response ?? "");
   const [notes, setNotes] = useState<string>(response?.notes ?? "");
   const [saving, setSaving] = useState(false);
 
   const dirty = answer !== (response?.response ?? "") || notes !== (response?.notes ?? "");
 
+  const optionLabel = (opt: WafQualitativeAnswer) =>
+    opt === "not_applicable" ? tQualitative("na") : tQualitative(opt);
+
   const handleSave = useCallback(async () => {
     if (!answer) {
-      toast.error("Pick an answer first");
+      toast.error(tQualitative("pick_answer"));
       return;
     }
     setSaving(true);
     try {
       await onSave({ wafId: control.wafId, response: answer, notes: notes.trim() || null });
-      toast.success(`Saved ${control.wafId}`);
+      toast.success(tQualitative("saved_toast", { wafId: control.wafId }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save response";
+      const message = error instanceof Error ? error.message : tQualitative("save_failed");
       toast.error(message);
     } finally {
       setSaving(false);
     }
-  }, [answer, notes, control.wafId, onSave]);
+  }, [answer, notes, control.wafId, onSave, tQualitative]);
 
   return (
     <Card>
@@ -1200,15 +1217,15 @@ function QualitativeRow({
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs text-muted-foreground">{control.wafId}</span>
             <Badge variant="outline" className="text-xs">
-              {PILLAR_LABEL[control.pillar]}
+              {tFullPillar(control.pillar)}
             </Badge>
             {response ? (
               <Badge variant="default" className="text-xs">
-                Answered
+                {tQualitative("answered")}
               </Badge>
             ) : (
               <Badge variant="secondary" className="text-xs">
-                Pending response
+                {tQualitative("pending_response")}
               </Badge>
             )}
           </div>
@@ -1229,25 +1246,25 @@ function QualitativeRow({
         >
           {(["yes", "partial", "no", "not_applicable"] as WafQualitativeAnswer[]).map((opt) => (
             <ToggleGroupItem key={opt} value={opt} className="px-3 text-xs">
-              {QUALITATIVE_LABEL[opt]}
+              {optionLabel(opt)}
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
         <Textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Optional notes (evidence, owner, expected remediation date)..."
+          placeholder={tQualitative("notes_placeholder")}
           className="min-h-[60px] text-xs"
         />
         <div className="flex items-center justify-end gap-2">
           {response && (
             <span className="text-xs text-muted-foreground">
-              Last updated {fmtDate(response.updatedAt)}
+              {tQualitative("last_updated", { date: l10n.dateTime(response.updatedAt) })}
             </span>
           )}
           <Button size="sm" onClick={handleSave} disabled={!dirty || saving || !answer}>
             {saving && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-            Save
+            {tQualitative("save")}
           </Button>
         </div>
       </CardContent>
