@@ -28,6 +28,7 @@ export function LanguageToggle() {
 
   const handleSelect = (next: Locale) => {
     if (next === locale) return;
+    // eslint-disable-next-line react-hooks/immutability -- document.cookie is a browser-API setter, not a module-level mutation; user-triggered side effect belongs in the event handler, not useEffect.
     document.cookie = `${LOCALE_COOKIE}=${next}; path=/; max-age=${COOKIE_MAX_AGE}; samesite=lax`;
     startTransition(() => {
       window.location.reload();
