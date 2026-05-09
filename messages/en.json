@@ -89,7 +89,7 @@
     "dialog_description": "Semantic search across tables, use cases, insights, and documents",
     "placeholder": "Search across your entire data estate…",
     "searching": "Searching…",
-    "no_results": "No results found for \u201c{query}\u201d",
+    "no_results": "No results found for “{query}”",
     "empty_heading": "Search tables, use cases, insights, and more",
     "empty_subtitle": "Results are ranked by semantic similarity",
     "scopes": {
@@ -414,6 +414,82 @@
       "view_sessions": "View All Sessions"
     }
   },
+  "comments": {
+    "page": {
+      "title": "AI Comments",
+      "subtitle": "Generate and apply industry-aware descriptions for tables and columns in Unity Catalog.",
+      "all_jobs": "All Jobs",
+      "new_job": "New Job",
+      "open": "Open"
+    },
+    "empty": {
+      "title": "No comment jobs yet",
+      "description": "Generate AI-powered descriptions for your tables and columns. Review, edit, and apply them directly to Unity Catalog.",
+      "create_first": "Create Your First Job"
+    },
+    "jobs": {
+      "tables_columns": "{tables} tables, {columns} columns",
+      "applied_suffix": ", {applied} applied"
+    },
+    "review": {
+      "select_table": "Select a table from the left panel",
+      "no_proposals": "No proposals generated yet",
+      "starting_generation": "Starting generation..."
+    },
+    "dialog": {
+      "title": "New Comment Job",
+      "description": "Select the Unity Catalog scope and optionally choose an industry for domain-specific descriptions.",
+      "scope_title": "Select Scope",
+      "scope_description": "Browse Unity Catalog and select catalogs, schemas, or individual tables.",
+      "industry_title": "Industry Context (optional)",
+      "industry_description": "Enrich descriptions with domain-specific terminology.",
+      "industry_placeholder": "No industry (generic descriptions)",
+      "industry_none": "No industry",
+      "industry_from_settings": "From Settings",
+      "industry_set_globally_pre": "Industry is set globally in",
+      "industry_set_globally_settings": "Settings",
+      "language_title": "Output Language",
+      "language_description_pre": "Language for the generated descriptions. Identifiers (table names, columns, data types) stay verbatim. Default comes from",
+      "language_description_settings": "Settings",
+      "cancel": "Cancel",
+      "generate": "Generate AI Comments"
+    },
+    "catalog_browser": {
+      "search_placeholder": "Search catalogs, schemas, and tables...",
+      "refresh": "Refresh",
+      "exclude_placeholder": "Exclude by pattern (e.g. stg_*, *_backup, __databricks*)",
+      "exclude": "Exclude",
+      "no_results": "No results match “{query}”",
+      "no_catalogs": "No catalogs found in this workspace.",
+      "no_catalogs_hint": "This may happen if the warehouse just started. Try refreshing, or check that your SQL Warehouse has access to Unity Catalog.",
+      "retry": "Retry",
+      "warehouse_unavailable": "SQL Warehouse is not responding. It may still be starting up.",
+      "insufficient_permissions": "You don't have permission to view catalogs. Contact your workspace admin.",
+      "load_failed": "Failed to load catalogs",
+      "included": "Included ({count})",
+      "excluded": "Excluded ({count})",
+      "starting_warehouse": "Starting SQL Warehouse..."
+    },
+    "toasts": {
+      "load_failed": "Failed to load job data",
+      "select_scope": "Select at least one catalog, schema, or table",
+      "generation_failed": "Generation failed",
+      "lost_contact": "Lost contact with generation. Check job list.",
+      "generation_complete": "Generation complete",
+      "generation_summary": "{tables} tables, {columns} columns",
+      "update_failed": "Failed to update proposals",
+      "applied_count": "Applied {count} comments",
+      "applied_for_table": "Applied {count} comments for {table}",
+      "applied_failed_suffix": "{count} failed",
+      "apply_failed": "Apply failed",
+      "undone_count": "Undone {count} comments",
+      "undo_failed": "Undo failed",
+      "resync_success": "Refreshed {count} comments for {table}",
+      "resync_failed": "Resync failed",
+      "job_deleted": "Job deleted",
+      "delete_failed": "Failed to delete job"
+    }
+  },
   "assessment": {
     "page": {
       "title": "WAF Assessment",
@@ -574,6 +650,672 @@
       "restore_success": "{wafId} restored",
       "ignore_failed": "Failed to ignore {wafId}",
       "restore_failed": "Failed to restore {wafId}"
+    },
+    "controls": {
+      "DG-01-01": {
+        "best_practice": "Establish data governance process",
+        "principle": "Unify data and AI management"
+      },
+      "DG-01-02": {
+        "best_practice": "Manage metadata for all data assets in one place",
+        "principle": "Unify data and AI management"
+      },
+      "DG-01-03": {
+        "best_practice": "Track data and AI lineage to drive visibility of the data",
+        "principle": "Unify data and AI management"
+      },
+      "DG-01-04": {
+        "best_practice": "Add consistent descriptions to your metadata",
+        "principle": "Unify data and AI management"
+      },
+      "DG-01-05": {
+        "best_practice": "Allow easy data discovery for data consumers",
+        "principle": "Unify data and AI management"
+      },
+      "DG-01-06": {
+        "best_practice": "Govern AI assets together with data",
+        "principle": "Unify data and AI management"
+      },
+      "DG-02-01": {
+        "best_practice": "Centralize access control for all data and AI assets",
+        "principle": "Unify data and AI security"
+      },
+      "DG-02-02": {
+        "best_practice": "Configure audit logging",
+        "principle": "Unify data and AI security"
+      },
+      "DG-02-03": {
+        "best_practice": "Audit data platform events",
+        "principle": "Unify data and AI security"
+      },
+      "DG-03-01": {
+        "best_practice": "Define and document data quality standards",
+        "principle": "Establish data quality standards"
+      },
+      "DG-03-02": {
+        "best_practice": "Use data quality tools for profiling, cleansing, validating, and monitoring data",
+        "principle": "Establish data quality standards"
+      },
+      "DG-03-03": {
+        "best_practice": "Implement and enforce standardized data formats and definitions",
+        "principle": "Establish data quality standards"
+      },
+      "DG-EX01-01": {
+        "best_practice": "Classify data assets by sensitivity (PII, Confidential, Internal, Public)",
+        "principle": "Data classification (extended)"
+      },
+      "IU-01-01": {
+        "best_practice": "Use standard and reusable integration patterns for external integration",
+        "principle": "Define standards for integration"
+      },
+      "IU-01-02": {
+        "best_practice": "Use optimized connectors to ingest data sources into the lakehouse",
+        "principle": "Define standards for integration"
+      },
+      "IU-01-03": {
+        "best_practice": "Use certified partner tools",
+        "principle": "Define standards for integration"
+      },
+      "IU-01-04": {
+        "best_practice": "Reduce complexity of data engineering pipelines",
+        "principle": "Define standards for integration"
+      },
+      "IU-02-01": {
+        "best_practice": "Use open data formats",
+        "principle": "Utilize open interfaces and data formats"
+      },
+      "IU-02-02": {
+        "best_practice": "Enable secure data sharing for all data and AI assets",
+        "principle": "Utilize open interfaces and data formats"
+      },
+      "IU-02-03": {
+        "best_practice": "Use open standards for your AI workflows",
+        "principle": "Utilize open interfaces and data formats"
+      },
+      "IU-03-01": {
+        "best_practice": "Provide a self-service experience across the platform",
+        "principle": "Simplify new use case implementation"
+      },
+      "IU-03-02": {
+        "best_practice": "Use serverless services",
+        "principle": "Simplify new use case implementation"
+      },
+      "IU-03-03": {
+        "best_practice": "Use pre-defined compute templates",
+        "principle": "Simplify new use case implementation"
+      },
+      "IU-03-04": {
+        "best_practice": "Use AI capabilities to increase productivity",
+        "principle": "Simplify new use case implementation"
+      },
+      "IU-04-01": {
+        "best_practice": "Offer reusable data-as-products that the business can trust",
+        "principle": "Ensure data consistency and usability"
+      },
+      "IU-04-02": {
+        "best_practice": "Publish data products semantically consistent across the enterprise",
+        "principle": "Ensure data consistency and usability"
+      },
+      "IU-04-03": {
+        "best_practice": "Provide a central catalog for discovery and lineage",
+        "principle": "Ensure data consistency and usability"
+      },
+      "OE-01-01": {
+        "best_practice": "Create a dedicated Lakehouse operations team",
+        "principle": "Optimize build and release processes"
+      },
+      "OE-01-02": {
+        "best_practice": "Use enterprise source code management (SCM)",
+        "principle": "Optimize build and release processes"
+      },
+      "OE-01-03": {
+        "best_practice": "Standardize DevOps processes (CI/CD)",
+        "principle": "Optimize build and release processes"
+      },
+      "OE-01-04": {
+        "best_practice": "Standardize MLOps processes across enterprise",
+        "principle": "Optimize build and release processes"
+      },
+      "OE-01-05": {
+        "best_practice": "Define environment isolation strategy",
+        "principle": "Optimize build and release processes"
+      },
+      "OE-01-06": {
+        "best_practice": "Streamline the usage and management of various\nlarge language model (LLM) providers",
+        "principle": "Optimize build and release processes"
+      },
+      "OE-01-07": {
+        "best_practice": "Define catalog strategy for your enterprise",
+        "principle": "Optimize build and release processes"
+      },
+      "OE-01-08": {
+        "best_practice": "Compare LLM outputs on set prompts",
+        "principle": "Optimize build and release processes"
+      },
+      "OE-01-09": {
+        "best_practice": "Build models with all representative, accurate and relevant data sources",
+        "principle": "Optimize build and release processes"
+      },
+      "OE-02-01": {
+        "best_practice": "Use Infrastructure as Code for deployments and maintenance",
+        "principle": "Automate deployments and workloads"
+      },
+      "OE-02-02": {
+        "best_practice": "Standardize compute configurations",
+        "principle": "Automate deployments and workloads"
+      },
+      "OE-02-03": {
+        "best_practice": "Use automated workflows for jobs",
+        "principle": "Automate deployments and workloads"
+      },
+      "OE-02-04": {
+        "best_practice": "Use automated and event driven file ingestion",
+        "principle": "Automate deployments and workloads"
+      },
+      "OE-02-05": {
+        "best_practice": "Use ETL frameworks for data pipelines",
+        "principle": "Automate deployments and workloads"
+      },
+      "OE-02-06": {
+        "best_practice": "Follow the deploy-code approach for ML workloads",
+        "principle": "Automate deployments and workloads"
+      },
+      "OE-02-07": {
+        "best_practice": "Use a model registry to decouple code and model lifecycle",
+        "principle": "Automate deployments and workloads"
+      },
+      "OE-02-08": {
+        "best_practice": "Automate ML experiment tracking",
+        "principle": "Automate deployments and workloads"
+      },
+      "OE-02-09": {
+        "best_practice": "Reuse the same infrastructure to manage ML pipelines",
+        "principle": "Automate deployments and workloads"
+      },
+      "OE-02-10": {
+        "best_practice": "Utilize declarative management for complex data and ML pipelines",
+        "principle": "Automate deployments and workloads"
+      },
+      "OE-02-11": {
+        "best_practice": "Automate LLM evaluation",
+        "principle": "Automate deployments and workloads"
+      },
+      "OE-03-01": {
+        "best_practice": "Establish monitoring processes",
+        "principle": "Set up Monitoring, Alerting and Logging"
+      },
+      "OE-03-02": {
+        "best_practice": "Use native and external tools for platform monitoring",
+        "principle": "Set up Monitoring, Alerting and Logging"
+      },
+      "OE-03-03": {
+        "best_practice": "Establish an incident response strategy",
+        "principle": "Set up Monitoring, Alerting and Logging"
+      },
+      "OE-03-04": {
+        "best_practice": "Triggering actions in response to a specific event",
+        "principle": "Set up Monitoring, Alerting and Logging"
+      },
+      "OE-04-01": {
+        "best_practice": "Manage service limits and quotas",
+        "principle": "Manage capacity and quotas"
+      },
+      "OE-04-02": {
+        "best_practice": "Invest in capacity planning",
+        "principle": "Manage capacity and quotas"
+      },
+      "OE-EX01-01": {
+        "best_practice": "Tier workloads by business criticality (tier-1 / tier-2 / tier-3)",
+        "principle": "Workload criticality (extended)"
+      },
+      "OE-EX02-01": {
+        "best_practice": "Formalize SDLC for production workloads (PR review, tests, approvals)",
+        "principle": "Operational governance (extended)"
+      },
+      "OE-EX02-02": {
+        "best_practice": "Establish FinOps practice (cost ownership, regular reviews, chargeback)",
+        "principle": "Operational governance (extended)"
+      },
+      "OE-EX02-03": {
+        "best_practice": "Standardize operations: runbooks, on-call rotation, post-mortems",
+        "principle": "Operational governance (extended)"
+      },
+      "SCP-01-01": {
+        "best_practice": "Authenticate via single sign-on.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-01-02": {
+        "best_practice": "Use multifactor authentication.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-01-03": {
+        "best_practice": "Disable local passwords.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-01-04": {
+        "best_practice": "Set complex local passwords.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-01-05": {
+        "best_practice": "Separate admin accounts from normal user accounts.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-01-06": {
+        "best_practice": "Use token management.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-01-07": {
+        "best_practice": "SCIM synchronization of users and groups.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-01-08": {
+        "best_practice": "Limit cluster creation rights.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-01-09": {
+        "best_practice": "Store and use secrets securely.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-01-10": {
+        "best_practice": "Cross-account IAM role configuration.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-01-11": {
+        "best_practice": "Customer-approved workspace login.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-01-12": {
+        "best_practice": "Use clusters that support user isolation.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-01-13": {
+        "best_practice": "Use service principals to run production jobs.",
+        "principle": "Manage identity and access using least privilege"
+      },
+      "SCP-02-01": {
+        "best_practice": "Avoid storing production data in DBFS.",
+        "principle": "Protect data in transit and at rest"
+      },
+      "SCP-02-02": {
+        "best_practice": "Secure access to cloud storage.",
+        "principle": "Protect data in transit and at rest"
+      },
+      "SCP-02-03": {
+        "best_practice": "Use data exfiltration settings within the admin console.",
+        "principle": "Protect data in transit and at rest"
+      },
+      "SCP-02-04": {
+        "best_practice": "Use bucket versioning.",
+        "principle": "Protect data in transit and at rest"
+      },
+      "SCP-02-05": {
+        "best_practice": "Encrypt storage and restrict access.",
+        "principle": "Protect data in transit and at rest"
+      },
+      "SCP-02-06": {
+        "best_practice": "Add a customer-managed key for managed services.",
+        "principle": "Protect data in transit and at rest"
+      },
+      "SCP-02-07": {
+        "best_practice": "Add a customer-managed key for workspace storage.",
+        "principle": "Protect data in transit and at rest"
+      },
+      "SCP-03-01": {
+        "best_practice": "Deploy with a customer-managed VPC or VNet.",
+        "principle": "Secure your network and identify and protect endpoints"
+      },
+      "SCP-03-02": {
+        "best_practice": "Use IP access lists.",
+        "principle": "Secure your network and identify and protect endpoints"
+      },
+      "SCP-03-03": {
+        "best_practice": "Implement network exfiltration protections.",
+        "principle": "Secure your network and identify and protect endpoints"
+      },
+      "SCP-03-04": {
+        "best_practice": "Apply VPC service controls.",
+        "principle": "Secure your network and identify and protect endpoints"
+      },
+      "SCP-03-05": {
+        "best_practice": "Use VPC endpoint policies.",
+        "principle": "Secure your network and identify and protect endpoints"
+      },
+      "SCP-03-06": {
+        "best_practice": "Configure Private Link.",
+        "principle": "Secure your network and identify and protect endpoints"
+      },
+      "SCP-04-01": {
+        "best_practice": "Review the Shared Responsibility Model.",
+        "principle": "Review the Shared Responsibility Model"
+      },
+      "SCP-05-01": {
+        "best_practice": "Review the Databricks compliance programs.",
+        "principle": "Meet compliance and data privacy requirements"
+      },
+      "SCP-06-01": {
+        "best_practice": "Monitor workspace using System tables",
+        "principle": "Monitor system security"
+      },
+      "SCP-06-02": {
+        "best_practice": "Use Databricks audit log.",
+        "principle": "Monitor system security"
+      },
+      "SCP-06-03": {
+        "best_practice": "Monitor provisioning activities.",
+        "principle": "Monitor system security"
+      },
+      "SCP-06-04": {
+        "best_practice": "Use Enhanced Security Monitoring or Compliance Security Profile",
+        "principle": "Monitor system security"
+      },
+      "SCP-06-05": {
+        "best_practice": "Configure tagging to monitor usage and enable charge-back.",
+        "principle": "Monitor system security"
+      },
+      "SCP-07-01": {
+        "best_practice": "Use AWS Nitro instances.",
+        "principle": "Generic controls"
+      },
+      "SCP-07-02": {
+        "best_practice": "Service quotas.",
+        "principle": "Generic controls"
+      },
+      "SCP-07-03": {
+        "best_practice": "Leverage CI/CD processes to scan code for hard-coded secrets.",
+        "principle": "Generic controls"
+      },
+      "SCP-07-04": {
+        "best_practice": "Isolate sensitive workloads into different workspaces.",
+        "principle": "Generic controls"
+      },
+      "SCP-07-05": {
+        "best_practice": "Controlling libraries.",
+        "principle": "Generic controls"
+      },
+      "SCP-EX01-01": {
+        "best_practice": "Use Automatic Identity Management (Azure) or SCIM via corporate IdP (AWS/GCP)",
+        "principle": "Identity and access management (extended)"
+      },
+      "SCP-EX01-02": {
+        "best_practice": "Workspaces are identity-federated",
+        "principle": "Identity and access management (extended)"
+      },
+      "SCP-EX01-03": {
+        "best_practice": "Bind groups to corporate IdP, not local Databricks groups",
+        "principle": "Identity and access management (extended)"
+      },
+      "SCP-EX01-04": {
+        "best_practice": "Assign workspace entitlements via groups, not individual users",
+        "principle": "Identity and access management (extended)"
+      },
+      "SCP-EX01-05": {
+        "best_practice": "Assign Unity Catalog permissions via groups, not individual users",
+        "principle": "Identity and access management (extended)"
+      },
+      "SCP-EX01-06": {
+        "best_practice": "Audit identity sync events regularly",
+        "principle": "Identity and access management (extended)"
+      },
+      "SCP-EX02-01": {
+        "best_practice": "Encrypt data in transit (Spark wire encryption, TLS-only storage, Compliance Security Profile)",
+        "principle": "Data protection (extended)"
+      },
+      "R-01-01": {
+        "best_practice": "Use a data format that supports ACID transactions",
+        "principle": "Design for failure"
+      },
+      "R-01-02": {
+        "best_practice": "Use a resilient distributed data engine for all workloads",
+        "principle": "Design for failure"
+      },
+      "R-01-03": {
+        "best_practice": "Automatically rescue invalid or nonconforming data",
+        "principle": "Design for failure"
+      },
+      "R-01-04": {
+        "best_practice": "Configure jobs for automatic retries and termination",
+        "principle": "Design for failure"
+      },
+      "R-01-05": {
+        "best_practice": "Use a scalable and production-grade model serving infrastructure",
+        "principle": "Design for failure"
+      },
+      "R-01-06": {
+        "best_practice": "Use managed services for your workloads",
+        "principle": "Design for failure"
+      },
+      "R-02-01": {
+        "best_practice": "Use a layered storage architecture",
+        "principle": "Manage data quality"
+      },
+      "R-02-02": {
+        "best_practice": "Improve data integrity by reducing data redundancy",
+        "principle": "Manage data quality"
+      },
+      "R-02-03": {
+        "best_practice": "Actively manage schemas",
+        "principle": "Manage data quality"
+      },
+      "R-02-04": {
+        "best_practice": "Use constraints and data expectations",
+        "principle": "Manage data quality"
+      },
+      "R-02-05": {
+        "best_practice": "Take a data-centric approach to machine learning",
+        "principle": "Manage data quality"
+      },
+      "R-03-01": {
+        "best_practice": "Enable autoscaling for ETL workloads",
+        "principle": "Design for autoscaling"
+      },
+      "R-03-02": {
+        "best_practice": "Use autoscaling for SQL Warehouses",
+        "principle": "Design for autoscaling"
+      },
+      "R-04-01": {
+        "best_practice": "Recover from Structured Streaming query failures",
+        "principle": "Test recovery procedures"
+      },
+      "R-04-02": {
+        "best_practice": "Recover ETL jobs using data time travel capabilities",
+        "principle": "Test recovery procedures"
+      },
+      "R-04-03": {
+        "best_practice": "Leverage a job automation framework with built-in recovery",
+        "principle": "Test recovery procedures"
+      },
+      "R-04-04": {
+        "best_practice": "Configure a disaster recovery pattern",
+        "principle": "Test recovery procedures"
+      },
+      "R-05-01": {
+        "best_practice": "Monitor data platform events",
+        "principle": "Monitor platform events"
+      },
+      "R-05-02": {
+        "best_practice": "Monitor cloud events",
+        "principle": "Monitor platform events"
+      },
+      "R-EX01-01": {
+        "best_practice": "Conduct Failure Mode Analysis (FMA) for tier-1 workloads",
+        "principle": "Resilience engineering (extended)"
+      },
+      "R-EX01-02": {
+        "best_practice": "Test disaster recovery and resiliency regularly (chaos drills)",
+        "principle": "Resilience engineering (extended)"
+      },
+      "PE-01-01": {
+        "best_practice": "Use serverless architecture",
+        "principle": "Utilize serverless capabilities"
+      },
+      "PE-01-02": {
+        "best_practice": "Use an enterprise grade model serving service",
+        "principle": "Utilize serverless capabilities"
+      },
+      "PE-02-01": {
+        "best_practice": "Understand your data ingestion and access patterns",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-02": {
+        "best_practice": "Use parallel computation where it is beneficial",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-03": {
+        "best_practice": "Analyze the whole chain of execution",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-04": {
+        "best_practice": "Prefer larger clusters",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-05": {
+        "best_practice": "Use native Spark operations",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-06": {
+        "best_practice": "Use native platform engines",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-07": {
+        "best_practice": "Understand your hardware and workload type",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-08": {
+        "best_practice": "Use caching",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-09": {
+        "best_practice": "Use compaction",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-10": {
+        "best_practice": "Use data skipping",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-11": {
+        "best_practice": "Enable Predictive Optimization on your metastore",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-12": {
+        "best_practice": "Avoid over-partitioning",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-14": {
+        "best_practice": "Consider file size tuning",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-15": {
+        "best_practice": "Optimize join performance",
+        "principle": "Design workloads for performance"
+      },
+      "PE-02-16": {
+        "best_practice": "Run analyze table to collect table statistics",
+        "principle": "Design workloads for performance"
+      },
+      "PE-03-01": {
+        "best_practice": "Test on data representative of production data",
+        "principle": "Run performance testing"
+      },
+      "PE-03-02": {
+        "best_practice": "Take prewarming of resources into account",
+        "principle": "Run performance testing"
+      },
+      "PE-03-03": {
+        "best_practice": "Identify bottlenecks",
+        "principle": "Run performance testing"
+      },
+      "PE-04-01": {
+        "best_practice": "Monitor query performanance",
+        "principle": "Monitor performance"
+      },
+      "PE-04-02": {
+        "best_practice": "Monitor streaming workloads",
+        "principle": "Monitor performance"
+      },
+      "PE-04-03": {
+        "best_practice": "Monitor job performance",
+        "principle": "Monitor performance"
+      },
+      "CO-01-01": {
+        "best_practice": "Use performance optimized data formats",
+        "principle": "Choose optimal resources"
+      },
+      "CO-01-02": {
+        "best_practice": "Use job clusters",
+        "principle": "Choose optimal resources"
+      },
+      "CO-01-03": {
+        "best_practice": "Use SQL warehouse for SQL workloads",
+        "principle": "Choose optimal resources"
+      },
+      "CO-01-04": {
+        "best_practice": "Use up-to-date runtimes for your workloads",
+        "principle": "Choose optimal resources"
+      },
+      "CO-01-05": {
+        "best_practice": "Only use GPUs for the right workloads",
+        "principle": "Choose optimal resources"
+      },
+      "CO-01-06": {
+        "best_practice": "Use Serverless for your workloads",
+        "principle": "Choose optimal resources"
+      },
+      "CO-01-07": {
+        "best_practice": "Use the right instance type",
+        "principle": "Choose optimal resources"
+      },
+      "CO-01-08": {
+        "best_practice": "Choose the most efficient cluster size",
+        "principle": "Choose optimal resources"
+      },
+      "CO-01-09": {
+        "best_practice": "Evaluate performance optimized query engines",
+        "principle": "Choose optimal resources"
+      },
+      "CO-02-01": {
+        "best_practice": "Leverage auto-scaling compute",
+        "principle": "Dynamically allocate resources"
+      },
+      "CO-02-02": {
+        "best_practice": "Use auto termination",
+        "principle": "Dynamically allocate resources"
+      },
+      "CO-02-03": {
+        "best_practice": "Use compute policies to control costs",
+        "principle": "Dynamically allocate resources"
+      },
+      "CO-03-01": {
+        "best_practice": "Monitor costs",
+        "principle": "Monitor and control cost"
+      },
+      "CO-03-02": {
+        "best_practice": "Tag clusters for cost attribution",
+        "principle": "Monitor and control cost"
+      },
+      "CO-03-03": {
+        "best_practice": "Implement observability to track & chargeback cost",
+        "principle": "Monitor and control cost"
+      },
+      "CO-03-04": {
+        "best_practice": "Share cost reports regularly",
+        "principle": "Monitor and control cost"
+      },
+      "CO-03-05": {
+        "best_practice": "Monitor and manage Delta Sharing egress costs",
+        "principle": "Monitor and control cost"
+      },
+      "CO-04-01": {
+        "best_practice": "Balance always-on and triggered streaming",
+        "principle": "Design cost-effective workloads"
+      },
+      "CO-04-02": {
+        "best_practice": "Balance between on-demand and capacity excess instances",
+        "principle": "Design cost-effective workloads"
+      },
+      "CO-EX01-01": {
+        "best_practice": "Decommission unused resources (idle jobs, tables, model endpoints, notebooks, workspaces)",
+        "principle": "Resource lifecycle (extended)"
+      }
     }
   }
 }

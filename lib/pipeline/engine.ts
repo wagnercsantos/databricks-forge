@@ -367,6 +367,7 @@ export async function startPipeline(
           ctx.run.businessContext?.strategicGoals,
           runId,
           ctx.signal,
+          ctx.run.config.outputLanguage,
         );
         if (commentResult.enriched) {
           const msg = commentResult.reused

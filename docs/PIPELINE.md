@@ -66,6 +66,32 @@ endpoint falls back to the premium endpoint -- all behaviour is unchanged.
 
 ---
 
+## Output Language
+
+The Discovery pipeline honours `PipelineRunConfig.outputLanguage` (`"en"` |
+`"pt-BR"` | `"es"`, default `"en"`). The value is sourced from the user's
+`aiCommentLanguage` setting at submission time and propagated as follows:
+
+1. **Comment enrichment prerequisite** — before Step 4, the engine calls
+   `ensureCommentEnrichment(...)` (`lib/pipeline/comment-prerequisite.ts`),
+   which checks for a fresh AI Comment job covering the scope. The freshness
+   check now requires the job's `outputLanguage` to match the run's; otherwise
+   a new Comment Engine run is dispatched in the requested language.
+2. **Use case generation** — Step 5 injects an `{output_language_directive}`
+   placeholder into both `AI_USE_CASE_GEN_PROMPT` and
+   `STATS_USE_CASE_GEN_PROMPT`, instructing the LLM to write the natural
+   language fields (`name`, `statement`, `solution`, `business_value`,
+   `beneficiary`, `sponsor`, `technical_design`) in the chosen language while
+   keeping technical identifiers (FQNs, AI/SQL function names, JSON keys) in
+   English.
+
+Other pipeline steps (table filtering, scoring, domain clustering, SQL
+generation) currently run in English regardless of `outputLanguage`; their
+prompts list `{output_language}` placeholders that are not yet wired (tracked
+under ROADMAP item #17).
+
+---
+
 ## Step 1: Business Context
 
 **File:** `lib/pipeline/steps/business-context.ts`
@@ -204,6 +230,7 @@ that batch (fail-open to avoid missing use cases).
 - `foreign_key_relationships` (from Step 2)
 - `ai_functions_summary` (from AI_FUNCTIONS registry)
 - `statistical_functions_detailed` (from STATISTICAL_FUNCTIONS registry)
+- `output_language_directive` (computed from `run.config.outputLanguage`; empty for English, otherwise a "Write all natural-language fields in <language>" instruction. See [Output Language](#output-language).)
 
 **Process:**
 1. Batch tables using `BatchOptimizer` logic (group by schema, respect token limits)

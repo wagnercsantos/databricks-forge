@@ -247,7 +247,7 @@ databricks apps logs databricks-forge --follow
 - **Knowledge Base** -- upload strategy packs, data dictionaries, and governance policies to enrich AI context
 - **Fabric / Power BI migration** -- scan PBI workspaces, propose gold schema DDL, translate DAX to SQL
 - Deduplicates and ranks results so the highest-value opportunities surface first
-- Supports **20+ languages** for generated documentation
+- **Multi-language UI and AI output** -- the application UI is internationalised via `next-intl` (English, Português Brasil, Español), and the **AI Comment Language** setting controls the natural language of AI-generated table/column descriptions and use case fields (name, statement, solution, business value, beneficiary, sponsor, technical design) in both the AI Comments page and the New Discovery pipeline
 - **Real-time status messages** during pipeline execution (e.g. "Filtering tables (batch 2 of 5)...")
 - **Privacy-first**: reads only metadata by default (table/column names and schemas). Optional [data sampling](FORGE_ANALYSIS.md#data-sampling) can be enabled for improved SQL accuracy
 
@@ -359,7 +359,7 @@ These map to the form fields on the `/configure` page:
 | **Strategic Goals** | No | Auto-generated | Custom goals for scoring alignment |
 | **Business Domains** | No | Auto-detected | Focus domains (e.g. "Risk, Finance, Marketing") |
 | **AI Model** | No | databricks-claude-opus-4-7 | Model Serving endpoint for LLM calls (chat completions) |
-| **Languages** | No | English | Target languages for generated documentation |
+| **AI Comment Language** | No | English | Natural language used by AI-generated table/column comments and use case fields. Configured in **Settings → AI** (`English`, `Português (Brasil)`, `Español`). Technical identifiers (FQNs, function names) always stay in English. |
 
 ### Cost governance (optional)
 

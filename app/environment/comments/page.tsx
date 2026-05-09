@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -77,6 +78,13 @@ const LANGUAGE_NATIVE_LABELS: Record<CommentOutputLanguage, string> = {
 };
 
 export default function AICommentsPage() {
+  const tPage = useTranslations("comments.page");
+  const tEmpty = useTranslations("comments.empty");
+  const tJobs = useTranslations("comments.jobs");
+  const tReview = useTranslations("comments.review");
+  const tDialog = useTranslations("comments.dialog");
+  const tToasts = useTranslations("comments.toasts");
+
   // -- State --
   const [pageState, setPageState] = useState<PageState>("jobs");
   const [jobs, setJobs] = useState<CommentJob[]>([]);
@@ -162,14 +170,14 @@ export default function AICommentsPage() {
           .catch(() => {});
       }
     } catch {
-      toast.error("Failed to load job data");
+      toast.error(tToasts("load_failed"));
     }
-  }, []);
+  }, [tToasts]);
 
   // -- Generate comments (from modal) --
   const handleGenerate = useCallback(async () => {
     if (selectedSources.length === 0) {
-      toast.error("Select at least one catalog, schema, or table");
+      toast.error(tToasts("select_scope"));
       return;
     }
 
@@ -226,10 +234,10 @@ export default function AICommentsPage() {
       setActiveJobId(newJobId);
       startProgressPolling(newJobId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Generation failed");
+      toast.error(err instanceof Error ? err.message : tToasts("generation_failed"));
       setPageState("jobs");
     }
-  }, [selectedSources, selectedIndustry, selectedLanguage]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedSources, selectedIndustry, selectedLanguage, tToasts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -- Poll progress --
   const startProgressPolling = useCallback(
@@ -247,7 +255,7 @@ export default function AICommentsPage() {
             if (consecutiveMisses >= maxConsecutiveMisses) {
               clearInterval(timer);
               setPollTimerRef(null);
-              toast.error("Lost contact with generation. Check job list.");
+              toast.error(tToasts("lost_contact"));
               setPageState("jobs");
               reloadJobs();
             }
@@ -265,13 +273,16 @@ export default function AICommentsPage() {
             await loadJobData(jobId);
             setPageState("review");
             reloadJobs();
-            toast.success("Generation complete", {
-              description: `${prog.tablesGenerated ?? 0} tables, ${prog.columnsGenerated ?? 0} columns`,
+            toast.success(tToasts("generation_complete"), {
+              description: tToasts("generation_summary", {
+                tables: prog.tablesGenerated ?? 0,
+                columns: prog.columnsGenerated ?? 0,
+              }),
             });
           } else if (prog.phase === "failed") {
             clearInterval(timer);
             setPollTimerRef(null);
-            toast.error(prog.message || "Generation failed");
+            toast.error(prog.message || tToasts("generation_failed"));
             setPageState("jobs");
             reloadJobs();
           }
@@ -282,7 +293,7 @@ export default function AICommentsPage() {
 
       setPollTimerRef(timer);
     },
-    [loadJobData, pollTimerRef], // eslint-disable-line react-hooks/exhaustive-deps
+    [loadJobData, pollTimerRef, tToasts], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   useEffect(() => {
@@ -331,10 +342,10 @@ export default function AICommentsPage() {
 
         await loadJobData(activeJobId);
       } catch {
-        toast.error("Failed to update proposals");
+        toast.error(tToasts("update_failed"));
       }
     },
-    [activeJobId, loadJobData],
+    [activeJobId, loadJobData, tToasts],
   );
 
   // -- Apply --
@@ -348,18 +359,19 @@ export default function AICommentsPage() {
         body: JSON.stringify({ all: true }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Apply failed");
+      if (!res.ok) throw new Error(data.error ?? tToasts("apply_failed"));
 
-      toast.success(`Applied ${data.applied} comments`, {
-        description: data.failed > 0 ? `${data.failed} failed` : undefined,
+      toast.success(tToasts("applied_count", { count: data.applied }), {
+        description:
+          data.failed > 0 ? tToasts("applied_failed_suffix", { count: data.failed }) : undefined,
       });
       await loadJobData(activeJobId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Apply failed");
+      toast.error(err instanceof Error ? err.message : tToasts("apply_failed"));
     } finally {
       setApplying(false);
     }
-  }, [activeJobId, loadJobData]);
+  }, [activeJobId, loadJobData, tToasts]);
 
   const handleApplyTable = useCallback(
     async (tableFqn: string) => {
@@ -376,15 +388,20 @@ export default function AICommentsPage() {
           body: JSON.stringify({ proposalIds: tableProposals.map((p) => p.id) }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Apply failed");
+        if (!res.ok) throw new Error(data.error ?? tToasts("apply_failed"));
 
-        toast.success(`Applied ${data.applied} comments for ${tableFqn.split(".").pop()}`);
+        toast.success(
+          tToasts("applied_for_table", {
+            count: data.applied,
+            table: tableFqn.split(".").pop() ?? tableFqn,
+          }),
+        );
         await loadJobData(activeJobId);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Apply failed");
+        toast.error(err instanceof Error ? err.message : tToasts("apply_failed"));
       }
     },
-    [activeJobId, proposals, loadJobData],
+    [activeJobId, proposals, loadJobData, tToasts],
   );
 
   // -- Undo --
@@ -397,14 +414,14 @@ export default function AICommentsPage() {
         body: JSON.stringify({ all: true }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Undo failed");
+      if (!res.ok) throw new Error(data.error ?? tToasts("undo_failed"));
 
-      toast.success(`Undone ${data.undone} comments`);
+      toast.success(tToasts("undone_count", { count: data.undone }));
       await loadJobData(activeJobId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Undo failed");
+      toast.error(err instanceof Error ? err.message : tToasts("undo_failed"));
     }
-  }, [activeJobId, loadJobData]);
+  }, [activeJobId, loadJobData, tToasts]);
 
   const handleUndoTable = useCallback(
     async (tableFqn: string) => {
@@ -419,15 +436,15 @@ export default function AICommentsPage() {
           body: JSON.stringify({ proposalIds: applied.map((p) => p.id) }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Undo failed");
+        if (!res.ok) throw new Error(data.error ?? tToasts("undo_failed"));
 
-        toast.success(`Undone ${data.undone} comments`);
+        toast.success(tToasts("undone_count", { count: data.undone }));
         await loadJobData(activeJobId);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Undo failed");
+        toast.error(err instanceof Error ? err.message : tToasts("undo_failed"));
       }
     },
-    [activeJobId, proposals, loadJobData],
+    [activeJobId, proposals, loadJobData, tToasts],
   );
 
   // -- Resync table --
@@ -441,15 +458,20 @@ export default function AICommentsPage() {
           body: JSON.stringify({ tableFqn }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Resync failed");
+        if (!res.ok) throw new Error(data.error ?? tToasts("resync_failed"));
 
-        toast.success(`Refreshed ${data.updated} comments for ${tableFqn.split(".").pop()}`);
+        toast.success(
+          tToasts("resync_success", {
+            count: data.updated,
+            table: tableFqn.split(".").pop() ?? tableFqn,
+          }),
+        );
         await loadJobData(activeJobId);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Resync failed");
+        toast.error(err instanceof Error ? err.message : tToasts("resync_failed"));
       }
     },
-    [activeJobId, loadJobData],
+    [activeJobId, loadJobData, tToasts],
   );
 
   // -- Next table --
@@ -476,11 +498,11 @@ export default function AICommentsPage() {
     try {
       await fetch(`/api/environment/comments/${jobId}`, { method: "DELETE" });
       setJobs((prev) => prev.filter((j) => j.id !== jobId));
-      toast.success("Job deleted");
+      toast.success(tToasts("job_deleted"));
     } catch {
-      toast.error("Failed to delete job");
+      toast.error(tToasts("delete_failed"));
     }
-  }, []);
+  }, [tToasts]);
 
   // -- Derived state --
   const currentTableProposals = useMemo(
@@ -504,10 +526,8 @@ export default function AICommentsPage() {
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">AI Comments</h1>
-          <p className="mt-1 text-muted-foreground">
-            Generate and apply industry-aware descriptions for tables and columns in Unity Catalog.
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight">{tPage("title")}</h1>
+          <p className="mt-1 text-muted-foreground">{tPage("subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
           {pageState === "review" && (
@@ -523,7 +543,7 @@ export default function AICommentsPage() {
               }}
             >
               <ArrowLeft className="mr-1 h-3.5 w-3.5" />
-              All Jobs
+              {tPage("all_jobs")}
             </Button>
           )}
           {pageState !== "generating" && (
@@ -537,7 +557,7 @@ export default function AICommentsPage() {
               }}
             >
               <Plus className="mr-1 h-3.5 w-3.5" />
-              New Job
+              {tPage("new_job")}
             </Button>
           )}
         </div>
@@ -552,10 +572,9 @@ export default function AICommentsPage() {
             <Card>
               <CardContent className="py-16 text-center">
                 <MessageSquare className="mx-auto h-10 w-10 text-muted-foreground/50" />
-                <p className="mt-4 font-medium">No comment jobs yet</p>
+                <p className="mt-4 font-medium">{tEmpty("title")}</p>
                 <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
-                  Generate AI-powered descriptions for your tables and columns. Review, edit, and
-                  apply them directly to Unity Catalog.
+                  {tEmpty("description")}
                 </p>
                 <Button
                   className="mt-6"
@@ -566,7 +585,7 @@ export default function AICommentsPage() {
                   }}
                 >
                   <Sparkles className="mr-2 h-4 w-4" />
-                  Create Your First Job
+                  {tEmpty("create_first")}
                 </Button>
               </CardContent>
             </Card>
@@ -605,8 +624,12 @@ export default function AICommentsPage() {
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {job.tableCount} tables, {job.columnCount} columns
-                        {job.appliedCount > 0 && `, ${job.appliedCount} applied`}
+                        {tJobs("tables_columns", {
+                          tables: job.tableCount,
+                          columns: job.columnCount,
+                        })}
+                        {job.appliedCount > 0 &&
+                          tJobs("applied_suffix", { applied: job.appliedCount })}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -619,7 +642,7 @@ export default function AICommentsPage() {
                         }}
                       >
                         <ChevronRight className="mr-1 h-3.5 w-3.5" />
-                        Open
+                        {tPage("open")}
                       </Button>
                       <Button
                         variant="ghost"
@@ -652,7 +675,7 @@ export default function AICommentsPage() {
             <Card className="border-blue-200 bg-blue-50/30 dark:border-blue-900 dark:bg-blue-950/10">
               <CardContent className="py-8 flex items-center justify-center gap-3">
                 <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
-                <span className="text-sm text-muted-foreground">Starting generation...</span>
+                <span className="text-sm text-muted-foreground">{tReview("starting_generation")}</span>
               </CardContent>
             </Card>
           )}
@@ -687,8 +710,8 @@ export default function AICommentsPage() {
               ) : (
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                   {tableSummary.length > 0
-                    ? "Select a table from the left panel"
-                    : "No proposals generated yet"}
+                    ? tReview("select_table")
+                    : tReview("no_proposals")}
                 </div>
               )}
             </div>
@@ -720,18 +743,15 @@ export default function AICommentsPage() {
       <Dialog open={newJobOpen} onOpenChange={setNewJobOpen}>
         <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
           <DialogHeader>
-            <DialogTitle>New Comment Job</DialogTitle>
-            <DialogDescription>
-              Select the Unity Catalog scope and optionally choose an industry for domain-specific
-              descriptions.
-            </DialogDescription>
+            <DialogTitle>{tDialog("title")}</DialogTitle>
+            <DialogDescription>{tDialog("description")}</DialogDescription>
           </DialogHeader>
 
           <div className="flex-1 min-h-0 overflow-y-auto space-y-6 pt-2">
             <div>
-              <h3 className="text-sm font-medium mb-2">Select Scope</h3>
+              <h3 className="text-sm font-medium mb-2">{tDialog("scope_title")}</h3>
               <p className="text-xs text-muted-foreground mb-3">
-                Browse Unity Catalog and select catalogs, schemas, or individual tables.
+                {tDialog("scope_description")}
               </p>
               <CatalogBrowser
                 selectedSources={selectedSources}
@@ -746,9 +766,9 @@ export default function AICommentsPage() {
             </div>
 
             <div>
-              <h3 className="text-sm font-medium mb-2">Industry Context (optional)</h3>
+              <h3 className="text-sm font-medium mb-2">{tDialog("industry_title")}</h3>
               <p className="text-xs text-muted-foreground mb-3">
-                Enrich descriptions with domain-specific terminology.
+                {tDialog("industry_description")}
               </p>
               {settingsIndustry ? (
                 <>
@@ -758,16 +778,16 @@ export default function AICommentsPage() {
                       {industries.find((i) => i.id === settingsIndustry)?.name ?? settingsIndustry}
                     </span>
                     <Badge variant="secondary" className="ml-auto text-[10px]">
-                      From Settings
+                      {tDialog("industry_from_settings")}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
-                    Industry is set globally in{" "}
+                    {tDialog("industry_set_globally_pre")}{" "}
                     <Link
                       href="/settings"
                       className="underline text-primary hover:text-primary/80"
                     >
-                      Settings
+                      {tDialog("industry_set_globally_settings")}
                     </Link>
                     .
                   </p>
@@ -775,10 +795,10 @@ export default function AICommentsPage() {
               ) : (
                 <Select value={selectedIndustry} onValueChange={setSelectedIndustry}>
                   <SelectTrigger className="w-[300px]">
-                    <SelectValue placeholder="No industry (generic descriptions)" />
+                    <SelectValue placeholder={tDialog("industry_placeholder")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No industry</SelectItem>
+                    <SelectItem value="none">{tDialog("industry_none")}</SelectItem>
                     {industries.map((ind) => (
                       <SelectItem key={ind.id} value={ind.id}>
                         {ind.name}
@@ -790,12 +810,11 @@ export default function AICommentsPage() {
             </div>
 
             <div>
-              <h3 className="text-sm font-medium mb-2">Output Language</h3>
+              <h3 className="text-sm font-medium mb-2">{tDialog("language_title")}</h3>
               <p className="text-xs text-muted-foreground mb-3">
-                Language for the generated descriptions. Identifiers (table names, columns,
-                data types) stay verbatim. Default comes from{" "}
+                {tDialog("language_description_pre")}{" "}
                 <Link href="/settings" className="underline text-primary hover:text-primary/80">
-                  Settings
+                  {tDialog("language_description_settings")}
                 </Link>
                 .
               </p>
@@ -821,11 +840,11 @@ export default function AICommentsPage() {
 
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setNewJobOpen(false)}>
-                Cancel
+                {tDialog("cancel")}
               </Button>
               <Button onClick={handleGenerate} disabled={selectedSources.length === 0}>
                 <Sparkles className="mr-2 h-4 w-4" />
-                Generate AI Comments
+                {tDialog("generate")}
               </Button>
             </div>
           </div>

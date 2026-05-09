@@ -134,9 +134,16 @@ These are high-value but high-effort features that should be planned for later m
 
 ### 17. Multi-Language Support (i18n)
 
-- **Value: 4 | Effort: 4 | Score: 1.0**
-- Prompt templates for keyword and use case translation already exist in `docs/PROMPTS.md` (`KEYWORDS_TRANSLATE_PROMPT`, `USE_CASE_TRANSLATE_PROMPT`) but are not wired. Full i18n requires UI string extraction (next-intl), prompt translation pipeline, and locale-aware exports.
-- Key files: `lib/ai/templates.ts`, all UI pages, `lib/export/`
+- **Value: 4 | Effort: 4 | Score: 1.0** — **Partially shipped**
+- **Done:**
+  - UI internationalised via `next-intl` with messages in `messages/{en,pt-BR,es}.json` covering Settings, AI Comments page, WAF Assessment (incl. all 166 control translations), pipeline catalog browser, and core navigation.
+  - AI Comment Engine accepts `outputLanguage` (`en` | `pt-BR` | `es`) and writes table/column comments in the chosen language.
+  - New Discovery pipeline now plumbs the `aiCommentLanguage` setting end-to-end: `loadSettings()` → ConfigForm POST → `CreateRunSchema` → `PipelineRunConfig.outputLanguage` → comment-prerequisite (cache scoped by language) → use case generation prompts (via `{output_language_directive}` placeholder).
+- **Remaining:**
+  - Translation prompts `KEYWORDS_TRANSLATE_PROMPT` and `USE_CASE_TRANSLATE_PROMPT` (see `docs/PROMPTS.md`) still unwired.
+  - Locale-aware exports (PDF/PPTX/CSV) — exports currently render in English only.
+  - Domain-clustering and scoring prompts list `{output_language}` as input but the variable is not yet supplied at runtime.
+- Key files: `lib/ai/templates.ts`, `lib/ai/templates-usecase-gen.ts`, `lib/pipeline/comment-prerequisite.ts`, `lib/pipeline/steps/usecase-generation.ts`, `lib/export/`, `messages/`
 
 ### 18. Genie Benchmark Evaluation
 
@@ -208,7 +215,7 @@ These are high-value but high-effort features that should be planned for later m
 | 12 | Scheduled Scans | 4 | 3 | 1.33 | v0.7.0 |
 | 14 | Integration Tests | 4 | 3 | 1.33 | v0.7.0 |
 | 16 | Quality Trends | 4 | 3 | 1.33 | v0.7.0 |
-| 17 | i18n | 4 | 4 | 1.0 | v1.0.0 |
+| 17 | i18n (UI + comments + use cases shipped; exports/translation prompts pending) | 4 | 4 | 1.0 | v0.8.0 (partial) / v1.0.0 (full) |
 | 18 | Benchmark Eval | 4 | 4 | 1.0 | v1.0.0 |
 | 20 | RAG Context | 4 | 4 | 1.0 | v1.0.0 |
 | 21 | WebSockets | 3 | 3 | 1.0 | v1.0.0 |

@@ -46,7 +46,24 @@ import { updateRunMessage } from "@/lib/lakebase/runs";
 import { logger as fallbackLogger } from "@/lib/logger";
 import type { PipelineContext, UseCase, UseCaseType, LineageGraph } from "@/lib/domain/types";
 import { DEFAULT_DEPTH_CONFIGS } from "@/lib/domain/types";
+import type { CommentOutputLanguage } from "@/lib/ai/comment-engine/types";
 import { v4 as uuidv4 } from "uuid";
+
+/**
+ * Build a natural-language directive that tells the LLM which language to
+ * write the use case fields in. Returns "" for English (default), since the
+ * prompts are already English-native.
+ */
+function buildOutputLanguageDirective(language?: CommentOutputLanguage): string {
+  switch (language) {
+    case "pt-BR":
+      return "### OUTPUT LANGUAGE\n\n**Write all natural-language fields (name, statement, solution, business_value, beneficiary, sponsor, technical_design) in Brazilian Portuguese (pt-BR).** Keep technical identifiers (table names, function names like ai_forecast, JSON keys, SQL keywords, analytics_technique values) in English exactly as listed in the schema and function registry.";
+    case "es":
+      return "### OUTPUT LANGUAGE\n\n**Write all natural-language fields (name, statement, solution, business_value, beneficiary, sponsor, technical_design) in Spanish (es).** Keep technical identifiers (table names, function names like ai_forecast, JSON keys, SQL keywords, analytics_technique values) in English exactly as listed in the schema and function registry.";
+    default:
+      return "";
+  }
+}
 
 const DEFAULT_CONCURRENT_BATCHES = 8;
 const LARGE_SCHEMA_CONCURRENT_BATCHES = 3;
@@ -99,6 +116,7 @@ export async function runUsecaseGeneration(
   const columns = metadata.columns.filter((c) => filteredTables.includes(c.tableFqn));
 
   const sampleRows = run.config.sampleRowsPerTable ?? 0;
+  const outputLanguageDirective = buildOutputLanguageDirective(run.config.outputLanguage);
 
   // Build shared context that goes into every prompt (used for base token calc).
   // Filter FKs to only those involving business-relevant tables to avoid
@@ -617,6 +635,7 @@ export async function runUsecaseGeneration(
       const targetCount = Math.max(targetRange.min, Math.min(targetRange.max, tableCount));
 
       const baseVars: Record<string, string> = {
+        output_language_directive: outputLanguageDirective,
         business_context: JSON.stringify(bc),
         strategic_goals: bc.strategicGoals,
         business_priorities: bc.businessPriorities,

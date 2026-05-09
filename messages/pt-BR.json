@@ -89,7 +89,7 @@
     "dialog_description": "Busca semântica em tabelas, casos de uso, insights e documentos",
     "placeholder": "Busque em todo o seu patrimônio de dados…",
     "searching": "Buscando…",
-    "no_results": "Nenhum resultado para \u201c{query}\u201d",
+    "no_results": "Nenhum resultado para “{query}”",
     "empty_heading": "Busque tabelas, casos de uso, insights e mais",
     "empty_subtitle": "Resultados ordenados por similaridade semântica",
     "scopes": {
@@ -414,6 +414,82 @@
       "view_sessions": "Ver Todas as Sessões"
     }
   },
+  "comments": {
+    "page": {
+      "title": "Comentários com IA",
+      "subtitle": "Gere e aplique descrições com contexto de indústria para tabelas e colunas no Unity Catalog.",
+      "all_jobs": "Todos os jobs",
+      "new_job": "Novo job",
+      "open": "Abrir"
+    },
+    "empty": {
+      "title": "Nenhum job de comentário ainda",
+      "description": "Gere descrições com IA para suas tabelas e colunas. Revise, edite e aplique direto no Unity Catalog.",
+      "create_first": "Criar seu primeiro job"
+    },
+    "jobs": {
+      "tables_columns": "{tables} tabelas, {columns} colunas",
+      "applied_suffix": ", {applied} aplicados"
+    },
+    "review": {
+      "select_table": "Selecione uma tabela no painel à esquerda",
+      "no_proposals": "Nenhuma proposta gerada ainda",
+      "starting_generation": "Iniciando geração..."
+    },
+    "dialog": {
+      "title": "Novo job de comentário",
+      "description": "Selecione o escopo no Unity Catalog e, opcionalmente, escolha uma indústria para descrições específicas do domínio.",
+      "scope_title": "Selecionar escopo",
+      "scope_description": "Navegue pelo Unity Catalog e selecione catálogos, schemas ou tabelas específicas.",
+      "industry_title": "Contexto da indústria (opcional)",
+      "industry_description": "Enriqueça as descrições com terminologia específica do domínio.",
+      "industry_placeholder": "Sem indústria (descrições genéricas)",
+      "industry_none": "Sem indústria",
+      "industry_from_settings": "Definido em Configurações",
+      "industry_set_globally_pre": "A indústria é definida globalmente em",
+      "industry_set_globally_settings": "Configurações",
+      "language_title": "Idioma de saída",
+      "language_description_pre": "Idioma das descrições geradas. Identificadores (nomes de tabelas, colunas, tipos de dados) permanecem como estão. O padrão vem de",
+      "language_description_settings": "Configurações",
+      "cancel": "Cancelar",
+      "generate": "Gerar comentários com IA"
+    },
+    "catalog_browser": {
+      "search_placeholder": "Buscar catálogos, schemas e tabelas...",
+      "refresh": "Atualizar",
+      "exclude_placeholder": "Excluir por padrão (ex.: stg_*, *_backup, __databricks*)",
+      "exclude": "Excluir",
+      "no_results": "Nenhum resultado para “{query}”",
+      "no_catalogs": "Nenhum catálogo encontrado neste workspace.",
+      "no_catalogs_hint": "Isso pode acontecer se o warehouse acabou de iniciar. Tente atualizar ou verifique se o SQL Warehouse tem acesso ao Unity Catalog.",
+      "retry": "Tentar novamente",
+      "warehouse_unavailable": "SQL Warehouse não está respondendo. Ele pode ainda estar iniciando.",
+      "insufficient_permissions": "Você não tem permissão para visualizar catálogos. Fale com o admin do workspace.",
+      "load_failed": "Falha ao carregar catálogos",
+      "included": "Incluídos ({count})",
+      "excluded": "Excluídos ({count})",
+      "starting_warehouse": "Iniciando SQL Warehouse..."
+    },
+    "toasts": {
+      "load_failed": "Falha ao carregar dados do job",
+      "select_scope": "Selecione ao menos um catálogo, schema ou tabela",
+      "generation_failed": "Geração falhou",
+      "lost_contact": "Perdemos contato com a geração. Verifique a lista de jobs.",
+      "generation_complete": "Geração concluída",
+      "generation_summary": "{tables} tabelas, {columns} colunas",
+      "update_failed": "Falha ao atualizar propostas",
+      "applied_count": "{count} comentários aplicados",
+      "applied_for_table": "{count} comentários aplicados em {table}",
+      "applied_failed_suffix": "{count} com falha",
+      "apply_failed": "Falha ao aplicar",
+      "undone_count": "{count} comentários revertidos",
+      "undo_failed": "Falha ao reverter",
+      "resync_success": "{count} comentários atualizados em {table}",
+      "resync_failed": "Falha ao ressincronizar",
+      "job_deleted": "Job removido",
+      "delete_failed": "Falha ao remover job"
+    }
+  },
   "assessment": {
     "page": {
       "title": "Avaliação WAF",
@@ -574,6 +650,672 @@
       "restore_success": "{wafId} restaurado",
       "ignore_failed": "Falha ao ignorar {wafId}",
       "restore_failed": "Falha ao restaurar {wafId}"
+    },
+    "controls": {
+      "DG-01-01": {
+        "best_practice": "Estabelecer processo de governança de dados",
+        "principle": "Unificar a gestão de dados e IA"
+      },
+      "DG-01-02": {
+        "best_practice": "Gerenciar metadados de todos os ativos de dados em um único lugar",
+        "principle": "Unificar a gestão de dados e IA"
+      },
+      "DG-01-03": {
+        "best_practice": "Rastrear linhagem de dados e IA para garantir visibilidade dos dados",
+        "principle": "Unificar a gestão de dados e IA"
+      },
+      "DG-01-04": {
+        "best_practice": "Adicionar descrições consistentes aos metadados",
+        "principle": "Unificar a gestão de dados e IA"
+      },
+      "DG-01-05": {
+        "best_practice": "Permitir descoberta fácil de dados pelos consumidores",
+        "principle": "Unificar a gestão de dados e IA"
+      },
+      "DG-01-06": {
+        "best_practice": "Governar ativos de IA junto com os dados",
+        "principle": "Unificar a gestão de dados e IA"
+      },
+      "DG-02-01": {
+        "best_practice": "Centralizar o controle de acesso para todos os ativos de dados e IA",
+        "principle": "Unificar a segurança de dados e IA"
+      },
+      "DG-02-02": {
+        "best_practice": "Configurar logging de auditoria",
+        "principle": "Unificar a segurança de dados e IA"
+      },
+      "DG-02-03": {
+        "best_practice": "Auditar eventos da plataforma de dados",
+        "principle": "Unificar a segurança de dados e IA"
+      },
+      "DG-03-01": {
+        "best_practice": "Definir e documentar padrões de qualidade de dados",
+        "principle": "Estabelecer padrões de qualidade de dados"
+      },
+      "DG-03-02": {
+        "best_practice": "Usar ferramentas de qualidade de dados para profiling, limpeza, validação e monitoramento",
+        "principle": "Estabelecer padrões de qualidade de dados"
+      },
+      "DG-03-03": {
+        "best_practice": "Implementar e aplicar formatos e definições de dados padronizados",
+        "principle": "Estabelecer padrões de qualidade de dados"
+      },
+      "DG-EX01-01": {
+        "best_practice": "Classificar ativos de dados por sensibilidade (PII, Confidencial, Interno, Público)",
+        "principle": "Classificação de dados (estendida)"
+      },
+      "IU-01-01": {
+        "best_practice": "Usar padrões de integração reutilizáveis para integração externa",
+        "principle": "Definir padrões para integração"
+      },
+      "IU-01-02": {
+        "best_practice": "Usar conectores otimizados para ingerir fontes de dados no lakehouse",
+        "principle": "Definir padrões para integração"
+      },
+      "IU-01-03": {
+        "best_practice": "Usar ferramentas de parceiros certificados",
+        "principle": "Definir padrões para integração"
+      },
+      "IU-01-04": {
+        "best_practice": "Reduzir a complexidade dos pipelines de engenharia de dados",
+        "principle": "Definir padrões para integração"
+      },
+      "IU-02-01": {
+        "best_practice": "Usar formatos de dados abertos",
+        "principle": "Utilizar interfaces e formatos de dados abertos"
+      },
+      "IU-02-02": {
+        "best_practice": "Habilitar compartilhamento seguro de dados para todos os ativos de dados e IA",
+        "principle": "Utilizar interfaces e formatos de dados abertos"
+      },
+      "IU-02-03": {
+        "best_practice": "Usar padrões abertos para seus fluxos de IA",
+        "principle": "Utilizar interfaces e formatos de dados abertos"
+      },
+      "IU-03-01": {
+        "best_practice": "Oferecer experiência de self-service em toda a plataforma",
+        "principle": "Simplificar a implementação de novos casos de uso"
+      },
+      "IU-03-02": {
+        "best_practice": "Usar serviços serverless",
+        "principle": "Simplificar a implementação de novos casos de uso"
+      },
+      "IU-03-03": {
+        "best_practice": "Usar templates de compute predefinidos",
+        "principle": "Simplificar a implementação de novos casos de uso"
+      },
+      "IU-03-04": {
+        "best_practice": "Usar capacidades de IA para aumentar a produtividade",
+        "principle": "Simplificar a implementação de novos casos de uso"
+      },
+      "IU-04-01": {
+        "best_practice": "Oferecer dados-como-produto reutilizáveis em que o negócio possa confiar",
+        "principle": "Garantir consistência e usabilidade dos dados"
+      },
+      "IU-04-02": {
+        "best_practice": "Publicar produtos de dados semanticamente consistentes em toda a empresa",
+        "principle": "Garantir consistência e usabilidade dos dados"
+      },
+      "IU-04-03": {
+        "best_practice": "Fornecer um catálogo central para descoberta e linhagem",
+        "principle": "Garantir consistência e usabilidade dos dados"
+      },
+      "OE-01-01": {
+        "best_practice": "Criar uma equipe dedicada de operações do Lakehouse",
+        "principle": "Otimizar processos de build e release"
+      },
+      "OE-01-02": {
+        "best_practice": "Usar gerenciamento de código-fonte (SCM) corporativo",
+        "principle": "Otimizar processos de build e release"
+      },
+      "OE-01-03": {
+        "best_practice": "Padronizar processos de DevOps (CI/CD)",
+        "principle": "Otimizar processos de build e release"
+      },
+      "OE-01-04": {
+        "best_practice": "Padronizar processos de MLOps em toda a empresa",
+        "principle": "Otimizar processos de build e release"
+      },
+      "OE-01-05": {
+        "best_practice": "Definir estratégia de isolamento de ambientes",
+        "principle": "Otimizar processos de build e release"
+      },
+      "OE-01-06": {
+        "best_practice": "Simplificar o uso e a gestão de diversos provedores de LLM",
+        "principle": "Otimizar processos de build e release"
+      },
+      "OE-01-07": {
+        "best_practice": "Definir a estratégia de catálogos para sua empresa",
+        "principle": "Otimizar processos de build e release"
+      },
+      "OE-01-08": {
+        "best_practice": "Comparar saídas de LLMs em prompts pré-definidos",
+        "principle": "Otimizar processos de build e release"
+      },
+      "OE-01-09": {
+        "best_practice": "Construir modelos com fontes de dados representativas, precisas e relevantes",
+        "principle": "Otimizar processos de build e release"
+      },
+      "OE-02-01": {
+        "best_practice": "Usar Infraestrutura como Código para implantações e manutenção",
+        "principle": "Automatizar implantações e cargas de trabalho"
+      },
+      "OE-02-02": {
+        "best_practice": "Padronizar configurações de compute",
+        "principle": "Automatizar implantações e cargas de trabalho"
+      },
+      "OE-02-03": {
+        "best_practice": "Usar workflows automatizados para jobs",
+        "principle": "Automatizar implantações e cargas de trabalho"
+      },
+      "OE-02-04": {
+        "best_practice": "Usar ingestão de arquivos automatizada e orientada a eventos",
+        "principle": "Automatizar implantações e cargas de trabalho"
+      },
+      "OE-02-05": {
+        "best_practice": "Usar frameworks de ETL para pipelines de dados",
+        "principle": "Automatizar implantações e cargas de trabalho"
+      },
+      "OE-02-06": {
+        "best_practice": "Adotar a abordagem deploy-code para cargas de trabalho de ML",
+        "principle": "Automatizar implantações e cargas de trabalho"
+      },
+      "OE-02-07": {
+        "best_practice": "Usar um model registry para desacoplar ciclo de vida de código e modelo",
+        "principle": "Automatizar implantações e cargas de trabalho"
+      },
+      "OE-02-08": {
+        "best_practice": "Automatizar o tracking de experimentos de ML",
+        "principle": "Automatizar implantações e cargas de trabalho"
+      },
+      "OE-02-09": {
+        "best_practice": "Reutilizar a mesma infraestrutura para gerenciar pipelines de ML",
+        "principle": "Automatizar implantações e cargas de trabalho"
+      },
+      "OE-02-10": {
+        "best_practice": "Utilizar gestão declarativa para pipelines complexos de dados e ML",
+        "principle": "Automatizar implantações e cargas de trabalho"
+      },
+      "OE-02-11": {
+        "best_practice": "Automatizar a avaliação de LLMs",
+        "principle": "Automatizar implantações e cargas de trabalho"
+      },
+      "OE-03-01": {
+        "best_practice": "Estabelecer processos de monitoramento",
+        "principle": "Configurar Monitoramento, Alertas e Logging"
+      },
+      "OE-03-02": {
+        "best_practice": "Usar ferramentas nativas e externas para monitoramento da plataforma",
+        "principle": "Configurar Monitoramento, Alertas e Logging"
+      },
+      "OE-03-03": {
+        "best_practice": "Estabelecer uma estratégia de resposta a incidentes",
+        "principle": "Configurar Monitoramento, Alertas e Logging"
+      },
+      "OE-03-04": {
+        "best_practice": "Disparar ações em resposta a um evento específico",
+        "principle": "Configurar Monitoramento, Alertas e Logging"
+      },
+      "OE-04-01": {
+        "best_practice": "Gerenciar limites e cotas de serviço",
+        "principle": "Gerenciar capacidade e cotas"
+      },
+      "OE-04-02": {
+        "best_practice": "Investir em planejamento de capacidade",
+        "principle": "Gerenciar capacidade e cotas"
+      },
+      "OE-EX01-01": {
+        "best_practice": "Classificar cargas de trabalho por criticidade de negócio (tier-1 / tier-2 / tier-3)",
+        "principle": "Criticidade de cargas de trabalho (estendida)"
+      },
+      "OE-EX02-01": {
+        "best_practice": "Formalizar SDLC para cargas de trabalho em produção (revisão de PR, testes, aprovações)",
+        "principle": "Governança operacional (estendida)"
+      },
+      "OE-EX02-02": {
+        "best_practice": "Estabelecer prática de FinOps (ownership de custos, revisões periódicas, chargeback)",
+        "principle": "Governança operacional (estendida)"
+      },
+      "OE-EX02-03": {
+        "best_practice": "Padronizar operações: runbooks, rotação de plantão, post-mortems",
+        "principle": "Governança operacional (estendida)"
+      },
+      "SCP-01-01": {
+        "best_practice": "Autenticar via single sign-on.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-01-02": {
+        "best_practice": "Usar autenticação multifator.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-01-03": {
+        "best_practice": "Desabilitar senhas locais.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-01-04": {
+        "best_practice": "Definir senhas locais complexas.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-01-05": {
+        "best_practice": "Separar contas administrativas de contas de usuário comum.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-01-06": {
+        "best_practice": "Usar gerenciamento de tokens.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-01-07": {
+        "best_practice": "Sincronização SCIM de usuários e grupos.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-01-08": {
+        "best_practice": "Limitar direitos de criação de cluster.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-01-09": {
+        "best_practice": "Armazenar e usar segredos de forma segura.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-01-10": {
+        "best_practice": "Configuração de IAM role entre contas.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-01-11": {
+        "best_practice": "Login de workspace aprovado pelo cliente.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-01-12": {
+        "best_practice": "Usar clusters que suportam isolamento de usuário.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-01-13": {
+        "best_practice": "Usar service principals para executar jobs em produção.",
+        "principle": "Gerenciar identidade e acesso com privilégio mínimo"
+      },
+      "SCP-02-01": {
+        "best_practice": "Evitar armazenar dados de produção no DBFS.",
+        "principle": "Proteger dados em trânsito e em repouso"
+      },
+      "SCP-02-02": {
+        "best_practice": "Proteger o acesso ao armazenamento em nuvem.",
+        "principle": "Proteger dados em trânsito e em repouso"
+      },
+      "SCP-02-03": {
+        "best_practice": "Usar configurações de exfiltração de dados no console administrativo.",
+        "principle": "Proteger dados em trânsito e em repouso"
+      },
+      "SCP-02-04": {
+        "best_practice": "Usar versionamento de bucket.",
+        "principle": "Proteger dados em trânsito e em repouso"
+      },
+      "SCP-02-05": {
+        "best_practice": "Criptografar o armazenamento e restringir o acesso.",
+        "principle": "Proteger dados em trânsito e em repouso"
+      },
+      "SCP-02-06": {
+        "best_practice": "Adicionar uma chave gerenciada pelo cliente para serviços gerenciados.",
+        "principle": "Proteger dados em trânsito e em repouso"
+      },
+      "SCP-02-07": {
+        "best_practice": "Adicionar uma chave gerenciada pelo cliente para o armazenamento do workspace.",
+        "principle": "Proteger dados em trânsito e em repouso"
+      },
+      "SCP-03-01": {
+        "best_practice": "Implantar com VPC ou VNet gerenciada pelo cliente.",
+        "principle": "Proteger sua rede e identificar e proteger endpoints"
+      },
+      "SCP-03-02": {
+        "best_practice": "Usar listas de IP permitidas.",
+        "principle": "Proteger sua rede e identificar e proteger endpoints"
+      },
+      "SCP-03-03": {
+        "best_practice": "Implementar proteções contra exfiltração de rede.",
+        "principle": "Proteger sua rede e identificar e proteger endpoints"
+      },
+      "SCP-03-04": {
+        "best_practice": "Aplicar VPC service controls.",
+        "principle": "Proteger sua rede e identificar e proteger endpoints"
+      },
+      "SCP-03-05": {
+        "best_practice": "Usar políticas de VPC endpoint.",
+        "principle": "Proteger sua rede e identificar e proteger endpoints"
+      },
+      "SCP-03-06": {
+        "best_practice": "Configurar Private Link.",
+        "principle": "Proteger sua rede e identificar e proteger endpoints"
+      },
+      "SCP-04-01": {
+        "best_practice": "Revisar o Modelo de Responsabilidade Compartilhada.",
+        "principle": "Revisar o Modelo de Responsabilidade Compartilhada"
+      },
+      "SCP-05-01": {
+        "best_practice": "Revisar os programas de compliance da Databricks.",
+        "principle": "Atender requisitos de compliance e privacidade de dados"
+      },
+      "SCP-06-01": {
+        "best_practice": "Monitorar workspace usando System tables",
+        "principle": "Monitorar a segurança do sistema"
+      },
+      "SCP-06-02": {
+        "best_practice": "Usar o log de auditoria do Databricks.",
+        "principle": "Monitorar a segurança do sistema"
+      },
+      "SCP-06-03": {
+        "best_practice": "Monitorar atividades de provisionamento.",
+        "principle": "Monitorar a segurança do sistema"
+      },
+      "SCP-06-04": {
+        "best_practice": "Usar Enhanced Security Monitoring ou Compliance Security Profile",
+        "principle": "Monitorar a segurança do sistema"
+      },
+      "SCP-06-05": {
+        "best_practice": "Configurar tagging para monitorar uso e habilitar charge-back.",
+        "principle": "Monitorar a segurança do sistema"
+      },
+      "SCP-07-01": {
+        "best_practice": "Usar instâncias AWS Nitro.",
+        "principle": "Controles genéricos"
+      },
+      "SCP-07-02": {
+        "best_practice": "Cotas de serviço.",
+        "principle": "Controles genéricos"
+      },
+      "SCP-07-03": {
+        "best_practice": "Usar processos de CI/CD para escanear código em busca de segredos hard-coded.",
+        "principle": "Controles genéricos"
+      },
+      "SCP-07-04": {
+        "best_practice": "Isolar cargas de trabalho sensíveis em workspaces diferentes.",
+        "principle": "Controles genéricos"
+      },
+      "SCP-07-05": {
+        "best_practice": "Controlar bibliotecas.",
+        "principle": "Controles genéricos"
+      },
+      "SCP-EX01-01": {
+        "best_practice": "Usar Automatic Identity Management (Azure) ou SCIM via IdP corporativo (AWS/GCP)",
+        "principle": "Gestão de identidade e acesso (estendida)"
+      },
+      "SCP-EX01-02": {
+        "best_practice": "Workspaces federados por identidade",
+        "principle": "Gestão de identidade e acesso (estendida)"
+      },
+      "SCP-EX01-03": {
+        "best_practice": "Vincular grupos ao IdP corporativo, não a grupos locais do Databricks",
+        "principle": "Gestão de identidade e acesso (estendida)"
+      },
+      "SCP-EX01-04": {
+        "best_practice": "Atribuir entitlements de workspace via grupos, não usuários individuais",
+        "principle": "Gestão de identidade e acesso (estendida)"
+      },
+      "SCP-EX01-05": {
+        "best_practice": "Atribuir permissões do Unity Catalog via grupos, não usuários individuais",
+        "principle": "Gestão de identidade e acesso (estendida)"
+      },
+      "SCP-EX01-06": {
+        "best_practice": "Auditar eventos de sincronização de identidade regularmente",
+        "principle": "Gestão de identidade e acesso (estendida)"
+      },
+      "SCP-EX02-01": {
+        "best_practice": "Criptografar dados em trânsito (Spark wire encryption, storage somente TLS, Compliance Security Profile)",
+        "principle": "Proteção de dados (estendida)"
+      },
+      "R-01-01": {
+        "best_practice": "Usar um formato de dados que suporte transações ACID",
+        "principle": "Projetar para falhas"
+      },
+      "R-01-02": {
+        "best_practice": "Usar um motor de dados distribuído resiliente para todas as cargas de trabalho",
+        "principle": "Projetar para falhas"
+      },
+      "R-01-03": {
+        "best_practice": "Resgatar automaticamente dados inválidos ou não conformes",
+        "principle": "Projetar para falhas"
+      },
+      "R-01-04": {
+        "best_practice": "Configurar jobs para retentativas automáticas e término",
+        "principle": "Projetar para falhas"
+      },
+      "R-01-05": {
+        "best_practice": "Usar uma infraestrutura de model serving escalável e pronta para produção",
+        "principle": "Projetar para falhas"
+      },
+      "R-01-06": {
+        "best_practice": "Usar serviços gerenciados para suas cargas de trabalho",
+        "principle": "Projetar para falhas"
+      },
+      "R-02-01": {
+        "best_practice": "Usar uma arquitetura de armazenamento em camadas",
+        "principle": "Gerenciar a qualidade dos dados"
+      },
+      "R-02-02": {
+        "best_practice": "Melhorar a integridade dos dados reduzindo a redundância",
+        "principle": "Gerenciar a qualidade dos dados"
+      },
+      "R-02-03": {
+        "best_practice": "Gerenciar schemas ativamente",
+        "principle": "Gerenciar a qualidade dos dados"
+      },
+      "R-02-04": {
+        "best_practice": "Usar constraints e expectations de dados",
+        "principle": "Gerenciar a qualidade dos dados"
+      },
+      "R-02-05": {
+        "best_practice": "Adotar uma abordagem centrada em dados para machine learning",
+        "principle": "Gerenciar a qualidade dos dados"
+      },
+      "R-03-01": {
+        "best_practice": "Habilitar autoscaling para cargas de trabalho de ETL",
+        "principle": "Projetar para escalabilidade automática"
+      },
+      "R-03-02": {
+        "best_practice": "Usar autoscaling para SQL Warehouses",
+        "principle": "Projetar para escalabilidade automática"
+      },
+      "R-04-01": {
+        "best_practice": "Recuperar de falhas de queries do Structured Streaming",
+        "principle": "Testar procedimentos de recuperação"
+      },
+      "R-04-02": {
+        "best_practice": "Recuperar jobs de ETL usando capacidades de time travel de dados",
+        "principle": "Testar procedimentos de recuperação"
+      },
+      "R-04-03": {
+        "best_practice": "Aproveitar um framework de automação de jobs com recuperação embutida",
+        "principle": "Testar procedimentos de recuperação"
+      },
+      "R-04-04": {
+        "best_practice": "Configurar um padrão de disaster recovery",
+        "principle": "Testar procedimentos de recuperação"
+      },
+      "R-05-01": {
+        "best_practice": "Monitorar eventos da plataforma de dados",
+        "principle": "Monitorar eventos da plataforma"
+      },
+      "R-05-02": {
+        "best_practice": "Monitorar eventos da nuvem",
+        "principle": "Monitorar eventos da plataforma"
+      },
+      "R-EX01-01": {
+        "best_practice": "Conduzir Análise de Modos de Falha (FMA) para cargas de trabalho tier-1",
+        "principle": "Engenharia de resiliência (estendida)"
+      },
+      "R-EX01-02": {
+        "best_practice": "Testar disaster recovery e resiliência regularmente (chaos drills)",
+        "principle": "Engenharia de resiliência (estendida)"
+      },
+      "PE-01-01": {
+        "best_practice": "Usar arquitetura serverless",
+        "principle": "Utilizar capacidades serverless"
+      },
+      "PE-01-02": {
+        "best_practice": "Usar um serviço de model serving de nível corporativo",
+        "principle": "Utilizar capacidades serverless"
+      },
+      "PE-02-01": {
+        "best_practice": "Compreender seus padrões de ingestão e acesso a dados",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-02": {
+        "best_practice": "Usar computação paralela onde for benéfico",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-03": {
+        "best_practice": "Analisar toda a cadeia de execução",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-04": {
+        "best_practice": "Preferir clusters maiores",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-05": {
+        "best_practice": "Usar operações nativas do Spark",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-06": {
+        "best_practice": "Usar motores nativos da plataforma",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-07": {
+        "best_practice": "Compreender seu hardware e o tipo de carga de trabalho",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-08": {
+        "best_practice": "Usar caching",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-09": {
+        "best_practice": "Usar compactação",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-10": {
+        "best_practice": "Usar data skipping",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-11": {
+        "best_practice": "Habilitar Predictive Optimization no seu metastore",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-12": {
+        "best_practice": "Evitar particionamento excessivo",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-14": {
+        "best_practice": "Considerar ajuste de tamanho de arquivo",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-15": {
+        "best_practice": "Otimizar a performance de joins",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-02-16": {
+        "best_practice": "Executar analyze table para coletar estatísticas de tabelas",
+        "principle": "Projetar cargas de trabalho para performance"
+      },
+      "PE-03-01": {
+        "best_practice": "Testar com dados representativos da produção",
+        "principle": "Executar testes de performance"
+      },
+      "PE-03-02": {
+        "best_practice": "Considerar o pré-aquecimento de recursos",
+        "principle": "Executar testes de performance"
+      },
+      "PE-03-03": {
+        "best_practice": "Identificar gargalos",
+        "principle": "Executar testes de performance"
+      },
+      "PE-04-01": {
+        "best_practice": "Monitorar a performance de queries",
+        "principle": "Monitorar performance"
+      },
+      "PE-04-02": {
+        "best_practice": "Monitorar cargas de trabalho de streaming",
+        "principle": "Monitorar performance"
+      },
+      "PE-04-03": {
+        "best_practice": "Monitorar a performance de jobs",
+        "principle": "Monitorar performance"
+      },
+      "CO-01-01": {
+        "best_practice": "Usar formatos de dados otimizados para performance",
+        "principle": "Escolher os recursos ideais"
+      },
+      "CO-01-02": {
+        "best_practice": "Usar job clusters",
+        "principle": "Escolher os recursos ideais"
+      },
+      "CO-01-03": {
+        "best_practice": "Usar SQL warehouse para cargas de trabalho SQL",
+        "principle": "Escolher os recursos ideais"
+      },
+      "CO-01-04": {
+        "best_practice": "Usar runtimes atualizados para suas cargas de trabalho",
+        "principle": "Escolher os recursos ideais"
+      },
+      "CO-01-05": {
+        "best_practice": "Usar GPUs apenas para as cargas de trabalho adequadas",
+        "principle": "Escolher os recursos ideais"
+      },
+      "CO-01-06": {
+        "best_practice": "Usar Serverless para suas cargas de trabalho",
+        "principle": "Escolher os recursos ideais"
+      },
+      "CO-01-07": {
+        "best_practice": "Usar o tipo de instância adequado",
+        "principle": "Escolher os recursos ideais"
+      },
+      "CO-01-08": {
+        "best_practice": "Escolher o tamanho de cluster mais eficiente",
+        "principle": "Escolher os recursos ideais"
+      },
+      "CO-01-09": {
+        "best_practice": "Avaliar motores de query otimizados para performance",
+        "principle": "Escolher os recursos ideais"
+      },
+      "CO-02-01": {
+        "best_practice": "Aproveitar compute com auto-scaling",
+        "principle": "Alocar recursos dinamicamente"
+      },
+      "CO-02-02": {
+        "best_practice": "Usar auto termination",
+        "principle": "Alocar recursos dinamicamente"
+      },
+      "CO-02-03": {
+        "best_practice": "Usar políticas de compute para controlar custos",
+        "principle": "Alocar recursos dinamicamente"
+      },
+      "CO-03-01": {
+        "best_practice": "Monitorar custos",
+        "principle": "Monitorar e controlar custos"
+      },
+      "CO-03-02": {
+        "best_practice": "Etiquetar clusters para atribuição de custo",
+        "principle": "Monitorar e controlar custos"
+      },
+      "CO-03-03": {
+        "best_practice": "Implementar observabilidade para rastrear e fazer chargeback de custos",
+        "principle": "Monitorar e controlar custos"
+      },
+      "CO-03-04": {
+        "best_practice": "Compartilhar relatórios de custo regularmente",
+        "principle": "Monitorar e controlar custos"
+      },
+      "CO-03-05": {
+        "best_practice": "Monitorar e gerenciar custos de egress do Delta Sharing",
+        "principle": "Monitorar e controlar custos"
+      },
+      "CO-04-01": {
+        "best_practice": "Equilibrar streaming always-on e triggered",
+        "principle": "Projetar cargas de trabalho com bom custo-benefício"
+      },
+      "CO-04-02": {
+        "best_practice": "Equilibrar entre instâncias on-demand e capacity excess",
+        "principle": "Projetar cargas de trabalho com bom custo-benefício"
+      },
+      "CO-EX01-01": {
+        "best_practice": "Descomissionar recursos não utilizados (jobs ociosos, tabelas, model endpoints, notebooks, workspaces)",
+        "principle": "Ciclo de vida de recursos (estendido)"
+      }
     }
   }
 }

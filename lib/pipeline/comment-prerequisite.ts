@@ -18,6 +18,10 @@ import { getProposalsForJob, type CommentProposal } from "@/lib/lakebase/comment
 import { generateComments } from "@/lib/ai/comment-generator";
 import { logger } from "@/lib/logger";
 import type { MetadataSnapshot } from "@/lib/domain/types";
+import {
+  DEFAULT_COMMENT_OUTPUT_LANGUAGE,
+  type CommentOutputLanguage,
+} from "@/lib/ai/comment-engine/types";
 
 const FRESHNESS_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -54,6 +58,7 @@ function isJobFresh(
   job: CommentJob,
   requiredCatalogs: Set<string>,
   requiredSchemas: Set<string>,
+  requiredLanguage: CommentOutputLanguage,
 ): boolean {
   if (job.status !== "ready" && job.status !== "completed" && job.status !== "applying") {
     return false;
@@ -61,6 +66,10 @@ function isJobFresh(
 
   const age = Date.now() - new Date(job.createdAt).getTime();
   if (age > FRESHNESS_THRESHOLD_MS) return false;
+
+  if ((job.outputLanguage ?? DEFAULT_COMMENT_OUTPUT_LANGUAGE) !== requiredLanguage) {
+    return false;
+  }
 
   const { catalogs, schemas } = parseScopeJson(job.scopeJson);
   const jobCatalogs = new Set(catalogs.map((c) => c.toLowerCase()));
@@ -140,6 +149,7 @@ export async function ensureCommentEnrichment(
   businessContext?: string,
   runId?: string,
   signal?: AbortSignal,
+  outputLanguage: CommentOutputLanguage = DEFAULT_COMMENT_OUTPUT_LANGUAGE,
 ): Promise<CommentPrerequisiteResult> {
   try {
     // Parse the metadata scope to determine catalogs and schemas
@@ -160,7 +170,9 @@ export async function ensureCommentEnrichment(
 
     // Check for a fresh existing job
     const existingJobs = await listCommentJobs();
-    const freshJob = existingJobs.find((job) => isJobFresh(job, requiredCatalogs, requiredSchemas));
+    const freshJob = existingJobs.find((job) =>
+      isJobFresh(job, requiredCatalogs, requiredSchemas, outputLanguage),
+    );
 
     if (freshJob) {
       logger.info("Found fresh Comment Engine run, reusing proposals", {
@@ -194,6 +206,7 @@ export async function ensureCommentEnrichment(
         schemas: Array.from(requiredSchemas),
       }),
       industryId,
+      outputLanguage,
       runId,
     });
 
@@ -203,6 +216,7 @@ export async function ensureCommentEnrichment(
       schemas: Array.from(requiredSchemas),
       industryId,
       businessContext,
+      outputLanguage,
       signal,
     });
 

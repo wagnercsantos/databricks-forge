@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useLocale, useTranslations } from "next-intl";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useL10n } from "@/i18n/format";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -92,6 +92,25 @@ function scoreToVariant(score: number | null | undefined): "default" | "secondar
   if (score >= 75) return "default";
   if (score >= 40) return "secondary";
   return "destructive";
+}
+
+function useControlText() {
+  const messages = useMessages() as {
+    assessment?: { controls?: Record<string, { best_practice?: string; principle?: string }> };
+  };
+  return useCallback(
+    (
+      wafId: string,
+      fallback: { bestPractice: string; principle: string },
+    ): { bestPractice: string; principle: string } => {
+      const entry = messages?.assessment?.controls?.[wafId];
+      return {
+        bestPractice: entry?.best_practice ?? fallback.bestPractice,
+        principle: entry?.principle ?? fallback.principle,
+      };
+    },
+    [messages],
+  );
 }
 
 function useScoreLabel() {
@@ -862,6 +881,7 @@ function ResultsTable({
   const tResults = useTranslations("assessment.results_table");
   const tShortPillar = useTranslations("assessment.pillar_short");
   const tActions = useTranslations("assessment.actions");
+  const controlText = useControlText();
   const l10n = useL10n();
   return (
     <Card>
@@ -880,6 +900,10 @@ function ResultsTable({
         <TableBody>
           {rows.map((r) => {
             const action = fixAction(r.control.fixActionEngine, r.control.fixActionParamsJson);
+            const ct = controlText(r.wafId, {
+              bestPractice: r.control.bestPractice,
+              principle: r.control.principle,
+            });
             return (
               <TableRow key={r.wafId}>
                 <TableCell className="font-mono text-xs">{r.wafId}</TableCell>
@@ -887,8 +911,8 @@ function ResultsTable({
                   <TableCell className="text-sm">{tShortPillar(r.pillar)}</TableCell>
                 )}
                 <TableCell className="text-sm">
-                  <div className="font-medium">{r.control.bestPractice}</div>
-                  <div className="text-xs text-muted-foreground">{r.control.principle}</div>
+                  <div className="font-medium">{ct.bestPractice}</div>
+                  <div className="text-xs text-muted-foreground">{ct.principle}</div>
                   {!r.thresholdMet && r.control.recommendationIfNotMet && (
                     <details className="mt-2 text-xs">
                       <summary className="cursor-pointer text-muted-foreground">
@@ -1186,6 +1210,11 @@ function QualitativeRow({
 }) {
   const tQualitative = useTranslations("assessment.qualitative");
   const tFullPillar = useTranslations("assessment.pillar_full");
+  const controlText = useControlText();
+  const ct = controlText(control.wafId, {
+    bestPractice: control.bestPractice,
+    principle: control.principle,
+  });
   const l10n = useL10n();
   const [answer, setAnswer] = useState<WafQualitativeAnswer | "">(response?.response ?? "");
   const [notes, setNotes] = useState<string>(response?.notes ?? "");
@@ -1232,8 +1261,8 @@ function QualitativeRow({
               </Badge>
             )}
           </div>
-          <CardTitle className="text-base">{control.bestPractice}</CardTitle>
-          <CardDescription className="text-xs">{control.principle}</CardDescription>
+          <CardTitle className="text-base">{ct.bestPractice}</CardTitle>
+          <CardDescription className="text-xs">{ct.principle}</CardDescription>
           <CrossRefBadges wafId={control.wafId} pillar={control.pillar} />
         </div>
       </CardHeader>
