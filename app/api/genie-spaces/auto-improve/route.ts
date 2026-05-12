@@ -52,6 +52,8 @@ export async function POST(request: NextRequest) {
         questionIds,
       },
       oboToken,
+      sessionId: jobId,
+      ownerEmail: guard.user.email ?? null,
     };
 
     logActivity("started_auto_improve", {
@@ -72,6 +74,7 @@ export async function POST(request: NextRequest) {
             const fixResult = await runFixes({
               checkIds,
               serializedSpace: space.serialized_space,
+              spaceId,
             });
             if (fixResult.changes.length > 0) {
               await updateGenieSpace(spaceId, {

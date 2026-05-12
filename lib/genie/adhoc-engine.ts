@@ -67,6 +67,9 @@ import {
 import { resolveEndpoint, isReviewEnabled } from "@/lib/dbx/client";
 import { reviewBatch, type BatchReviewItem } from "@/lib/ai/sql-reviewer";
 import { createScopedLogger } from "@/lib/logger";
+import { gatherCreationHints, type CreationHints } from "./creation-hints";
+import { runBenchmarkAlignment } from "./passes/benchmark-alignment";
+import { casingProfilesFromCandidates } from "@/lib/metadata/casing-profile";
 
 export interface AdHocGenieConfig {
   title?: string;
@@ -159,6 +162,47 @@ function resolveBusinessContext(adhoc?: AdHocGenieConfig): BusinessContext | nul
 
 function inferDomain(tables: string[]): string {
   return inferNormalizedDomainFromTables(tables, "Analytics");
+}
+
+/**
+ * System-table mining at creation time. Gated behind
+ * `FORGE_CREATION_HINTS_ENABLED` (default OFF) so tenants without the right
+ * grants don't hit avoidable 403s on every space build. All queries are
+ * best-effort and never fatal.
+ */
+async function maybeGatherCreationHints(
+  validTableFqns: string[],
+  log: ReturnType<typeof createScopedLogger>,
+): Promise<CreationHints | null> {
+  if (process.env.FORGE_CREATION_HINTS_ENABLED !== "true") return null;
+  if (validTableFqns.length === 0) return null;
+  const first = validTableFqns[0];
+  const parts = first.split(".");
+  if (parts.length !== 3) return null;
+  const [catalog, schema] = parts;
+  try {
+    const hints = await gatherCreationHints({
+      catalog,
+      schema,
+      tableFqns: validTableFqns,
+    });
+    log.info("Creation hints gathered", {
+      joinHints: hints.joinHints.length,
+      tableImportance: hints.tableImportance.length,
+      sensitivityTags: hints.sensitivityTags.length,
+    });
+    return hints;
+  } catch (err) {
+    log.warn("Creation hints failed (non-fatal)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+function sensitiveColumnSetFromHints(hints: CreationHints | null): Set<string> | undefined {
+  if (!hints || hints.sensitivityTags.length === 0) return undefined;
+  return new Set(hints.sensitivityTags.map((t) => t.qualifiedColumn.toLowerCase()));
 }
 
 async function scrapeMetadata(tables: string[]): Promise<MetadataSnapshot> {
@@ -656,6 +700,7 @@ export async function runFastGenieEngine(input: AdHocEngineInput): Promise<AdHoc
     metadata,
     tableFqns: validTableFqns,
     conversationSummary: adhocConfig?.conversationSummary,
+    casingProfiles: casingProfilesFromCandidates(entityCandidates),
     signal,
   });
   const instructions =
@@ -821,6 +866,10 @@ export async function runAdHocGenieEngine(input: AdHocEngineInput): Promise<AdHo
   const validTableFqns = metadata.tables.map((t) => t.fqn);
   const allowlist = buildSchemaAllowlist(metadata);
 
+  // Best-effort: mine system tables for creation hints (joins, sensitivity,
+  // table importance). Always opt-in via env flag and never fatal.
+  const creationHints = await maybeGatherCreationHints(validTableFqns, log);
+
   // Pass 1 (fast) + Pass 2 (premium) in parallel
   onProgress?.("Analyzing columns & generating SQL expressions...", 10, "column-intelligence");
   const [columnResult, exprResult] = await Promise.all([
@@ -969,6 +1018,8 @@ export async function runAdHocGenieEngine(input: AdHocEngineInput): Promise<AdHo
       metadata,
       tableFqns: validTableFqns,
       conversationSummary: adhocConfig?.conversationSummary,
+      sensitiveColumns: sensitiveColumnSetFromHints(creationHints),
+      casingProfiles: casingProfilesFromCandidates(columnResult.entityCandidates),
       signal,
     }),
 
@@ -1016,6 +1067,13 @@ export async function runAdHocGenieEngine(input: AdHocEngineInput): Promise<AdHo
     .filter((q, i, arr) => arr.indexOf(q) === i)
     .slice(0, 5);
 
+  // Pass 5b: Benchmark Alignment Review (post-pass).
+  const alignedBenchmarkResult = await runBenchmarkAlignment({
+    benchmarks: benchmarkResult.benchmarks,
+    surface: "adhoc-engine.benchmark-alignment",
+    signal,
+  });
+
   const passOutputs: GenieEnginePassOutputs = {
     domain,
     subdomains: [],
@@ -1030,7 +1088,7 @@ export async function runAdHocGenieEngine(input: AdHocEngineInput): Promise<AdHo
     trustedFunctions: [],
     textInstructions: instructionResult.instructions,
     sampleQuestions,
-    benchmarkQuestions: benchmarkResult.benchmarks,
+    benchmarkQuestions: alignedBenchmarkResult.aligned,
     metricViewProposals: metricViewResult.proposals,
     joinSpecs: allJoins,
     joinDiagnostics,

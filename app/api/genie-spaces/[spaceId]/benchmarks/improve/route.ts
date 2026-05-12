@@ -78,7 +78,7 @@ export async function POST(
       setSpaceCache(spaceId, serializedSpace);
     }
 
-    const result = await runFixes({ checkIds: checkIdsToFix, serializedSpace });
+    const result = await runFixes({ checkIds: checkIdsToFix, serializedSpace, spaceId });
 
     logger.info("Benchmark improvement generated", {
       spaceId,

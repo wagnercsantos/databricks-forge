@@ -18,7 +18,9 @@ export type EvaluatorType =
   | "jsonpath"
   | "llm_qualitative"
   | "sql_quality"
-  | "instruction_quality";
+  | "instruction_quality"
+  | "casing_consistency"
+  | "maturity_tier";
 
 export type FixStrategy =
   | "column_intelligence"
@@ -83,6 +85,17 @@ export interface CategoryScore {
 
 export type Grade = "A" | "B" | "C" | "D" | "F";
 
+/**
+ * Customer-facing maturity tier of a Genie Space, derived from per-check results.
+ *
+ * - `not_ready`        -- the space is missing critical configuration
+ * - `ready_to_optimize` -- functional but not polished; safe to use carefully
+ * - `trusted`          -- fully described, benchmarked, no critical findings
+ *
+ * Mirrors upstream `databricks-genie-workbench` IQ Scanner tiering.
+ */
+export type MaturityTier = "not_ready" | "ready_to_optimize" | "trusted";
+
 export type FindingCategory = "best_practice" | "warning" | "suggestion";
 
 export interface Finding {
@@ -112,6 +125,11 @@ export interface SynthesisResult {
 export interface SpaceHealthReport {
   overallScore: number;
   grade: Grade;
+  /**
+   * High-level customer-facing tier. Surfaced above the letter grade so users
+   * can quickly answer "is this safe to deploy?".
+   */
+  maturityTier: MaturityTier;
   categories: Record<string, CategoryScore>;
   checks: CheckResult[];
   quickWins: string[];

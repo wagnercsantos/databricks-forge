@@ -23,6 +23,19 @@ import {
 } from "@/lib/dbx/genie";
 import { logger } from "@/lib/logger";
 import type { GenieEvalAssessment } from "./eval-types";
+import {
+  runThreeGateEval,
+  pickHardestQuestionIds,
+  type ThreeGateOutcome,
+} from "./three-gate-eval";
+import {
+  computePatchSignature,
+  filterCandidatesByDoa,
+  loadDoaBuffer,
+  recordDoa,
+} from "./doa-buffer";
+import { scoreAnswerBatch, isMultiAxisJudgingEnabled } from "./multi-axis-judges";
+import { recordAutoImproveIteration } from "@/lib/lakebase/auto-improve";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,6 +52,29 @@ export interface AutoImproveConfig {
   enableThreeSpace?: boolean;
   /** OBO token captured at request time for background Genie API calls. */
   oboToken?: string;
+  /**
+   * Enable the three-gate eval (slice -> P0 -> full). Default ON. Set to
+   * false for legacy single-shot eval behaviour.
+   */
+  enableThreeGateEval?: boolean;
+  /**
+   * Enable the multi-axis judge panel for iteration scoring. Defaults to
+   * `isMultiAxisJudgingEnabled()` -- only runs when a review endpoint is
+   * configured. The aggregate score is persisted on the iteration row.
+   */
+  enableMultiAxisJudges?: boolean;
+  /**
+   * Persist iteration history + DOA signatures to Lakebase. Default ON.
+   * Disable for ad-hoc one-shot improvements where history isn't needed.
+   */
+  persistHistory?: boolean;
+  /**
+   * Stable session identifier for grouping iterations + DOA signatures.
+   * Defaults to `auto-improve-${spaceId}-${startMs}` when absent.
+   */
+  sessionId?: string;
+  /** Owner of the auto-improve session (used by Lakebase rows). */
+  ownerEmail?: string | null;
 }
 
 export interface AutoImproveIteration {
@@ -48,6 +84,18 @@ export interface AutoImproveIteration {
   fixCheckIds: string[];
   strategiesApplied: string[];
   durationMs: number;
+  /** Slice-gate accuracy when the three-gate eval is enabled. */
+  sliceScore?: number;
+  /** P0-gate accuracy when the three-gate eval is enabled. */
+  p0Score?: number;
+  /** Multi-axis judge aggregate (0-100). */
+  judgeAggregate?: number;
+  /** Per-axis judge scores. */
+  judgeByAxis?: Record<string, number>;
+  /** Patches dropped because they were previously DOA. */
+  patchesDropped?: number;
+  /** True when the gate halted before the full eval ran. */
+  gateAbandoned?: { gate: "slice" | "p0"; reason: string };
 }
 
 export interface AutoImproveResult {
@@ -184,6 +232,10 @@ export async function runAutoImproveLoop(
     indexingWaitMs = DEFAULT_INDEXING_WAIT_MS,
     enableThreeSpace = true,
     oboToken,
+    enableThreeGateEval = true,
+    enableMultiAxisJudges = isMultiAxisJudgingEnabled(),
+    persistHistory = true,
+    ownerEmail,
   } = config;
   const evalOptions: RunEvalOptions = { ...rawEvalOptions, oboToken };
   const iterations: AutoImproveIteration[] = [];
@@ -192,8 +244,24 @@ export async function runAutoImproveLoop(
   let stagnationCount = 0;
   const MAX_STAGNATION = 2;
 
+  // Stable session id for DOA buffer + Lakebase rows.
+  const sessionId = config.sessionId ?? `auto-improve-${spaceId}-${startTime}`;
+
+  // Hydrate DOA buffer once per session (best-effort).
+  if (persistHistory) {
+    try {
+      await loadDoaBuffer(sessionId);
+    } catch (err) {
+      logger.warn("[auto-improve] failed to hydrate DOA buffer, starting fresh", {
+        sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   let devSpaces: ThreeSpaceIds | undefined;
   let benchmarkSpaceId = spaceId;
+  let hardestQuestionIds: string[] = [];
 
   if (enableThreeSpace) {
     onProgress?.({
@@ -246,30 +314,107 @@ export async function runAutoImproveLoop(
       maxIterations,
       passRate: previousPassRate >= 0 ? previousPassRate : 0,
       targetScore,
-      message: `Running eval benchmarks (iteration ${i}/${maxIterations})...`,
+      message: enableThreeGateEval
+        ? `Running three-gate eval (iteration ${i}/${maxIterations})...`
+        : `Running eval benchmarks (iteration ${i}/${maxIterations})...`,
     });
 
-    const evalResult = await runEval(benchmarkSpaceId, evalOptions);
+    // -------------------- Eval (three-gate or single-shot) --------------------
+    let evalResult: EvalRunResult;
+    let sliceScore: number | undefined;
+    let p0Score: number | undefined;
+    let gateAbandoned: AutoImproveIteration["gateAbandoned"];
+
+    if (enableThreeGateEval) {
+      const allQuestionIds = collectQuestionIds(evalOptions, hardestQuestionIds);
+      const outcome: ThreeGateOutcome = await runThreeGateEval({
+        spaceId: benchmarkSpaceId,
+        evalOptions,
+        allQuestionIds,
+        hardestQuestionIds,
+      });
+      if (outcome.status === "abandoned") {
+        const gateResult = outcome.gate === "slice" ? outcome.sliceResult : outcome.p0Result;
+        evalResult = gateResult ?? emptyEval(benchmarkSpaceId);
+        sliceScore = outcome.sliceResult?.accuracy;
+        p0Score = outcome.p0Result?.accuracy;
+        gateAbandoned = { gate: outcome.gate, reason: outcome.reason };
+        logger.warn("[auto-improve] three-gate abandoned iteration", {
+          iteration: i,
+          gate: outcome.gate,
+          reason: outcome.reason,
+        });
+      } else {
+        evalResult = outcome.fullResult;
+        sliceScore = outcome.sliceResult.accuracy;
+        p0Score = outcome.p0Result?.accuracy;
+      }
+    } else {
+      evalResult = await runEval(benchmarkSpaceId, evalOptions);
+    }
     const passRate = evalResult.accuracy;
+
+    // -------------------- Multi-axis judges --------------------
+    let judgeAggregate: number | undefined;
+    let judgeByAxis: Record<string, number> | undefined;
+    if (enableMultiAxisJudges && evalResult.results.length > 0 && !gateAbandoned) {
+      try {
+        const sample = evalResult.results.slice(0, 20).map((r) => ({
+          question: r.question,
+          expectedSql: r.expectedSql,
+          actualSql: r.actualSql,
+        }));
+        const judgeResult = await scoreAnswerBatch(sample);
+        judgeAggregate = judgeResult.aggregate;
+        judgeByAxis = judgeResult.byJudge;
+      } catch (err) {
+        logger.warn("[auto-improve] multi-axis judge scoring failed", {
+          iteration: i,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Refresh the "hardest" set for next iteration's P0 gate.
+    hardestQuestionIds = pickHardestQuestionIds(evalResult, 10);
 
     logger.info("Auto-improve eval run", {
       iteration: i,
       passRate,
+      sliceScore,
+      p0Score,
+      judgeAggregate,
       numCorrect: evalResult.numCorrect,
       numQuestions: evalResult.numQuestions,
+      gateAbandoned: gateAbandoned?.gate,
     });
 
     if (passRate >= targetScore) {
       if (devSpaces && passRate > (previousPassRate >= 0 ? previousPassRate : -1)) {
         await promoteWorkingToBest(devSpaces);
       }
-      iterations.push({
+      const completeIter: AutoImproveIteration = {
         iteration: i,
         evalResult,
         passRate,
         fixCheckIds: [],
         strategiesApplied: [],
         durationMs: Date.now() - iterStart,
+        sliceScore,
+        p0Score,
+        judgeAggregate,
+        judgeByAxis,
+        gateAbandoned,
+      };
+      iterations.push(completeIter);
+      await maybePersistIteration({
+        persistHistory,
+        sessionId,
+        ownerEmail,
+        workingSpaceId: benchmarkSpaceId,
+        bestSpaceId: devSpaces?.devBest,
+        iter: completeIter,
+        reasonStopped: "target_reached",
       });
 
       onProgress?.({
@@ -282,6 +427,33 @@ export async function runAutoImproveLoop(
       });
 
       return buildResult("target_reached");
+    }
+
+    // Track patches applied by *previous* iteration that may have caused a
+    // regression -- mark them DOA so they aren't reattempted.
+    if (previousPassRate >= 0 && passRate < previousPassRate && persistHistory) {
+      const lastIter = iterations[iterations.length - 1];
+      if (lastIter && lastIter.fixCheckIds.length > 0) {
+        for (const checkId of lastIter.fixCheckIds) {
+          const sig = computePatchSignature({
+            strategy: lastIter.strategiesApplied.find((s) => s) ?? checkId,
+            targetFieldPath: checkId,
+            delta: { iteration: lastIter.iteration },
+          });
+          await recordDoa({
+            sessionId,
+            signature: sig,
+            strategy: lastIter.strategiesApplied[0],
+            reason: `regression_iter_${i}_passRate_${previousPassRate}_to_${passRate}`,
+            ownerEmail,
+          });
+        }
+        logger.info("[auto-improve] recorded DOA signatures for regressing patches", {
+          sessionId,
+          regressingIteration: lastIter.iteration,
+          checkIds: lastIter.fixCheckIds,
+        });
+      }
     }
 
     if (previousPassRate >= 0 && passRate <= previousPassRate) {
@@ -297,13 +469,28 @@ export async function runAutoImproveLoop(
       }
 
       if (stagnationCount >= MAX_STAGNATION) {
-        iterations.push({
+        const stallIter: AutoImproveIteration = {
           iteration: i,
           evalResult,
           passRate,
           fixCheckIds: [],
           strategiesApplied: [],
           durationMs: Date.now() - iterStart,
+          sliceScore,
+          p0Score,
+          judgeAggregate,
+          judgeByAxis,
+          gateAbandoned,
+        };
+        iterations.push(stallIter);
+        await maybePersistIteration({
+          persistHistory,
+          sessionId,
+          ownerEmail,
+          workingSpaceId: benchmarkSpaceId,
+          bestSpaceId: devSpaces?.devBest,
+          iter: stallIter,
+          reasonStopped: "no_improvement",
         });
 
         onProgress?.({
@@ -326,13 +513,28 @@ export async function runAutoImproveLoop(
     previousPassRate = passRate;
 
     if (i === maxIterations) {
-      iterations.push({
+      const finalIter: AutoImproveIteration = {
         iteration: i,
         evalResult,
         passRate,
         fixCheckIds: [],
         strategiesApplied: [],
         durationMs: Date.now() - iterStart,
+        sliceScore,
+        p0Score,
+        judgeAggregate,
+        judgeByAxis,
+        gateAbandoned,
+      };
+      iterations.push(finalIter);
+      await maybePersistIteration({
+        persistHistory,
+        sessionId,
+        ownerEmail,
+        workingSpaceId: benchmarkSpaceId,
+        bestSpaceId: devSpaces?.devBest,
+        iter: finalIter,
+        reasonStopped: "max_iterations",
       });
       break;
     }
@@ -352,16 +554,56 @@ export async function runAutoImproveLoop(
       assessmentReasons: r.assessmentReasons,
     }));
 
-    const checkIds = analyzeFeedbackForFixes(feedbackEntries);
+    const allCheckIds = analyzeFeedbackForFixes(feedbackEntries);
+
+    // Drop any candidate patch already in this session's DOA buffer.
+    let patchesDropped = 0;
+    let checkIds = allCheckIds;
+    if (allCheckIds.length > 0 && persistHistory) {
+      const candidates = allCheckIds.map((id) => ({
+        checkId: id,
+        signature: computePatchSignature({
+          strategy: id,
+          targetFieldPath: id,
+          delta: { iteration: i },
+        }),
+      }));
+      const { kept, dropped } = filterCandidatesByDoa(sessionId, candidates);
+      patchesDropped = dropped.length;
+      checkIds = kept.map((c) => c.checkId);
+      if (dropped.length > 0) {
+        logger.info("[auto-improve] DOA buffer filtered patches", {
+          iteration: i,
+          dropped: dropped.length,
+          kept: kept.length,
+        });
+      }
+    }
 
     if (checkIds.length === 0) {
-      iterations.push({
+      const noFixIter: AutoImproveIteration = {
         iteration: i,
         evalResult,
         passRate,
         fixCheckIds: [],
         strategiesApplied: [],
         durationMs: Date.now() - iterStart,
+        sliceScore,
+        p0Score,
+        judgeAggregate,
+        judgeByAxis,
+        patchesDropped,
+        gateAbandoned,
+      };
+      iterations.push(noFixIter);
+      await maybePersistIteration({
+        persistHistory,
+        sessionId,
+        ownerEmail,
+        workingSpaceId: benchmarkSpaceId,
+        bestSpaceId: devSpaces?.devBest,
+        iter: noFixIter,
+        reasonStopped: patchesDropped > 0 ? "all_patches_doa" : "no_actionable_failures",
       });
       break;
     }
@@ -396,14 +638,30 @@ export async function runAutoImproveLoop(
       fixCheckIds: checkIds,
       strategiesApplied,
       durationMs: Date.now() - iterStart,
+      sliceScore,
+      p0Score,
+      judgeAggregate,
+      judgeByAxis,
+      patchesDropped,
+      gateAbandoned,
     };
     iterations.push(iteration);
+    await maybePersistIteration({
+      persistHistory,
+      sessionId,
+      ownerEmail,
+      workingSpaceId: benchmarkSpaceId,
+      bestSpaceId: devSpaces?.devBest,
+      iter: iteration,
+      reasonStopped: null,
+    });
 
     logger.info("Auto-improve iteration complete", {
       iteration: i,
       passRate,
       checkIds,
       strategiesApplied,
+      patchesDropped,
       durationMs: iteration.durationMs,
     });
   }
@@ -420,6 +678,80 @@ export async function runAutoImproveLoop(
   });
 
   return buildResult("max_iterations");
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Collect the question-id universe used by `runThreeGateEval` to sample its
+ * slice. We prefer caller-supplied `evalOptions.questionIds`, falling back
+ * to the previous iteration's `hardestQuestionIds`. When neither is
+ * available the slice will be empty and the gate degrades to "always pass".
+ */
+function collectQuestionIds(
+  evalOptions: RunEvalOptions,
+  hardest: ReadonlyArray<string>,
+): string[] {
+  if (evalOptions.questionIds && evalOptions.questionIds.length > 0) {
+    return [...evalOptions.questionIds];
+  }
+  return [...hardest];
+}
+
+/** Build a placeholder EvalRunResult when a gate abandons before any results. */
+function emptyEval(spaceId: string): EvalRunResult {
+  return {
+    evalRunId: "abandoned",
+    spaceId,
+    status: "EVALUATION_FAILED",
+    numQuestions: 0,
+    numDone: 0,
+    numCorrect: 0,
+    numNeedsReview: 0,
+    accuracy: 0,
+    results: [],
+  };
+}
+
+/**
+ * Persist a single iteration to Lakebase when `persistHistory` is enabled.
+ * Best-effort -- failures are logged inside `recordAutoImproveIteration`.
+ */
+async function maybePersistIteration(opts: {
+  persistHistory: boolean;
+  sessionId: string;
+  ownerEmail?: string | null;
+  workingSpaceId: string;
+  bestSpaceId?: string;
+  iter: AutoImproveIteration;
+  reasonStopped: string | null;
+}): Promise<void> {
+  if (!opts.persistHistory) return;
+  await recordAutoImproveIteration({
+    sessionId: opts.sessionId,
+    iteration: opts.iter.iteration,
+    ownerEmail: opts.ownerEmail ?? null,
+    workingSpaceId: opts.workingSpaceId,
+    bestSpaceId: opts.bestSpaceId ?? null,
+    sliceScore: opts.iter.sliceScore ?? null,
+    p0Score: opts.iter.p0Score ?? null,
+    fullScore: opts.iter.passRate,
+    judgeScores: opts.iter.judgeByAxis ?? null,
+    patchesApplied: opts.iter.fixCheckIds.length > 0
+      ? opts.iter.fixCheckIds.map((id, idx) => ({
+          checkId: id,
+          strategy: opts.iter.strategiesApplied[idx] ?? null,
+        }))
+      : null,
+    patchesDropped: opts.iter.patchesDropped
+      ? [{ count: opts.iter.patchesDropped }]
+      : null,
+    reasonStopped: opts.iter.gateAbandoned
+      ? `gate:${opts.iter.gateAbandoned.gate}:${opts.iter.gateAbandoned.reason}`
+      : opts.reasonStopped,
+  });
 }
 
 // ---------------------------------------------------------------------------

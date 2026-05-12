@@ -24,6 +24,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { parseErrorResponse, safeJsonParse } from "@/lib/error-utils";
 import { BuildModeSelector, type BuildMode } from "@/components/genie/build-mode-selector";
+import { ReadinessPanel, type ReadinessReport } from "@/components/genie/readiness-panel";
 
 interface ExtractedRequirements {
   tables: string[];
@@ -53,6 +54,7 @@ export default function CreateFromRequirementsPage() {
   const [title, setTitle] = useState("");
   const [additionalTables, setAdditionalTables] = useState("");
   const [dragActive, setDragActive] = useState(false);
+  const [readinessReport, setReadinessReport] = useState<ReadinessReport | null>(null);
 
   const stepLabels = ["Upload", "Review", "Generate"];
   const currentStepIndex = step === "upload" || step === "parsing" ? 0 : step === "review" ? 1 : 2;
@@ -416,6 +418,39 @@ export default function CreateFromRequirementsPage() {
               </Button>
             </CardContent>
           </Card>
+
+          {/* Optional pre-flight readiness panel */}
+          {parseResult.requirements.tables.length > 0 &&
+            parseResult.requirements.businessQuestions.length > 0 &&
+            (() => {
+              const allTables = [
+                ...parseResult.requirements.tables,
+                ...additionalTables
+                  .split(/[,\n]/)
+                  .map((t) => t.trim())
+                  .filter(Boolean),
+              ];
+              const firstFqn = allTables.find((t) => t.split(".").length === 3);
+              if (!firstFqn) return null;
+              const [catalog, schema] = firstFqn.split(".");
+              return (
+                <>
+                  <ReadinessPanel
+                    catalog={catalog}
+                    schema={schema}
+                    tables={allTables.map((fqn) => ({ fqn }))}
+                    questions={parseResult.requirements.businessQuestions.slice(0, 12)}
+                    onReport={setReadinessReport}
+                  />
+                  {readinessReport && !readinessReport.ready && (
+                    <p className="text-xs text-amber-600">
+                      Some extracted questions look hard to answer with the proposed tables.
+                      Consider adding tables in the field above before generating.
+                    </p>
+                  )}
+                </>
+              );
+            })()}
         </div>
       )}
 

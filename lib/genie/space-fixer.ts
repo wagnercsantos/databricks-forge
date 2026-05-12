@@ -20,7 +20,9 @@ import {
 } from "@/lib/genie/types";
 import { resolveRegistry } from "@/lib/genie/health-checks/registry";
 import { chatCompletion } from "@/lib/dbx/model-serving";
+import { getGenieSpace, updateGenieSpace } from "@/lib/dbx/genie";
 import { logger } from "@/lib/logger";
+import { recordSpan } from "@/lib/observability/mlflow-tracing";
 import type { MetadataSnapshot, TableInfo, ColumnInfo, BusinessContext } from "@/lib/domain/types";
 import type { FixStrategy } from "@/lib/genie/health-checks/types";
 import "@/lib/skills/content";
@@ -29,6 +31,8 @@ import { resolveForGeniePass, formatContextSections } from "@/lib/skills/resolve
 interface FixRequest {
   checkIds: string[];
   serializedSpace: string;
+  /** Optional, used as a span attribute for MLflow tracing. */
+  spaceId?: string;
 }
 
 interface FixResult {
@@ -331,6 +335,7 @@ export async function runFixes(request: FixRequest): Promise<FixResult> {
   const strategies = resolveFixStrategies(request.checkIds);
   const changes: FixChange[] = [];
   const strategiesRun: FixStrategy[] = [];
+  const spaceIdForTrace = request.spaceId ?? "unknown";
 
   if (strategies.size === 0) {
     return { updatedSpace: space, changes, strategiesRun };
@@ -396,6 +401,7 @@ export async function runFixes(request: FixRequest): Promise<FixResult> {
   const schemaColumnNames = new Set(metadata.columns.map((c) => c.columnName.toLowerCase()));
 
   for (const [strategy] of strategies) {
+    const spanStart = Date.now();
     try {
       switch (strategy) {
         // ---------------------------------------------------------------
@@ -570,7 +576,10 @@ export async function runFixes(request: FixRequest): Promise<FixResult> {
             strategiesRun.push(strategy);
             break;
           }
-          // Consolidate multiple instruction blocks into a single block
+          // Consolidate multiple instruction blocks into a single block.
+          // GSL-aware: if any block looks like a GSL document, merge by
+          // section so we never erase another block's PURPOSE / DISAMBIGUATION
+          // / DATA QUALITY NOTES / CONSTRAINTS.
           const allContent: string[] = [];
           for (const inst of textInstructions) {
             const content = Array.isArray(inst.content)
@@ -578,8 +587,36 @@ export async function runFixes(request: FixRequest): Promise<FixResult> {
               : String(inst.content ?? "");
             if (content.trim()) allContent.push(content.trim());
           }
+
+          let consolidated: string | null = null;
           if (allContent.length > 1) {
-            const consolidated = allContent.join("\n\n");
+            const { parseGsl, renderGsl, GSL_SECTIONS } = await import(
+              "@/lib/genie/gsl-schema"
+            );
+            const looksLikeGsl = allContent.some((c) =>
+              GSL_SECTIONS.some((sec) => c.toLowerCase().includes(sec.toLowerCase())),
+            );
+            if (looksLikeGsl) {
+              const merged = parseGsl(allContent[0]);
+              for (let i = 1; i < allContent.length; i++) {
+                const next = parseGsl(allContent[i]);
+                for (const sec of GSL_SECTIONS) {
+                  const existing = (merged.sections[sec] ?? "").trim();
+                  const incoming = (next.sections[sec] ?? "").trim();
+                  if (incoming && !existing) {
+                    merged.sections[sec] = incoming;
+                  } else if (incoming && existing && !existing.includes(incoming)) {
+                    merged.sections[sec] = `${existing}\n\n${incoming}`.trim();
+                  }
+                }
+              }
+              consolidated = renderGsl(merged) || allContent.join("\n\n");
+            } else {
+              consolidated = allContent.join("\n\n");
+            }
+          }
+
+          if (consolidated) {
             space.instructions = space.instructions ?? {};
             space.instructions.text_instructions = [
               {
@@ -899,20 +936,59 @@ export async function runFixes(request: FixRequest): Promise<FixResult> {
           });
 
           if (output.instructions.length > 0) {
+            // GSL-aware merge: if there is exactly one existing text
+            // instruction block and it follows the canonical 5-section
+            // schema, we patch sections in place rather than appending a
+            // sibling block (which would steamroll the existing PURPOSE /
+            // DISAMBIGUATION / etc.).
+            const { parseGsl, renderGsl, GSL_SECTIONS } = await import(
+              "@/lib/genie/gsl-schema"
+            );
             space.instructions = space.instructions ?? {};
-            space.instructions.text_instructions = [
-              ...(space.instructions.text_instructions ?? []),
-              ...output.instructions.map((text) => ({
-                id: crypto.randomUUID().replace(/-/g, ""),
-                content: [text],
-              })),
-            ];
-            changes.push({
-              section: "instructions.text_instructions",
-              description: `Instruction generation: added ${output.instructions.length} text instruction${output.instructions.length !== 1 ? "s" : ""}`,
-              added: output.instructions.length,
-              modified: 0,
-            });
+            const existingBlocks = (space.instructions.text_instructions ?? []) as SpaceJson[];
+            const onlyExisting = existingBlocks.length === 1 ? existingBlocks[0] : null;
+            const onlyExistingContent = onlyExisting
+              ? Array.isArray(onlyExisting.content)
+                ? (onlyExisting.content as string[]).join("\n")
+                : String(onlyExisting.content ?? "")
+              : "";
+            const isGsl =
+              onlyExistingContent.length > 0 &&
+              GSL_SECTIONS.every((sec) =>
+                onlyExistingContent.toLowerCase().includes(sec.toLowerCase()),
+              );
+
+            if (isGsl && onlyExisting) {
+              const parsed = parseGsl(onlyExistingContent);
+              const incoming = output.instructions.join("\n\n");
+              const sectionToPatch =
+                "## Instructions you must follow when providing summaries" as const;
+              const existingBody = (parsed.sections[sectionToPatch] ?? "").trim();
+              parsed.sections[sectionToPatch] = existingBody
+                ? `${existingBody}\n\n${incoming}`
+                : incoming;
+              onlyExisting.content = [renderGsl(parsed)];
+              changes.push({
+                section: "instructions.text_instructions",
+                description: `Instruction generation: merged ${output.instructions.length} update${output.instructions.length !== 1 ? "s" : ""} into existing GSL block`,
+                added: 0,
+                modified: 1,
+              });
+            } else {
+              space.instructions.text_instructions = [
+                ...existingBlocks,
+                ...output.instructions.map((text) => ({
+                  id: crypto.randomUUID().replace(/-/g, ""),
+                  content: [text],
+                })),
+              ];
+              changes.push({
+                section: "instructions.text_instructions",
+                description: `Instruction generation: added ${output.instructions.length} text instruction${output.instructions.length !== 1 ? "s" : ""}`,
+                added: output.instructions.length,
+                modified: 0,
+              });
+            }
           }
           strategiesRun.push(strategy);
           break;
@@ -1033,6 +1109,18 @@ export async function runFixes(request: FixRequest): Promise<FixResult> {
         default:
           logger.warn("Unknown fix strategy", { strategy });
       }
+      void recordSpan({
+        name: `space-fixer.strategy:${strategy}`,
+        spanType: "TOOL",
+        inputs: { strategy, spaceId: spaceIdForTrace },
+        outputs: {
+          success: strategiesRun.includes(strategy),
+          changes: changes.filter((c) => c.section === strategy).length,
+        },
+        attributes: { strategy, spaceId: spaceIdForTrace },
+        startMs: spanStart,
+        endMs: Date.now(),
+      });
     } catch (err) {
       logger.error("Fix strategy execution failed", { strategy, error: String(err) });
       changes.push({
@@ -1040,6 +1128,15 @@ export async function runFixes(request: FixRequest): Promise<FixResult> {
         description: `Failed: ${err instanceof Error ? err.message : String(err)}`,
         added: 0,
         modified: 0,
+      });
+      void recordSpan({
+        name: `space-fixer.strategy:${strategy}`,
+        spanType: "TOOL",
+        inputs: { strategy, spaceId: spaceIdForTrace },
+        attributes: { strategy, spaceId: spaceIdForTrace },
+        startMs: spanStart,
+        endMs: Date.now(),
+        errorMessage: err instanceof Error ? err.message : String(err),
       });
     }
   }
@@ -1097,4 +1194,114 @@ Return ONLY a JSON array of 3 question strings. Keep them simple and conversatio
     logger.warn("Smart sample question generation failed, skipping", { error: String(err) });
     return [];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Retry-on-stale apply helper
+// ---------------------------------------------------------------------------
+
+const APPLY_FIXES_MAX_ATTEMPTS = 3;
+const APPLY_FIXES_BACKOFF_MS = [2_000, 4_000];
+
+/**
+ * Re-fetch the space, run fix strategies against the current revision, and
+ * write the result back via `updateGenieSpace`. Retries up to three times
+ * with 2s/4s backoff if the API returns a status that suggests we wrote
+ * against a stale revision (409/412/RESOURCE_CONFLICT).
+ *
+ * Mirrors upstream `_apply_config_sync` from the workbench Fix Agent.
+ *
+ * Use this from any flow that wants the strongest "patch and persist"
+ * guarantee. Existing callers that just want the patched JSON (without
+ * persisting) should keep using `runFixes` directly.
+ */
+export async function applyFixesWithRetry(opts: {
+  spaceId: string;
+  checkIds: string[];
+  oboToken?: string;
+  /**
+   * When true (default), enforce the per-iteration blast-radius gate from
+   * `lib/genie/blast-radius.ts`. Set to false for one-off ad-hoc fix flows
+   * that intentionally rewrite many tables (e.g. full regenerate).
+   */
+  enforceBlastRadius?: boolean;
+}): Promise<{
+  attempts: number;
+  fixResult: FixResult;
+  /** Populated when the blast-radius gate dropped the fix. */
+  blastRadiusDropped?: { tablesTouched: number; max: number };
+}> {
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= APPLY_FIXES_MAX_ATTEMPTS; attempt++) {
+    try {
+      const fresh = await getGenieSpace(opts.spaceId);
+      const serializedSpace = fresh.serialized_space ?? "{}";
+
+      const fixResult = await runFixes({
+        checkIds: opts.checkIds,
+        serializedSpace,
+        spaceId: opts.spaceId,
+      });
+
+      if (opts.enforceBlastRadius !== false) {
+        const before = JSON.parse(serializedSpace) as SpaceJson;
+        const { evaluateBlastRadius } = await import("@/lib/genie/blast-radius");
+        const report = evaluateBlastRadius({ before, after: fixResult.updatedSpace });
+        if (report.exceeded) {
+          logger.warn("[applyFixesWithRetry] blast-radius exceeded, skipping persist", {
+            spaceId: opts.spaceId,
+            tablesTouched: report.tablesTouched.length,
+            max: report.max,
+          });
+          return {
+            attempts: attempt,
+            fixResult,
+            blastRadiusDropped: {
+              tablesTouched: report.tablesTouched.length,
+              max: report.max,
+            },
+          };
+        }
+      }
+
+      const updatedSerialized = JSON.stringify(fixResult.updatedSpace);
+      await updateGenieSpace(opts.spaceId, {
+        serializedSpace: updatedSerialized,
+        oboToken: opts.oboToken,
+      });
+
+      if (attempt > 1) {
+        logger.warn("applyFixesWithRetry succeeded after retry", {
+          spaceId: opts.spaceId,
+          attempt,
+        });
+      }
+      return { attempts: attempt, fixResult };
+    } catch (err) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const isStale =
+        msg.includes("CONFLICT") ||
+        msg.includes("PRECONDITION_FAILED") ||
+        msg.includes("(409)") ||
+        msg.includes("(412)") ||
+        msg.includes("RESOURCE_CONFLICT");
+      if (!isStale || attempt === APPLY_FIXES_MAX_ATTEMPTS) break;
+
+      const backoff = APPLY_FIXES_BACKOFF_MS[attempt - 1] ?? APPLY_FIXES_BACKOFF_MS.at(-1)!;
+      logger.warn("applyFixesWithRetry stale conflict, retrying", {
+        spaceId: opts.spaceId,
+        attempt,
+        backoffMs: backoff,
+      });
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+  }
+
+  throw new Error(
+    `applyFixesWithRetry failed after ${APPLY_FIXES_MAX_ATTEMPTS} attempts: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
 }

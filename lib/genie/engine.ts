@@ -28,6 +28,8 @@ import { runSemanticExpressions } from "./passes/semantic-expressions";
 import { runTrustedAssetAuthoring } from "./passes/trusted-assets";
 import { runInstructionGeneration } from "./passes/instruction-generation";
 import { runBenchmarkGeneration } from "./passes/benchmark-generation";
+import { runBenchmarkAlignment } from "./passes/benchmark-alignment";
+import { casingProfilesFromCandidates } from "@/lib/metadata/casing-profile";
 import { isMetricViewsEnabled } from "./metric-views-config";
 import { runMetricViewEngineV2 } from "@/lib/metric-views/engine";
 import { discoverExistingMetricViews } from "@/lib/metric-views/discovery";
@@ -450,6 +452,7 @@ async function processDomain(
       businessContext: run.businessContext,
       config,
       industryId: run.config.industry || undefined,
+      sampleData,
       endpoint: resolveEndpoint("classification"),
       signal,
       budget,
@@ -661,6 +664,7 @@ async function processDomain(
       tableFqns: tables,
       conversationSummary: run.businessContext?.strategicGoals || "",
       sensitiveColumns,
+      casingProfiles: casingProfilesFromCandidates(columnResult.entityCandidates),
       industryId: run.config.industry || undefined,
       signal,
     }),
@@ -705,6 +709,16 @@ async function processDomain(
     trustedQueries = exampleQueryResult.queries;
   }
 
+  // Pass 5b: Benchmark Alignment Review (post-pass). Asks the review LLM
+  // to tighten any benchmark whose expected_sql isn't the most direct query
+  // for the question. No-op when FORGE_SQL_REPAIR_ENABLED is off.
+  const alignedBenchmarkResult = await runBenchmarkAlignment({
+    benchmarks: benchmarkResult.benchmarks,
+    surface: "engine.benchmark-alignment",
+    signal,
+  });
+  const alignedBenchmarks = alignedBenchmarkResult.aligned;
+
   // Sample questions: prefer trusted query questions (column-grounded)
   // over abstract use case statements for better Genie vocabulary learning
   const trustedQuestionTexts = trustedQueries
@@ -731,7 +745,7 @@ async function processDomain(
     trustedFunctions: [],
     textInstructions: instructionResult.instructions,
     sampleQuestions,
-    benchmarkQuestions: benchmarkResult.benchmarks,
+    benchmarkQuestions: alignedBenchmarks,
     metricViewProposals: metricViewResult.proposals,
     joinSpecs: allJoins,
     joinDiagnostics,

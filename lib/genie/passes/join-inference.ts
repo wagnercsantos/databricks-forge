@@ -22,6 +22,11 @@ import {
 import { canonicalKeyGroups } from "../key-synonyms";
 import { reviewBatch, type BatchReviewItem } from "@/lib/ai/sql-reviewer";
 import { isReviewEnabled } from "@/lib/dbx/client";
+import {
+  isSqlRepairEnabled,
+  validateAndRepairBatch,
+  type ValidateAndRepairItem,
+} from "@/lib/genie/sql-validator";
 import "@/lib/skills/content";
 import { resolveForGeniePass, formatContextSections } from "@/lib/skills/resolver";
 
@@ -151,12 +156,42 @@ ${synonymHints}`;
     }
   }
 
-  if (joins.length > 0) {
+  // Phase 2 SQL validator gate: build a synthetic INNER JOIN SELECT for each
+  // candidate join and EXPLAIN it on the warehouse. Drops any join whose ON
+  // clause can't be EXPLAIN'd or repaired.
+  let validatedJoins = joins;
+  if (isSqlRepairEnabled() && validatedJoins.length > 0) {
+    const items: ValidateAndRepairItem[] = validatedJoins.map((j) => ({
+      sql: j.sql,
+      kind: "join",
+      leftTable: j.leftTable,
+      rightTable: j.rightTable,
+      schemaContext: schemaBlock,
+      surface: "genie-join-inference",
+    }));
+    const validated = await validateAndRepairBatch(items);
+    validatedJoins = validatedJoins
+      .map((j, i) => {
+        const r = validated[i];
+        if (r.status === "dropped") {
+          logger.warn("Join dropped by validator", {
+            left: j.leftTable,
+            right: j.rightTable,
+            reason: r.reason,
+          });
+          return null;
+        }
+        return r.finalSql && r.finalSql !== j.sql ? { ...j, sql: r.finalSql } : j;
+      })
+      .filter((j): j is (typeof validatedJoins)[number] => j !== null);
+  }
+
+  if (validatedJoins.length > 0) {
     logger.info("LLM join inference discovered relationships", {
-      count: joins.length,
-      pairs: joins.map((j) => `${j.leftTable} -> ${j.rightTable}`),
+      count: validatedJoins.length,
+      pairs: validatedJoins.map((j) => `${j.leftTable} -> ${j.rightTable}`),
     });
   }
 
-  return { joins };
+  return { joins: validatedJoins };
 }

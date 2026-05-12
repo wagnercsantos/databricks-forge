@@ -552,6 +552,13 @@ function scoreInstructionQuality(instructionText: string): InstructionQualitySco
   if (wordCount >= 50) clarity += 3;
   if (wordCount >= 200) clarity += 2;
 
+  // Smart SQL-in-prose detection (anchor + density). A single offender
+  // is forgiven, but ≥ 2 lines of clear inline SQL drop clarity sharply.
+  const sqlOffenders = detectSqlInProse(instructionText);
+  if (sqlOffenders.length >= 2) {
+    clarity -= Math.min(10, (sqlOffenders.length - 1) * 5);
+  }
+
   clarity = Math.max(0, Math.min(30, clarity));
 
   const total = specificity + structure + clarity;
@@ -608,6 +615,203 @@ function evaluateInstructionQuality(space: SpaceJson, check: CheckDefinition): C
 export { scoreInstructionQuality, type InstructionQualityScore };
 
 // ---------------------------------------------------------------------------
+// Smart SQL-in-prose detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect SQL embedded in prose instructions (anchored variant).
+ *
+ * Mirrors upstream `iq_scanner.detect_sql_in_prose`:
+ * - require an *anchor* (`SELECT ... FROM`, fenced code block, or `> SELECT`),
+ * - require minimum SQL keyword density (≥ 3 SQL keywords on the same line),
+ * - explicitly skip fenced blocks marked `\`\`\`sql ... \`\`\`` (those are
+ *   intentional examples, not prose drift).
+ *
+ * Returns the list of offending excerpts (max 5). Empty array means clean.
+ */
+export function detectSqlInProse(text: string): string[] {
+  if (!text || typeof text !== "string") return [];
+
+  const SQL_KEYWORDS = [
+    "select",
+    "from",
+    "where",
+    "join",
+    "group by",
+    "order by",
+    "having",
+    "case when",
+    "with",
+    "union",
+    "limit",
+  ];
+
+  const offenders: string[] = [];
+
+  // Strip explicit ```sql fences -- those are sanctioned examples.
+  const sanitized = text.replace(/```sql[\s\S]*?```/gi, "");
+
+  const lines = sanitized.split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith("```")) continue;
+    if (line.length < 30) continue;
+
+    const lower = line.toLowerCase();
+    const hasAnchor =
+      /\bselect\b[\s\S]*\bfrom\b/.test(lower) ||
+      lower.startsWith("> select") ||
+      lower.startsWith("- select") ||
+      lower.startsWith("* select");
+    if (!hasAnchor) continue;
+
+    const density = SQL_KEYWORDS.filter((kw) => lower.includes(kw)).length;
+    if (density < 3) continue;
+
+    offenders.push(line.length > 160 ? `${line.slice(0, 157)}...` : line);
+    if (offenders.length >= 5) break;
+  }
+
+  return offenders;
+}
+
+// ---------------------------------------------------------------------------
+// Casing-consistency evaluator
+// ---------------------------------------------------------------------------
+
+/**
+ * Evaluate dominant casing consistency across the space's text instructions
+ * + sample columns. Mirrors upstream `iq_scanner.evaluate_casing_consistency`.
+ *
+ * The check passes when the mix of casing styles for proper-noun-like content
+ * (column synonyms, sample question text, instructions) does not contain too
+ * many disagreeing styles. We sample tokenized words and bucket them as
+ * uppercase / lowercase / titlecase / mixed, flagging when more than one
+ * non-trivial style accounts for ≥ 25% of tokens.
+ *
+ * Note: this is a *space-level* heuristic. For column-sample casing
+ * (data values), use `lib/metadata/casing-profile.ts`.
+ */
+function evaluateCasingConsistency(space: SpaceJson, check: CheckDefinition): CheckResult {
+  const samples: string[] = [];
+
+  const tables = (space?.data_sources?.tables ?? []) as Array<{
+    column_configs?: Array<{ synonyms?: unknown }>;
+  }>;
+  for (const t of tables) {
+    for (const c of t.column_configs ?? []) {
+      const syn = c?.synonyms;
+      if (Array.isArray(syn)) {
+        for (const s of syn) if (typeof s === "string") samples.push(s);
+      }
+    }
+  }
+
+  const sampleQs = (space?.config?.sample_questions ?? []) as unknown[];
+  for (const q of sampleQs) if (typeof q === "string") samples.push(q);
+
+  const eqs = (space?.instructions?.example_question_sqls ?? []) as Array<{
+    question?: unknown;
+  }>;
+  for (const eq of eqs) {
+    if (typeof eq?.question === "string") samples.push(eq.question);
+  }
+
+  if (samples.length < 5) {
+    return buildResult(check, true, "Not enough material to evaluate casing consistency");
+  }
+
+  let upper = 0;
+  let lower = 0;
+  let title = 0;
+  let mixed = 0;
+  for (const s of samples) {
+    const tokens = s.split(/\s+/).filter((t) => /^[A-Za-z][A-Za-z0-9_'-]*$/.test(t));
+    for (const tok of tokens) {
+      if (tok.length < 2) continue;
+      if (tok === tok.toUpperCase()) upper += 1;
+      else if (tok === tok.toLowerCase()) lower += 1;
+      else if (tok[0] === tok[0]?.toUpperCase() && tok.slice(1) === tok.slice(1).toLowerCase()) {
+        title += 1;
+      } else {
+        mixed += 1;
+      }
+    }
+  }
+  const total = upper + lower + title + mixed;
+  if (total < 10) {
+    return buildResult(check, true, "Not enough tokens to evaluate casing consistency");
+  }
+
+  const minDominance = (check.params.min_dominance as number) ?? 0.6;
+  const ratios = [
+    { name: "uppercase", value: upper / total },
+    { name: "lowercase", value: lower / total },
+    { name: "titlecase", value: title / total },
+    { name: "mixed", value: mixed / total },
+  ].sort((a, b) => b.value - a.value);
+
+  const dominantRatio = ratios[0]?.value ?? 0;
+  const passed = dominantRatio >= minDominance;
+  const breakdown = ratios.map((r) => `${r.name}=${(r.value * 100).toFixed(0)}%`).join(", ");
+  const detail = passed
+    ? `Dominant casing: ${ratios[0]?.name} (${(dominantRatio * 100).toFixed(0)}%); ${breakdown}`
+    : `No dominant casing style (top: ${ratios[0]?.name} ${(dominantRatio * 100).toFixed(0)}%); ${breakdown}`;
+  return buildResult(check, passed, detail);
+}
+
+// ---------------------------------------------------------------------------
+// Maturity-tier evaluator
+// ---------------------------------------------------------------------------
+
+/**
+ * Lightweight evaluator that surfaces the customer-facing maturity tier as a
+ * pass/fail check. Passes when the tier meets or exceeds `params.min_tier`
+ * (default `ready_to_optimize`).
+ *
+ * This is structural-only (no LLM) and uses the same logic as the report-level
+ * `maturityTier` field.
+ */
+function evaluateMaturityTier(space: SpaceJson, check: CheckDefinition): CheckResult {
+  const TIER_RANK: Record<string, number> = {
+    not_ready: 0,
+    ready_to_optimize: 1,
+    trusted: 2,
+  };
+  const minTier = ((check.params.min_tier as string) ?? "ready_to_optimize").toLowerCase();
+  const minRank = TIER_RANK[minTier] ?? 1;
+
+  const tables = (space?.data_sources?.tables ?? []) as unknown[];
+  const measures = (space?.instructions?.sql_snippets?.measures ?? []) as unknown[];
+  const trustedAssets = (space?.instructions?.example_question_sqls ?? []) as Array<{
+    sql?: unknown;
+  }>;
+  const tablesDescribed = ((space?.data_sources?.tables ?? []) as Array<{
+    description?: unknown;
+  }>).filter((t) => {
+    const d = t.description;
+    if (Array.isArray(d)) return d.some((s) => typeof s === "string" && s.trim().length > 0);
+    return typeof d === "string" && d.trim().length > 0;
+  }).length;
+  const trustedWithSql = trustedAssets.filter((t) => {
+    const s = t.sql;
+    if (Array.isArray(s)) return s.some((x) => typeof x === "string" && x.trim().length > 0);
+    return typeof s === "string" && s.trim().length > 0;
+  }).length;
+
+  let tier: "not_ready" | "ready_to_optimize" | "trusted" = "not_ready";
+  if (tablesDescribed >= 4 && measures.length >= 3 && trustedWithSql >= 5) {
+    tier = "trusted";
+  } else if (tables.length >= 1 && (measures.length >= 1 || trustedWithSql >= 1)) {
+    tier = "ready_to_optimize";
+  }
+
+  const passed = (TIER_RANK[tier] ?? 0) >= minRank;
+  return buildResult(check, passed, `Tier: ${tier} (required: ${minTier})`);
+}
+
+// ---------------------------------------------------------------------------
 // Evaluator registry
 // ---------------------------------------------------------------------------
 
@@ -626,6 +830,8 @@ const EVALUATORS: Record<string, (space: SpaceJson, check: CheckDefinition) => C
   llm_qualitative: evaluateLlmQualitative,
   sql_quality: evaluateSqlQuality,
   instruction_quality: evaluateInstructionQuality,
+  casing_consistency: evaluateCasingConsistency,
+  maturity_tier: evaluateMaturityTier,
 };
 
 /**

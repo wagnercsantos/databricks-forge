@@ -1095,6 +1095,88 @@ model ForgeHealthCheckConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-Improve: per-iteration history (replaces in-memory state)
+// ---------------------------------------------------------------------------
+
+model ForgeAutoImproveIteration {
+  id             String   @id @default(uuid())
+  sessionId      String   @map("session_id")
+  iteration      Int
+  ownerEmail     String?  @map("owner_email")
+  workingSpaceId String   @map("working_space_id")
+  bestSpaceId    String?  @map("best_space_id")
+  sliceScore     Float?   @map("slice_score")
+  p0Score        Float?   @map("p0_score")
+  fullScore      Float?   @map("full_score")
+  judgeScores    String?  @map("judge_scores")
+  patchesApplied String?  @map("patches_applied")
+  patchesDropped String?  @map("patches_dropped")
+  reasonStopped  String?  @map("reason_stopped")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([sessionId, iteration])
+  @@index([ownerEmail])
+  @@map("forge_auto_improve_iterations")
+}
+
+// ---------------------------------------------------------------------------
+// Auto-Improve: dead-on-arrival patch signatures (per session)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Prompt Registry: versioned prompts with in-code fallback
+// ---------------------------------------------------------------------------
+
+model ForgePromptVersion {
+  id          String   @id @default(uuid())
+  promptKey   String   @map("prompt_key")
+  version     Int
+  template    String
+  variables   String?
+  description String?
+  createdBy   String?  @map("created_by")
+  active      Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([promptKey, version])
+  @@index([promptKey, active])
+  @@map("forge_prompt_versions")
+}
+
+// ---------------------------------------------------------------------------
+// Conversational session cache (L2 layer for `lib/genie/session-cache.ts`)
+// ---------------------------------------------------------------------------
+
+model ForgeAgentSession {
+  id          String   @id @default(uuid())
+  sessionKey  String   @unique @map("session_key")
+  ownerEmail  String?  @map("owner_email")
+  payload     String
+  expiresAt   DateTime? @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([ownerEmail])
+  @@index([expiresAt])
+  @@map("forge_agent_sessions")
+}
+
+model ForgeAutoImproveDoaSignature {
+  id         String   @id @default(uuid())
+  sessionId  String   @map("session_id")
+  signature  String
+  strategy   String?
+  reason     String?
+  ownerEmail String?  @map("owner_email")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([sessionId, signature])
+  @@index([sessionId])
+  @@index([ownerEmail])
+  @@map("forge_auto_improve_doa_signatures")
+}
+
+// ---------------------------------------------------------------------------
 // Business Value: Financial Estimates
 // ---------------------------------------------------------------------------
 
