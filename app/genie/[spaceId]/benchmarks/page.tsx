@@ -330,7 +330,7 @@ function ResponsePanel({
 // ---------------------------------------------------------------------------
 
 export default function BenchmarkPage() {
-  const { spaceId } = useParams<{ spaceId: string }>();
+  const { spaceId = "" } = useParams<{ spaceId: string }>() ?? {};
   const router = useRouter();
 
   const [questions, setQuestions] = useState<BenchmarkQuestion[]>([]);

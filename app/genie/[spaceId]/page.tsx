@@ -86,7 +86,7 @@ interface ImproveProgress {
 // ── Page Component ──────────────────────────────────────────────────
 
 export default function SpaceDetailPage() {
-  const { spaceId } = useParams<{ spaceId: string }>();
+  const { spaceId = "" } = useParams<{ spaceId: string }>() ?? {};
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialTab = searchParams?.get("tab") ?? "overview";
