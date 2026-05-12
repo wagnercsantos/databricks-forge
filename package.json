@@ -24,7 +24,7 @@
   ],
   "scripts": {
     "dev": "prisma generate && NODE_OPTIONS='--max-old-space-size=4096' next dev",
-    "build": "prisma generate && next build && node scripts/postbuild.js",
+    "build": "prisma generate && next build && node scripts/postbuild.mjs",
     "start": "prisma db push --accept-data-loss && next start",
     "lint": "eslint",
     "format": "prettier --write .",

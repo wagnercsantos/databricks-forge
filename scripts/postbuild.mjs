@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const { cpSync, mkdirSync, existsSync } = require("node:fs");
+import { cpSync, mkdirSync, existsSync } from "node:fs";
 
 const STANDALONE = ".next/standalone";
 
