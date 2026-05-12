@@ -24,12 +24,28 @@ import {
 } from "@/lib/engines/waf-assessment/genie/builder";
 import { handleApiError } from "@/lib/api-utils";
 import { logger } from "@/lib/logger";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
+import { logActivity } from "@/lib/lakebase/activity-log";
 
 export async function POST(request: NextRequest) {
   try {
+    let user;
+    try {
+      user = await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
     const config = getConfig();
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const parentPath = (body.parentPath as string) ?? DEFAULT_GENIE_PARENT_PATH;
+    // The WAF Genie space is a workspace-shared asset; any user with the
+    // app open can regenerate it. We deliberately do NOT honor a
+    // client-supplied `parentPath` -- accepting one would let any
+    // signed-in user write the space into another user's private
+    // workspace folder. Always use the canonical /Shared/... path.
+    const parentPath = DEFAULT_GENIE_PARENT_PATH;
     const locale = typeof body.locale === "string" ? body.locale : undefined;
 
     const builtSpace = buildWafGenieSerializedSpace(locale);
@@ -87,7 +103,13 @@ export async function POST(request: NextRequest) {
 
     const spaceUrl = `${config.host}/genie/rooms/${spaceId}`;
 
-    logger.info(`WAF Genie space ${action}`, { spaceId });
+    logger.info(`WAF Genie space ${action}`, { spaceId, by: user.email });
+
+    void logActivity("waf_genie_generated", {
+      userId: user.email,
+      resourceId: spaceId,
+      metadata: { action },
+    });
 
     return NextResponse.json({
       success: true,

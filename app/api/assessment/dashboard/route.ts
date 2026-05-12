@@ -23,12 +23,28 @@ import {
 } from "@/lib/engines/waf-assessment/dashboard/builder";
 import { handleApiError } from "@/lib/api-utils";
 import { logger } from "@/lib/logger";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
+import { logActivity } from "@/lib/lakebase/activity-log";
 
 export async function POST(request: NextRequest) {
   try {
+    let user;
+    try {
+      user = await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
     const config = getConfig();
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const parentPath = (body.parentPath as string) ?? DEFAULT_DASHBOARD_PARENT_PATH;
+    // The WAF dashboard is a workspace-shared asset; any user with the
+    // app open can regenerate it. We deliberately do NOT honor a
+    // client-supplied `parentPath` -- accepting one would let any
+    // signed-in user write the dashboard into another user's private
+    // workspace folder. Always use the canonical /Shared/... path.
+    const parentPath = DEFAULT_DASHBOARD_PARENT_PATH;
     const shouldPublish = body.publish !== false;
 
     const serializedDashboard = await buildWafDashboardJson();
@@ -109,7 +125,13 @@ export async function POST(request: NextRequest) {
       ? `${config.host}/dashboardsv3/${dashboardId}/published`
       : `${config.host}/dashboardsv3/${dashboardId}`;
 
-    logger.info(`WAF dashboard ${action}`, { dashboardId });
+    logger.info(`WAF dashboard ${action}`, { dashboardId, by: user.email });
+
+    void logActivity("waf_dashboard_generated", {
+      userId: user.email,
+      resourceId: dashboardId,
+      metadata: { action, published },
+    });
 
     return NextResponse.json({
       success: true,

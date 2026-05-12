@@ -38,7 +38,8 @@ export type ResourceType =
   | "health_score"
   | "metric_view_proposal"
   | "fabric_scan"
-  | "fabric_migration";
+  | "fabric_migration"
+  | "waf_assessment";
 
 export const RESOURCE_TYPES: readonly ResourceType[] = [
   "run",
@@ -56,6 +57,7 @@ export const RESOURCE_TYPES: readonly ResourceType[] = [
   "metric_view_proposal",
   "fabric_scan",
   "fabric_migration",
+  "waf_assessment",
 ] as const;
 
 export type AclPermission = "view" | "edit";

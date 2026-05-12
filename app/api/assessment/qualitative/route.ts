@@ -8,8 +8,18 @@
  *   POST   -> upsert one response  { wafId, response, notes? }
  *   DELETE -> remove one response  { wafId }
  *
- * Responses are reused across assessment runs — they are configuration,
- * not a per-run artifact.
+ * Responses are reused across assessment runs -- they are configuration,
+ * not a per-run artifact. The schema is workspace-shared (one row per
+ * waf_id) by design, but every mutation is recorded against the calling
+ * user's email via `respondedBy` so we have an audit trail of who last
+ * touched each control.
+ *
+ * Authorization model:
+ *   - GET is open to any signed-in user (read-only catalog).
+ *   - POST / DELETE require an authenticated user. `respondedBy` is
+ *     ALWAYS derived from `requireUser(request).email` and the body
+ *     field is rejected if present, so a user cannot impersonate a
+ *     teammate.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -21,6 +31,7 @@ import {
 } from "@/lib/engines/waf-assessment/service";
 import type { WafQualitativeAnswer } from "@/lib/engines/waf-assessment/types";
 import { handleApiError } from "@/lib/api-utils";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
 
 const VALID_RESPONSES: ReadonlySet<WafQualitativeAnswer> = new Set([
   "yes",
@@ -28,6 +39,13 @@ const VALID_RESPONSES: ReadonlySet<WafQualitativeAnswer> = new Set([
   "no",
   "not_applicable",
 ]);
+
+function authError(e: unknown): NextResponse | null {
+  if (e instanceof ForgeAuthError) {
+    return NextResponse.json({ error: e.message }, { status: e.status });
+  }
+  return null;
+}
 
 export async function GET() {
   try {
@@ -42,6 +60,14 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     await ensureMigrated();
+    let user;
+    try {
+      user = await requireUser(request);
+    } catch (e) {
+      const r = authError(e);
+      if (r) return r;
+      throw e;
+    }
     const body = await request.json().catch(() => ({}));
     const wafId = typeof body.wafId === "string" ? body.wafId : "";
     const response = typeof body.response === "string" ? body.response : "";
@@ -55,12 +81,14 @@ export async function POST(request: NextRequest) {
       );
     }
     const notes = typeof body.notes === "string" ? body.notes : null;
-    const respondedBy = typeof body.respondedBy === "string" ? body.respondedBy : null;
+    // `respondedBy` is server-derived from the authenticated user.
+    // Any client-supplied `respondedBy` field is intentionally ignored
+    // so a user cannot record a response under another teammate's email.
     const saved = await saveQualitativeResponse({
       wafId,
       response: response as WafQualitativeAnswer,
       notes,
-      respondedBy,
+      respondedBy: user.email,
     });
     return NextResponse.json(saved, { status: 201 });
   } catch (error) {
@@ -71,6 +99,13 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     await ensureMigrated();
+    try {
+      await requireUser(request);
+    } catch (e) {
+      const r = authError(e);
+      if (r) return r;
+      throw e;
+    }
     const body = await request.json().catch(() => ({}));
     const wafId = typeof body.wafId === "string" ? body.wafId : "";
     if (!wafId) {

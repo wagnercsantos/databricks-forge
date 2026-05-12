@@ -16,6 +16,7 @@ import {
 } from "@/lib/engines/waf-assessment/service";
 import { handleApiError } from "@/lib/api-utils";
 import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
+import { listAccessibleIds } from "@/lib/lakebase/acl";
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,9 +30,10 @@ export async function GET(request: NextRequest) {
       }
       throw e;
     }
+    const sharedIds = await listAccessibleIds(user.email, "waf_assessment");
     const [latest, history, controls, qualitativeResponses, ignored] = await Promise.all([
-      getLatestAssessment(user.email),
-      listAssessments(user.email, 20),
+      getLatestAssessment(user.email, sharedIds),
+      listAssessments(user.email, 20, sharedIds),
       listControls(),
       listQualitativeResponses(),
       listIgnoredResources(),

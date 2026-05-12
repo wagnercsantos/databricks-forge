@@ -262,14 +262,31 @@ export async function runAssessment(opts: {
   }
 }
 
-/** List recent assessments for a user (newest first). */
+/** Build a Prisma `where` clause that admits owned + shared assessments. */
+function visibilityWhere(
+  ownerEmail: string,
+  sharedIds: readonly string[] = [],
+): { OR: Array<Record<string, unknown>> } {
+  const clauses: Array<Record<string, unknown>> = [{ ownerEmail }];
+  if (sharedIds.length > 0) {
+    clauses.push({ assessmentId: { in: [...sharedIds] } });
+  }
+  return { OR: clauses };
+}
+
+/**
+ * List recent assessments visible to a user (newest first). Includes
+ * assessments the user owns plus any explicitly shared with them via
+ * `forge_resource_acl` (resourceType="waf_assessment").
+ */
 export async function listAssessments(
   ownerEmail: string,
   limit = 20,
+  sharedIds: readonly string[] = [],
 ): Promise<WafAssessmentSummary[]> {
   const rows = await withPrisma((prisma) =>
     prisma.forgeWafAssessment.findMany({
-      where: { ownerEmail },
+      where: visibilityWhere(ownerEmail, sharedIds),
       orderBy: { createdAt: "desc" },
       take: limit,
     }),
@@ -277,24 +294,33 @@ export async function listAssessments(
   return rows.map(toSummary);
 }
 
-/** Get the most recent completed assessment for a user, or null. */
+/**
+ * Get the most recent completed assessment visible to a user. Honours the
+ * same owned-or-shared visibility model as `listAssessments`.
+ */
 export async function getLatestAssessment(
   ownerEmail: string,
+  sharedIds: readonly string[] = [],
 ): Promise<WafAssessmentDetail | null> {
   const latest = await withPrisma((prisma) =>
     prisma.forgeWafAssessment.findFirst({
-      where: { ownerEmail, status: "completed" },
+      where: { ...visibilityWhere(ownerEmail, sharedIds), status: "completed" },
       orderBy: { createdAt: "desc" },
     }),
   );
   if (!latest) return null;
-  return getAssessmentDetail(latest.assessmentId, ownerEmail);
+  return getAssessmentDetail(latest.assessmentId, ownerEmail, sharedIds);
 }
 
-/** Get a single assessment with per-control results joined to the catalog. */
+/**
+ * Get a single assessment with per-control results joined to the catalog.
+ * Returns `null` if the caller is neither the owner nor in the resource's
+ * ACL share list.
+ */
 export async function getAssessmentDetail(
   assessmentId: string,
   ownerEmail: string,
+  sharedIds: readonly string[] = [],
 ): Promise<WafAssessmentDetail | null> {
   const assessment = await withPrisma((prisma) =>
     prisma.forgeWafAssessment.findUnique({
@@ -303,7 +329,9 @@ export async function getAssessmentDetail(
     }),
   );
   if (!assessment) return null;
-  if (assessment.ownerEmail !== ownerEmail) return null;
+  const isOwner = assessment.ownerEmail === ownerEmail;
+  const isShared = sharedIds.includes(assessmentId);
+  if (!isOwner && !isShared) return null;
   return {
     ...toSummary(assessment),
     results: assessment.results.map(

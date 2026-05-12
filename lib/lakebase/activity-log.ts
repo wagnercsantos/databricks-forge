@@ -40,7 +40,12 @@ export type ActivityAction =
   | "pipeline_cancelled"
   | "endpoint_throttled"
   | "resource_shared"
-  | "resource_unshared";
+  | "resource_unshared"
+  | "waf_assessment_started"
+  | "waf_assessment_completed"
+  | "waf_assessment_failed"
+  | "waf_dashboard_generated"
+  | "waf_genie_generated";
 
 export interface ActivityLogEntry {
   activityId: string;

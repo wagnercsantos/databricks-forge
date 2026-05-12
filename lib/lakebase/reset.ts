@@ -101,6 +101,15 @@ export async function deleteAllData(): Promise<void> {
       prisma.forgeSpaceBenchmarkRun.deleteMany(),
       prisma.forgeSpaceHealthScore.deleteMany(),
       prisma.forgeHealthCheckConfig.deleteMany(),
+      // WAF Assessment tables. ForgeWafControlResult cascades from
+      // ForgeWafAssessment, so it does not need an explicit deleteMany.
+      // The catalog (ForgeWafControl) is workspace-shared seed data and
+      // gets re-populated by ensureCatalogSeeded() on the next run, but
+      // we drop it here so factory reset is truly a clean slate.
+      prisma.forgeWafAssessment.deleteMany(),
+      prisma.forgeWafQualitativeResponse.deleteMany(),
+      prisma.forgeWafIgnoredResource.deleteMany(),
+      prisma.forgeWafControl.deleteMany(),
       // Isolation/accounting tables
       prisma.forgeResourceAcl.deleteMany(),
       prisma.forgeUsage.deleteMany(),

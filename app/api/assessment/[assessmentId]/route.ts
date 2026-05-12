@@ -10,6 +10,7 @@ import { ensureMigrated } from "@/lib/lakebase/schema";
 import { getAssessmentDetail } from "@/lib/engines/waf-assessment/service";
 import { handleApiError, requireSafeId } from "@/lib/api-utils";
 import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
+import { listAccessibleIds } from "@/lib/lakebase/acl";
 
 export async function GET(
   request: NextRequest,
@@ -30,7 +31,8 @@ export async function GET(
     const invalid = requireSafeId(assessmentId, "assessment ID");
     if (invalid) return invalid;
 
-    const detail = await getAssessmentDetail(assessmentId, user.email);
+    const sharedIds = await listAccessibleIds(user.email, "waf_assessment");
+    const detail = await getAssessmentDetail(assessmentId, user.email, sharedIds);
     if (!detail) {
       return NextResponse.json({ error: "Assessment not found" }, { status: 404 });
     }

@@ -4,18 +4,29 @@
  * Reports whether the Forge WAF dashboard and Genie space currently exist
  * in the workspace, plus their URLs. Drives the "Generate" -> "Open"
  * button toggle on the assessment page.
+ *
+ * Requires an authenticated user (any signed-in caller can read).
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getConfig } from "@/lib/dbx/client";
 import { getDashboard, listDashboards } from "@/lib/dbx/dashboards";
 import { getGenieSpace, listGenieSpaces } from "@/lib/dbx/genie";
 import { WAF_DASHBOARD_DISPLAY_NAME } from "@/lib/engines/waf-assessment/dashboard/builder";
 import { WAF_GENIE_TITLE } from "@/lib/engines/waf-assessment/genie/builder";
 import { handleApiError } from "@/lib/api-utils";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    try {
+      await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
     const config = getConfig();
 
     const [dashboards, genieFirstPage] = await Promise.all([
@@ -37,7 +48,7 @@ export async function GET() {
           };
         }
       } catch {
-        // Listed but not retrievable — treat as missing so UI offers Generate.
+        // Listed but not retrievable -- treat as missing so UI offers Generate.
       }
     }
 
@@ -59,7 +70,7 @@ export async function GET() {
           };
         }
       } catch {
-        // Listed but not retrievable — treat as missing so UI offers Generate.
+        // Listed but not retrievable -- treat as missing so UI offers Generate.
       }
     }
 

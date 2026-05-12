@@ -115,6 +115,13 @@ async function lookupOwner(
         });
         return row ? { ownerEmail: row.ownerEmail, exists: true } : { ownerEmail: null, exists: false };
       }
+      case "waf_assessment": {
+        const row = await prisma.forgeWafAssessment.findUnique({
+          where: { assessmentId: resourceId },
+          select: { ownerEmail: true },
+        });
+        return row ? { ownerEmail: row.ownerEmail, exists: true } : { ownerEmail: null, exists: false };
+      }
       default:
         // Other resource types are not yet shareable.
         return { ownerEmail: null, exists: false };
