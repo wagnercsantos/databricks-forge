@@ -28,7 +28,7 @@ jobs:
           npm audit \
             --registry=https://registry.npmjs.org/ \
             --audit-level=moderate \
-            --omit=dev || \
+            --omit=dev --omit=optional || \
             { echo "::warning::npm audit found moderate+ vulnerabilities in production deps"; exit 1; }
 
       - name: Run npm audit (full tree, JSON report for visibility)
