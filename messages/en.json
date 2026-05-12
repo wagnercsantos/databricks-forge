@@ -515,7 +515,9 @@
       "title": "No assessment yet",
       "description_pre": "Click",
       "description_run": "Run assessment",
-      "description_post": "to score this workspace against the Databricks WAF. The first run takes about 20-40 seconds on a warm warehouse."
+      "description_post": "to score this workspace against the Databricks WAF. The first run takes about 20-40 seconds on a warm warehouse.",
+      "failed_title": "Latest run failed",
+      "failed_description": "The most recent assessment run did not complete. Review the history below and try again."
     },
     "partial_run": {
       "title": "Partial run"

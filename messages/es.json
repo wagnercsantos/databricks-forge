@@ -515,7 +515,9 @@
       "title": "Aún sin evaluación",
       "description_pre": "Haz clic en",
       "description_run": "Ejecutar evaluación",
-      "description_post": "para puntuar este workspace contra el WAF de Databricks. La primera ejecución toma aproximadamente 20-40 segundos en un warehouse caliente."
+      "description_post": "para puntuar este workspace contra el WAF de Databricks. La primera ejecución toma aproximadamente 20-40 segundos en un warehouse caliente.",
+      "failed_title": "La última ejecución falló",
+      "failed_description": "La ejecución más reciente de la evaluación no se completó. Revisa el historial abajo e inténtalo de nuevo."
     },
     "partial_run": {
       "title": "Ejecución parcial"

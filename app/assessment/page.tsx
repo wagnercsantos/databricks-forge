@@ -575,6 +575,21 @@ export default function AssessmentPage() {
             <Skeleton key={i} className="h-32 w-full" />
           ))}
         </div>
+      ) : !latest && (data?.history.length ?? 0) > 0 ? (
+        <div className="space-y-4">
+          <Card className="border-amber-500/40 bg-amber-50/50 dark:bg-amber-950/20">
+            <CardContent className="flex items-start gap-3 py-4 text-sm">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <div>
+                <p className="font-medium">{tEmpty("failed_title")}</p>
+                <p className="mt-1 text-muted-foreground">
+                  {data?.history[0]?.errorMessage ?? tEmpty("failed_description")}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+          <HistoryTable history={data?.history ?? []} latestId="" />
+        </div>
       ) : !latest ? (
         <Card>
           <CardHeader>
