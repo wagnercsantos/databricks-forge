@@ -25,7 +25,7 @@ export function HeaderPageTitle() {
   const t = useTranslations("header.page_titles");
 
   const key =
-    PAGE_TITLE_KEYS[pathname] ?? (pathname.startsWith("/runs/") ? "run_detail" : null);
+    PAGE_TITLE_KEYS[pathname ?? ""] ?? (pathname?.startsWith("/runs/") ? "run_detail" : null);
 
   if (!key) return null;
 
