@@ -1420,6 +1420,13 @@ print(json.dumps({'tag_assignments': out}))
 upload_code() {
   WORKSPACE_PATH="/Workspace/Users/${USER_EMAIL}/${APP_NAME}"
 
+  # Defensive cleanup: prior versions of .databricksignore did not exclude
+  # .git/, so existing deployments may have a stale (and over-10MB)
+  # .git directory mirrored into the workspace. Remove it best-effort
+  # before sync so `databricks apps deploy` does not choke on pack files.
+  # Silent on failure (no .git present = success).
+  databricks workspace delete "$WORKSPACE_PATH/.git" --recursive >/dev/null 2>&1 || true
+
   local sync_source="."
   local sync_flags=""
   local sync_label="diff"

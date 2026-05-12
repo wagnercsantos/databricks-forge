@@ -40,7 +40,7 @@ export async function POST(
       setSpaceCache(spaceId, serializedSpace);
     }
 
-    const result = await runFixes({ checkIds: checks, serializedSpace });
+    const result = await runFixes({ checkIds: checks, serializedSpace, spaceId });
 
     return NextResponse.json({
       updatedSerializedSpace: JSON.stringify(result.updatedSpace),

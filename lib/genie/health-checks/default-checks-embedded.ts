@@ -504,4 +504,74 @@ checks:
     field: "identifier"
     params:
       min_ratio: 1.0
+
+  # SQL quality review checks (requires serving-endpoint-review)
+  - id: example-sql-quality
+    category: quality_assurance
+    description: "Example SQL pairs pass LLM quality review"
+    severity: warning
+    fixable: false
+    evaluator: sql_quality
+    paths:
+      - "instructions.example_question_sqls[*].sql"
+    params:
+      min_score: 60
+
+  - id: measure-sql-quality
+    category: quality_assurance
+    description: "Measure SQL expressions pass LLM quality review"
+    severity: warning
+    fixable: false
+    evaluator: sql_quality
+    paths:
+      - "instructions.sql_snippets.measures[*].sql"
+    params:
+      min_score: 60
+
+  - id: filter-sql-quality
+    category: quality_assurance
+    description: "Filter SQL expressions pass LLM quality review"
+    severity: warning
+    fixable: false
+    evaluator: sql_quality
+    paths:
+      - "instructions.sql_snippets.filters[*].sql"
+    params:
+      min_score: 60
+
+  # ---------------------------------------------------------------------------
+  # Maturity / consistency (mirrors upstream IQ Scanner)
+  # ---------------------------------------------------------------------------
+  - id: casing-consistency
+    category: semantic_richness
+    description: "Synonyms, sample questions, and instructions use a dominant casing style"
+    severity: info
+    fixable: true
+    fix_strategy: instruction_generation
+    evaluator: casing_consistency
+    params:
+      min_dominance: 0.6
+    quick_win: "Pick a single casing style for synonyms and example questions, or add an instruction that Genie should match case-insensitively."
+
+  - id: maturity-tier-trusted
+    category: quality_assurance
+    description: "Space meets the 'Trusted' maturity bar (≥4 described tables, ≥3 measures, ≥5 trusted assets, no critical findings)"
+    severity: info
+    fixable: false
+    evaluator: maturity_tier
+    params:
+      min_tier: trusted
+
+  - id: text-instructions-uses-gsl-sections
+    category: instructions
+    description: "Text instructions follow the canonical GSL section schema (PURPOSE, DISAMBIGUATION, DATA QUALITY NOTES, CONSTRAINTS, Instructions you must follow...)"
+    severity: info
+    fixable: true
+    fix_strategy: instruction_generation
+    enabled: false
+    evaluator: pattern
+    path: "instructions.text_instructions[*].content"
+    params:
+      regex: 'PURPOSE[\\s\\S]*DISAMBIGUATION[\\s\\S]*DATA QUALITY NOTES[\\s\\S]*CONSTRAINTS[\\s\\S]*Instructions you must follow'
+    quick_win: "Re-generate text instructions with the GSL schema (Phase 5)."
 `;

@@ -114,6 +114,9 @@ export function HealthDetailSheet({
           </div>
         ) : report ? (
           <div className="mt-6 space-y-6">
+            {/* Maturity tier chip — answers "is this safe to deploy?" at a glance */}
+            <MaturityTierChip tier={report.maturityTier} />
+
             {/* Score header */}
             <div className={`flex items-center gap-4 rounded-lg p-4 ${gradeBg(report.grade)}`}>
               <div className={`text-4xl font-bold ${gradeColor(report.grade)}`}>{report.grade}</div>
@@ -342,5 +345,44 @@ export function HealthDetailSheet({
         ) : null}
       </SheetContent>
     </Sheet>
+  );
+}
+
+/**
+ * Customer-facing maturity tier chip. Sits above the letter grade and gives
+ * an unambiguous "is this safe to deploy?" answer.
+ */
+function MaturityTierChip({ tier }: { tier: SpaceHealthReport["maturityTier"] }) {
+  const meta =
+    tier === "trusted"
+      ? {
+          label: "Trusted",
+          icon: <CheckCircle2 className="size-3.5" />,
+          className:
+            "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+          subtitle: "Production-ready: meets all maturity criteria.",
+        }
+      : tier === "ready_to_optimize"
+        ? {
+            label: "Ready to Optimize",
+            icon: <Sparkles className="size-3.5" />,
+            className:
+              "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+            subtitle: "Usable today; optimization will unlock more value.",
+          }
+        : {
+            label: "Not Ready",
+            icon: <AlertTriangle className="size-3.5" />,
+            className: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+            subtitle: "Foundation gaps — fix before sharing.",
+          };
+  return (
+    <div className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs ${meta.className}`}>
+      <span className="flex items-center gap-1.5 font-semibold uppercase tracking-wide">
+        {meta.icon}
+        {meta.label}
+      </span>
+      <span className="text-[11px] opacity-80">{meta.subtitle}</span>
+    </div>
   );
 }

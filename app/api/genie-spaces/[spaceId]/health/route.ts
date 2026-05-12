@@ -6,7 +6,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getGenieSpace } from "@/lib/dbx/genie";
-import { runHealthCheck, enrichReportWithSqlQuality } from "@/lib/genie/space-health-check";
+import {
+  runHealthCheck,
+  enrichReportWithSqlQuality,
+  enrichSpaceWithUcMetadata,
+} from "@/lib/genie/space-health-check";
 import { isReviewEnabled } from "@/lib/dbx/client";
 import { getHealthCheckConfig, saveHealthScore } from "@/lib/lakebase/space-health";
 import { getSpaceCache, setSpaceCache } from "@/lib/genie/space-cache";
@@ -40,6 +44,27 @@ export async function GET(
 
     const space = JSON.parse(serializedSpace);
 
+    // Enrich a *scoring-only* copy of the space with UC table/column comments
+    // so well-described UC tables aren't penalized for an empty space-level
+    // description. The persisted serialized_space is never mutated.
+    let scoringSpace = space;
+    try {
+      const enriched = await enrichSpaceWithUcMetadata(space, guard.user.oboToken ?? undefined);
+      scoringSpace = enriched.space;
+      if (enriched.tablesEnriched > 0 || enriched.columnsEnriched > 0) {
+        logger.info("[health] enriched scoring copy with UC metadata", {
+          spaceId,
+          tablesEnriched: enriched.tablesEnriched,
+          columnsEnriched: enriched.columnsEnriched,
+        });
+      }
+    } catch (err) {
+      logger.warn("[health] UC enrichment failed, scoring against raw space", {
+        spaceId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     const config = await getHealthCheckConfig().catch(() => ({
       overrides: [],
       customChecks: [],
@@ -47,14 +72,14 @@ export async function GET(
     }));
 
     let report = runHealthCheck(
-      space,
+      scoringSpace,
       config.overrides.length > 0 ? config.overrides : undefined,
       config.customChecks.length > 0 ? config.customChecks : undefined,
       config.categoryWeights ?? undefined,
     );
 
     if (isReviewEnabled("health-check-sql-quality")) {
-      report = await enrichReportWithSqlQuality(space, report);
+      report = await enrichReportWithSqlQuality(scoringSpace, report);
     }
 
     // Best-effort persist the score for trending

@@ -27,10 +27,19 @@ import { reviewBatch } from "@/lib/ai/sql-reviewer";
 import { isReviewEnabled } from "@/lib/dbx/client";
 import { mapWithConcurrency } from "@/lib/toolkit/concurrency";
 import {
+  isSqlRepairEnabled,
+  validateAndRepairBatch,
+  type ValidateAndRepairItem,
+} from "@/lib/genie/sql-validator";
+import {
   resolveForGeniePass,
   formatContextSections,
   buildDomainQuestionPatterns,
 } from "@/lib/skills";
+import {
+  buildProfileGroundingBlock,
+  snapshotsFromEntityCandidates,
+} from "../profile-grounding";
 
 const TEMPERATURE = 0.1;
 const BENCHMARKS_PER_BATCH = 4;
@@ -93,7 +102,12 @@ export async function runBenchmarkGeneration(
   const effectiveBenchmarksPerBatch = benchmarksPerBatchOverride ?? BENCHMARKS_PER_BATCH;
   const effectiveMaxTokens = maxTokensOverride ?? 6144;
 
-  const schemaBlock = buildSchemaContextBlock(metadata, tableFqns);
+  const baseSchemaBlock = buildSchemaContextBlock(metadata, tableFqns);
+  const profileBlock =
+    entityCandidates.length > 0
+      ? buildProfileGroundingBlock(snapshotsFromEntityCandidates(entityCandidates))
+      : "";
+  const schemaBlock = profileBlock ? `${baseSchemaBlock}\n\n${profileBlock}` : baseSchemaBlock;
 
   const joinBlock =
     joinSpecs.length > 0
@@ -393,6 +407,43 @@ Generate ${benchmarksPerBatch} benchmark questions with expected SQL and alterna
       return b;
     });
     benchmarks = reviewed.filter((b): b is NonNullable<typeof b> => b !== null);
+  }
+
+  // Phase 2 SQL validator gate: actually EXPLAIN benchmark SQL on the
+  // warehouse and detect zero-row pathologies. Drop benchmarks whose
+  // expected SQL fails to repair OR returns 0 rows. Off by default.
+  if (isSqlRepairEnabled() && benchmarks.length > 0) {
+    const items: ValidateAndRepairItem[] = benchmarks.map((b) => ({
+      sql: b.expectedSql,
+      kind: "benchmark",
+      schemaContext: schemaBlock,
+      surface: "genie-benchmarks",
+    }));
+    const validated = await validateAndRepairBatch(items);
+    const survivors: BenchmarkInput[] = [];
+    for (let i = 0; i < benchmarks.length; i++) {
+      const b = benchmarks[i];
+      const v = validated[i];
+      if (v.status === "dropped") {
+        logger.warn("Benchmark dropped by validator", {
+          question: b.question,
+          reason: v.reason,
+        });
+        rejected.push(b);
+        continue;
+      }
+      if (v.rowCount === 0) {
+        logger.warn("Benchmark dropped: expected SQL returns 0 rows", {
+          question: b.question,
+        });
+        rejected.push(b);
+        continue;
+      }
+      survivors.push(
+        v.finalSql && v.finalSql !== b.expectedSql ? { ...b, expectedSql: v.finalSql } : b,
+      );
+    }
+    benchmarks = survivors;
   }
 
   return { valid: benchmarks, rejected };

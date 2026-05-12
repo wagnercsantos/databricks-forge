@@ -168,6 +168,7 @@ function runTargetedImprove(
       const fixResult = await runFixes({
         checkIds: failedCheckIds,
         serializedSpace,
+        spaceId,
       });
 
       const newSerializedSpace = JSON.stringify(fixResult.updatedSpace);

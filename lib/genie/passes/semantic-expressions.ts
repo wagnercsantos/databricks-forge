@@ -18,6 +18,7 @@ import type {
   EnrichedSqlSnippetMeasure,
   EnrichedSqlSnippetFilter,
   EnrichedSqlSnippetDimension,
+  SampleDataCache,
 } from "../types";
 import {
   buildSchemaContextBlock,
@@ -27,7 +28,17 @@ import {
 import { DATABRICKS_SQL_RULES_COMPACT } from "@/lib/toolkit/sql-rules";
 import { reviewBatch, type BatchReviewItem } from "@/lib/ai/sql-reviewer";
 import { isReviewEnabled } from "@/lib/dbx/client";
+import {
+  isSqlRepairEnabled,
+  validateAndRepairBatch,
+  type ValidateAndRepairItem,
+} from "@/lib/genie/sql-validator";
 import { generateTimePeriods } from "../time-periods";
+import {
+  buildProfileGroundingBlock,
+  snapshotsFromEntityCandidates,
+  snapshotsFromSampleCache,
+} from "../profile-grounding";
 import {
   resolveForGeniePass,
   formatContextSections,
@@ -46,6 +57,21 @@ export interface SemanticExpressionsInput {
   config: GenieEngineConfig;
   /** Industry outcome map ID for domain-specific measure patterns. */
   industryId?: string;
+  /**
+   * Entity candidates from column-intelligence. When present, sample values
+   * are folded into a "Profile-Grounded Values" prompt prefix so the LLM
+   * doesn't invent literals that don't exist in the data.
+   */
+  entityCandidates?: ReadonlyArray<{
+    tableFqn: string;
+    columnName: string;
+    sampleValues: string[];
+  }>;
+  /**
+   * Raw sample-data cache (preferred when available). Used in parallel
+   * call sites where `entityCandidates` haven't been computed yet.
+   */
+  sampleData?: SampleDataCache | null;
   endpoint: string;
   signal?: AbortSignal;
   /** Generation budget controlling target counts and maxTokens. */
@@ -111,6 +137,8 @@ export async function runSemanticExpressions(
         industryId,
         signal,
         { targetWorkerA, targetWorkerB, targetFilters, targetDimensions, maxTokens },
+        input.entityCandidates,
+        input.sampleData ?? null,
       );
       llmMeasures = llmResult.measures
         .filter((m) => !isSnippetTooComplex(m.sql, m.name))
@@ -155,6 +183,109 @@ export async function runSemanticExpressions(
         llmDimensions = llmDimensions.filter((d) => !failedIds.has(`d:${d.name}`));
       }
     }
+  }
+
+  // Phase 2 SQL validator gate: wrap each fragment in a synthetic SELECT
+  // and EXPLAIN it on the warehouse. Drops items that can't be EXPLAIN'd or
+  // repaired. Off by default; flip on via FORGE_SQL_REPAIR_ENABLED.
+  if (isSqlRepairEnabled() && tableFqns.length > 0) {
+    const schemaContext = buildSchemaContextBlock(metadata, tableFqns);
+
+    // Codex P2: previously every fragment was wrapped against `tableFqns[0]`,
+    // so a valid fragment that referenced a column from any other selected
+    // table would fail EXPLAIN as an unknown column. Resolve each fragment
+    // to its most-likely owning table by counting how many of the columns
+    // it references actually exist on each candidate.
+    const tableColumnsByFqn = new Map<string, Set<string>>();
+    for (const c of metadata.columns) {
+      const key = c.tableFqn.toLowerCase();
+      const set = tableColumnsByFqn.get(key) ?? new Set<string>();
+      set.add(c.columnName.toLowerCase());
+      tableColumnsByFqn.set(key, set);
+    }
+
+    const pickOwningTable = (sql: string): string => {
+      const refs = extractColumnRefs(sql);
+      if (refs.qualified.length > 0) {
+        for (const tableLike of refs.qualified) {
+          const match = tableFqns.find((f) => f.toLowerCase().endsWith(`.${tableLike}`));
+          if (match) return match;
+        }
+      }
+      if (refs.bare.length === 0) return tableFqns[0];
+      let best = tableFqns[0];
+      let bestHits = -1;
+      for (const fqn of tableFqns) {
+        const cols = tableColumnsByFqn.get(fqn.toLowerCase());
+        if (!cols) continue;
+        let hits = 0;
+        for (const ref of refs.bare) if (cols.has(ref)) hits++;
+        if (hits > bestHits) {
+          bestHits = hits;
+          best = fqn;
+        }
+      }
+      return best;
+    };
+
+    const measureItems: ValidateAndRepairItem[] = llmMeasures.map((m) => ({
+      sql: m.sql,
+      kind: "measure",
+      tableFqn: pickOwningTable(m.sql),
+      schemaContext,
+      surface: "genie-semantic-measures",
+    }));
+    const filterItems: ValidateAndRepairItem[] = llmFilters.map((f) => ({
+      sql: f.sql,
+      kind: "filter",
+      tableFqn: pickOwningTable(f.sql),
+      schemaContext,
+      surface: "genie-semantic-filters",
+    }));
+    const dimItems: ValidateAndRepairItem[] = llmDimensions.map((d) => ({
+      sql: d.sql,
+      kind: "named_expression",
+      tableFqn: pickOwningTable(d.sql),
+      schemaContext,
+      surface: "genie-semantic-dimensions",
+    }));
+
+    const [mResults, fResults, dResults] = await Promise.all([
+      validateAndRepairBatch(measureItems),
+      validateAndRepairBatch(filterItems),
+      validateAndRepairBatch(dimItems),
+    ]);
+
+    llmMeasures = llmMeasures
+      .map((m, i) => {
+        const r = mResults[i];
+        if (r.status === "dropped") {
+          logger.warn("Measure dropped by validator", { name: m.name, reason: r.reason });
+          return null;
+        }
+        return r.finalSql && r.finalSql !== m.sql ? { ...m, sql: r.finalSql } : m;
+      })
+      .filter((m): m is EnrichedSqlSnippetMeasure => m !== null);
+    llmFilters = llmFilters
+      .map((f, i) => {
+        const r = fResults[i];
+        if (r.status === "dropped") {
+          logger.warn("Filter dropped by validator", { name: f.name, reason: r.reason });
+          return null;
+        }
+        return r.finalSql && r.finalSql !== f.sql ? { ...f, sql: r.finalSql } : f;
+      })
+      .filter((f): f is EnrichedSqlSnippetFilter => f !== null);
+    llmDimensions = llmDimensions
+      .map((d, i) => {
+        const r = dResults[i];
+        if (r.status === "dropped") {
+          logger.warn("Dimension dropped by validator", { name: d.name, reason: r.reason });
+          return null;
+        }
+        return r.finalSql && r.finalSql !== d.sql ? { ...d, sql: r.finalSql } : d;
+      })
+      .filter((d): d is EnrichedSqlSnippetDimension => d !== null);
   }
 
   // Merge custom expressions from config
@@ -236,6 +367,12 @@ async function generateLLMExpressions(
   industryId?: string,
   signal?: AbortSignal,
   budgetParams?: ExpressionBudgetParams,
+  entityCandidates?: ReadonlyArray<{
+    tableFqn: string;
+    columnName: string;
+    sampleValues: string[];
+  }>,
+  sampleData?: SampleDataCache | null,
 ): Promise<{
   measures: EnrichedSqlSnippetMeasure[];
   filters: EnrichedSqlSnippetFilter[];
@@ -266,7 +403,14 @@ async function generateLLMExpressions(
     ? `Industry: ${businessContext.industries}\nPriorities: ${businessContext.businessPriorities}\nGoals: ${businessContext.strategicGoals}`
     : "";
 
-  const contextBlock = `${schemaBlock}\n\n${bizContext ? `### BUSINESS CONTEXT\n${bizContext}\n` : ""}${glossaryBlock}\n\n### USE CASE SQL EXAMPLES\n${sqlExamples || "(no SQL examples available)"}\n\n${buildSemanticSkillBlock(industryId)}`;
+  const profileSnapshots = entityCandidates && entityCandidates.length > 0
+    ? snapshotsFromEntityCandidates(entityCandidates)
+    : sampleData && sampleData.size > 0
+      ? snapshotsFromSampleCache(sampleData)
+      : [];
+  const profileBlock = profileSnapshots.length > 0 ? buildProfileGroundingBlock(profileSnapshots) : "";
+
+  const contextBlock = `${schemaBlock}${profileBlock ? `\n\n${profileBlock}` : ""}\n\n${bizContext ? `### BUSINESS CONTEXT\n${bizContext}\n` : ""}${glossaryBlock}\n\n### USE CASE SQL EXAMPLES\n${sqlExamples || "(no SQL examples available)"}\n\n${buildSemanticSkillBlock(industryId)}`;
 
   // Worker A: Foundation metrics (standard aggregates)
   const workerA = cachedChatCompletion({
@@ -455,6 +599,56 @@ function dedup<T>(items: T[], keyFn: (item: T) => string): T[] {
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * Extract column references from a SQL fragment. Returns:
+ *   - `qualified`: lowercased `table.column` references (table portion only)
+ *   - `bare`: lowercased unqualified column identifiers
+ *
+ * SQL keywords/functions that look like identifiers are filtered out via a
+ * conservative reserved-word list. Used by the validator to pick the most
+ * likely owning table for `EXPLAIN`-wrapping (Codex P2).
+ */
+const SQL_RESERVED_WORDS = new Set([
+  "select", "from", "where", "group", "by", "order", "having", "as", "and",
+  "or", "not", "in", "on", "is", "null", "true", "false", "case", "when",
+  "then", "else", "end", "distinct", "limit", "offset", "asc", "desc",
+  "between", "like", "ilike", "with", "union", "all", "any", "exists",
+  "join", "left", "right", "inner", "outer", "cross", "full",
+  "sum", "count", "avg", "min", "max", "coalesce", "nullif", "cast",
+  "try_cast", "try_divide", "current_date", "current_timestamp", "now",
+  "interval", "date", "timestamp", "string", "int", "bigint", "double",
+  "boolean", "year", "month", "day", "quarter", "week", "hour", "minute",
+  "extract", "date_trunc", "datediff", "if", "ifnull", "concat",
+]);
+
+export function extractColumnRefs(sql: string): { qualified: string[]; bare: string[] } {
+  const lower = (sql ?? "").toLowerCase();
+  if (!lower.trim()) return { qualified: [], bare: [] };
+  const qualified: string[] = [];
+  const bare: string[] = [];
+  // Strip string literals so identifiers inside them aren't picked up.
+  const stripped = lower
+    .replace(/'[^']*'/g, "''")
+    .replace(/"[^"]*"/g, '""');
+  // Qualified: `table.column` -- record the table portion only.
+  const qRegex = /\b([a-z_][\w]*)\.([a-z_][\w]*)\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = qRegex.exec(stripped)) !== null) {
+    if (!SQL_RESERVED_WORDS.has(m[1])) qualified.push(m[1]);
+  }
+  // Bare identifiers: any standalone word that isn't reserved or numeric.
+  const bareRegex = /\b([a-z_][\w]*)\b/g;
+  while ((m = bareRegex.exec(stripped)) !== null) {
+    const tok = m[1];
+    if (SQL_RESERVED_WORDS.has(tok)) continue;
+    // Skip the table portion of a qualified reference -- it isn't a column.
+    const idx = m.index + tok.length;
+    if (stripped[idx] === ".") continue;
+    bare.push(tok);
+  }
+  return { qualified: Array.from(new Set(qualified)), bare: Array.from(new Set(bare)) };
 }
 
 function buildSemanticSkillBlock(industryId?: string): string {

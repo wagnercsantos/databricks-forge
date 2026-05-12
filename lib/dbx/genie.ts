@@ -13,6 +13,8 @@ import { mkdirs } from "./workspace";
 import { logger } from "@/lib/logger";
 import type { GenieSpaceResponse, GenieListResponse } from "@/lib/genie/types";
 import type { GenieAuthMode } from "@/lib/settings";
+import { enforceConstraints, cleanConfig } from "./genie-cleanup";
+import { sanitizeIds } from "./genie-id-sanitizer";
 
 /**
  * Resolve auth headers based on the deploy auth mode (defaults to OBO).
@@ -34,6 +36,64 @@ async function resolveHeaders(
 
 export const DEFAULT_GENIE_PARENT_PATH = "/Shared/Forge Genie Spaces/";
 const FALLBACK_GENIE_PARENT_PATH = "/Shared/";
+
+/**
+ * Build the parent_path fallback chain for createGenieSpace, in order of
+ * preference. The first non-null entry that the API accepts wins.
+ *
+ * 1. Caller-supplied path (if any)
+ * 2. Env override (`FORGE_GENIE_DEFAULT_PARENT_PATH`)
+ * 3. Default Forge folder
+ * 4. Last-resort `/Shared/`
+ *
+ * Duplicates are removed while preserving order so we never re-attempt the
+ * same path twice.
+ */
+function buildParentPathChain(callerPath?: string): string[] {
+  const candidates = [
+    callerPath,
+    process.env.FORGE_GENIE_DEFAULT_PARENT_PATH,
+    DEFAULT_GENIE_PARENT_PATH,
+    FALLBACK_GENIE_PARENT_PATH,
+  ];
+  const seen = new Set<string>();
+  const chain: string[] = [];
+  for (const c of candidates) {
+    if (!c) continue;
+    const trimmed = c.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    chain.push(trimmed);
+  }
+  return chain;
+}
+
+/**
+ * Sanitize-and-cleanup a serialized space JSON string.
+ *
+ * Order matters:
+ * 1. `sanitizeSerializedSpace` -- shape coercion (string→array, sort,
+ *    join_spec rewrite, etc.)
+ * 2. `sanitizeIds` -- id character normalization + collision-aware uniquification
+ * 3. `enforceConstraints` -- structural caps + dedupe + drop empty SQL
+ * 4. `cleanConfig` -- per-string truncation + total-bytes warning + relationship_type normalize
+ *
+ * Returns the post-cleanup JSON string. Idempotent: calling twice on the same
+ * input is a no-op.
+ */
+function sanitizeAndCleanup(serializedSpace: string): string {
+  const sanitized = sanitizeSerializedSpace(serializedSpace);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(sanitized);
+  } catch {
+    return sanitized;
+  }
+  sanitizeIds(parsed);
+  enforceConstraints(parsed);
+  cleanConfig(parsed);
+  return JSON.stringify(parsed);
+}
 
 // ---------------------------------------------------------------------------
 // List
@@ -318,19 +378,7 @@ export async function createGenieSpace(opts: {
   const config = getConfig();
   const url = `${config.host}/api/2.0/genie/spaces`;
   const headers = await resolveHeaders(opts.authMode, opts.oboToken);
-  const sanitized = sanitizeSerializedSpace(opts.serializedSpace);
-
-  let parentPath = opts.parentPath ?? DEFAULT_GENIE_PARENT_PATH;
-
-  // Best-effort: pre-create the parent folder.
-  try {
-    await mkdirs(parentPath);
-  } catch (e) {
-    logger.debug("[genie] Pre-create parent folder failed (will retry)", {
-      parentPath,
-      error: String(e),
-    });
-  }
+  const sanitized = sanitizeAndCleanup(opts.serializedSpace);
 
   // Debug: log join_specs from the final payload so we can diagnose API rejections
   try {
@@ -347,42 +395,65 @@ export async function createGenieSpace(opts: {
     logger.debug("[genie] Failed to log join_specs debug info", { error: String(e) });
   }
 
-  const body = {
-    title: opts.title,
-    description: opts.description,
-    serialized_space: sanitized,
-    warehouse_id: opts.warehouseId,
-    parent_path: parentPath,
-  };
+  const chain = buildParentPathChain(opts.parentPath);
+  let lastError: { status: number; text: string } | null = null;
 
-  let response = await fetchWithTimeout(
-    url,
-    { method: "POST", headers, body: JSON.stringify(body) },
-    TIMEOUTS.WORKSPACE,
-  );
+  for (let i = 0; i < chain.length; i++) {
+    const parentPath = chain[i];
 
-  // If the parent path doesn't exist, retry with /Shared/ as fallback
-  if (!response.ok) {
-    const text = await response.text();
-    if (text.includes("RESOURCE_DOES_NOT_EXIST") && parentPath !== FALLBACK_GENIE_PARENT_PATH) {
-      logger.warn("Genie parent path does not exist, retrying with /Shared/", { parentPath });
-      parentPath = FALLBACK_GENIE_PARENT_PATH;
-      body.parent_path = parentPath;
-      response = await fetchWithTimeout(
-        url,
-        { method: "POST", headers, body: JSON.stringify(body) },
-        TIMEOUTS.WORKSPACE,
-      );
-      if (!response.ok) {
-        const retryText = await response.text();
-        throw new Error(`Genie create space failed (${response.status}): ${retryText}`);
-      }
-    } else {
-      throw new Error(`Genie create space failed (${response.status}): ${text}`);
+    try {
+      await mkdirs(parentPath);
+    } catch (e) {
+      logger.debug("[genie] Pre-create parent folder failed (will still attempt)", {
+        parentPath,
+        error: String(e),
+      });
     }
+
+    const body = {
+      title: opts.title,
+      description: opts.description,
+      serialized_space: sanitized,
+      warehouse_id: opts.warehouseId,
+      parent_path: parentPath,
+    };
+
+    const response = await fetchWithTimeout(
+      url,
+      { method: "POST", headers, body: JSON.stringify(body) },
+      TIMEOUTS.WORKSPACE,
+    );
+
+    if (response.ok) {
+      if (i > 0) {
+        logger.warn("Genie create succeeded on parent_path fallback", {
+          parentPath,
+          attempt: i + 1,
+        });
+      }
+      return (await response.json()) as GenieSpaceResponse;
+    }
+
+    const text = await response.text();
+    lastError = { status: response.status, text };
+
+    const isRetryable =
+      text.includes("RESOURCE_DOES_NOT_EXIST") ||
+      response.status === 403 ||
+      response.status === 404;
+    if (!isRetryable || i === chain.length - 1) break;
+
+    logger.warn("Genie parent_path attempt failed; trying next candidate", {
+      parentPath,
+      status: response.status,
+      attempt: i + 1,
+      remaining: chain.length - i - 1,
+    });
   }
 
-  return (await response.json()) as GenieSpaceResponse;
+  throw new Error(
+    `Genie create space failed (${lastError?.status ?? "unknown"}): ${lastError?.text ?? "no candidates tried"}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -408,7 +479,7 @@ export async function updateGenieSpace(
   if (opts.title !== undefined) body.title = opts.title;
   if (opts.description !== undefined) body.description = opts.description;
   if (opts.serializedSpace !== undefined)
-    body.serialized_space = sanitizeSerializedSpace(opts.serializedSpace);
+    body.serialized_space = sanitizeAndCleanup(opts.serializedSpace);
   if (opts.warehouseId !== undefined) body.warehouse_id = opts.warehouseId;
 
   const response = await fetchWithTimeout(

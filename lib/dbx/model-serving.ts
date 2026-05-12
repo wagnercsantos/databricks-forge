@@ -23,6 +23,10 @@ import { fetchWithTimeout } from "./fetch-with-timeout";
 import { getPoolRateLimiter, DEFAULT_429_BACKOFF_MS } from "./rate-limiter";
 import { getModelCapabilities, markEndpointUnavailable } from "./model-registry";
 import { logger } from "@/lib/logger";
+import {
+  isMlflowTracingEnabled,
+  recordSpan,
+} from "@/lib/observability/mlflow-tracing";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -194,6 +198,8 @@ export async function chatCompletion(
 
   const limiter = getPoolRateLimiter();
   await limiter.acquire(options.endpoint);
+  const tracingActive = isMlflowTracingEnabled();
+  const traceStart = tracingActive ? Date.now() : 0;
   try {
     const resp = await fetchWithTimeout(
       url,
@@ -224,6 +230,21 @@ export async function chatCompletion(
       if (retryAfterMs) {
         limiter.backoff(options.endpoint, retryAfterMs);
       }
+      if (tracingActive) {
+        void recordSpan({
+          name: `chatCompletion:${options.endpoint}`,
+          spanType: "LLM",
+          inputs: { messages: options.messages, maxTokens: clamped },
+          attributes: {
+            endpoint: options.endpoint,
+            httpStatus: resp.status,
+            jsonMode: options.responseFormat === "json_object",
+          },
+          startMs: traceStart,
+          endMs: Date.now(),
+          errorMessage: `HTTP ${resp.status}: ${text.slice(0, 200)}`,
+        });
+      }
       throw new ModelServingError(
         `Model Serving request failed (${resp.status}): ${text}`,
         resp.status,
@@ -242,6 +263,25 @@ export async function chatCompletion(
         finishReason: result.finishReason,
         model: result.model,
         usage: result.usage,
+      });
+    }
+
+    if (tracingActive) {
+      void recordSpan({
+        name: `chatCompletion:${options.endpoint}`,
+        spanType: "LLM",
+        inputs: { messages: options.messages, maxTokens: clamped },
+        outputs: { content: result.content, finishReason: result.finishReason },
+        attributes: {
+          endpoint: options.endpoint,
+          model: result.model,
+          tokensPrompt: result.usage?.promptTokens,
+          tokensCompletion: result.usage?.completionTokens,
+          tokensTotal: result.usage?.totalTokens,
+          jsonMode: options.responseFormat === "json_object",
+        },
+        startMs: traceStart,
+        endMs: Date.now(),
       });
     }
 

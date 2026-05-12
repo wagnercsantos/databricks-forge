@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/page-header";
 import { CatalogBrowser } from "@/components/pipeline/catalog-browser";
 import { parseErrorResponse, safeJsonParse } from "@/lib/error-utils";
 import { BuildModeSelector, type BuildMode } from "@/components/genie/build-mode-selector";
+import { ReadinessPanel, type ReadinessReport } from "@/components/genie/readiness-panel";
 
 interface ScannedTable {
   fqn: string;
@@ -23,11 +24,19 @@ interface ScannedTable {
   columnCount: number;
 }
 
+interface ScannedColumn {
+  tableFqn: string;
+  columnName: string;
+  dataType: string;
+  comment: string | null;
+}
+
 interface ScanResult {
   scan: {
     catalog: string;
     schema: string;
     tables: ScannedTable[];
+    columns?: ScannedColumn[];
     totalTableCount: number;
     totalColumnCount: number;
   };
@@ -52,6 +61,8 @@ export default function CreateFromSchemaPage() {
   const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [exampleQuestions, setExampleQuestions] = useState<string>("");
+  const [readinessReport, setReadinessReport] = useState<ReadinessReport | null>(null);
 
   const handleSchemaSelection = useCallback((sources: string[]) => {
     if (sources.length > 0) {
@@ -339,6 +350,54 @@ export default function CreateFromSchemaPage() {
               </Button>
             </CardContent>
           </Card>
+
+          {/* Optional readiness check (pre-flight) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Sanity-check before you generate</CardTitle>
+              <CardDescription>
+                Paste 1-5 example questions you expect the space to answer. Forge will check whether
+                the selected tables can actually answer them before you spend minutes on a full
+                generation run.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Textarea
+                rows={4}
+                placeholder={`What is total revenue by region last quarter?\nWhich customers have the highest churn risk?`}
+                value={exampleQuestions}
+                onChange={(e) => setExampleQuestions(e.target.value)}
+              />
+            </CardContent>
+          </Card>
+
+          <ReadinessPanel
+            catalog={scanResult.scan.catalog}
+            schema={scanResult.scan.schema}
+            tables={[...selectedTables].map((fqn) => {
+              const t = scanResult.scan.tables.find((x) => x.fqn === fqn);
+              const cols = (scanResult.scan.columns ?? []).filter((c) => c.tableFqn === fqn);
+              return {
+                fqn,
+                description: t?.comment ?? null,
+                columnNames: cols.map((c) => c.columnName),
+                columnDescriptions: Object.fromEntries(
+                  cols.filter((c) => !!c.comment).map((c) => [c.columnName, c.comment as string]),
+                ),
+              };
+            })}
+            questions={exampleQuestions
+              .split("\n")
+              .map((q) => q.trim())
+              .filter((q) => q.length > 0)}
+            onReport={setReadinessReport}
+          />
+          {readinessReport && !readinessReport.ready && (
+            <p className="text-xs text-amber-600">
+              Some questions are flagged as not answerable. You can still generate, but consider
+              adding more tables (or refining the question) for higher-quality output.
+            </p>
+          )}
         </>
       )}
 

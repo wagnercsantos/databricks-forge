@@ -26,6 +26,15 @@ import { reviewBatch } from "@/lib/ai/sql-reviewer";
 import { isReviewEnabled } from "@/lib/dbx/client";
 import { mapWithConcurrency } from "@/lib/toolkit/concurrency";
 import { resolveForGeniePass, formatSystemOverlay } from "@/lib/skills";
+import {
+  isSqlRepairEnabled,
+  validateAndRepairBatch,
+  type ValidateAndRepairItem,
+} from "@/lib/genie/sql-validator";
+import {
+  buildProfileGroundingBlock,
+  snapshotsFromEntityCandidates,
+} from "../profile-grounding";
 
 const TEMPERATURE = 0.2;
 const BATCH_SIZE = 2;
@@ -85,6 +94,11 @@ export async function runTrustedAssetAuthoring(
   const schemaBlock = buildSchemaContextBlock(metadata, tableFqns);
   const entityBlock = buildEntityBlock(entityCandidates);
   const joinBlock = buildJoinBlock(joinSpecs);
+  const profileBlock =
+    entityCandidates.length > 0
+      ? buildProfileGroundingBlock(snapshotsFromEntityCandidates(entityCandidates))
+      : "";
+  const groundedSchemaBlock = profileBlock ? `${schemaBlock}\n\n${profileBlock}` : schemaBlock;
 
   if (topUseCases.length > 0) {
     const batches: UseCase[][] = [];
@@ -104,7 +118,7 @@ export async function runTrustedAssetAuthoring(
         try {
           return await processTrustedAssetBatch(
             batch,
-            schemaBlock,
+            groundedSchemaBlock,
             entityBlock,
             joinBlock,
             allowlist,
@@ -138,7 +152,7 @@ export async function runTrustedAssetAuthoring(
 
   return processReferenceSqlBatch(
     referenceSql!,
-    schemaBlock,
+    groundedSchemaBlock,
     entityBlock,
     joinBlock,
     allowlist,
@@ -313,6 +327,7 @@ Create parameterized queries from these examples.`;
     queries = reviewed.filter((q): q is NonNullable<typeof q> => q !== null);
   }
 
+  queries = await applyValidatorIfEnabled(queries, schemaBlock);
   return { queries };
 }
 
@@ -452,7 +467,41 @@ Create new parameterized queries based on these reference patterns.`;
     queries = reviewed.filter((q): q is NonNullable<typeof q> => q !== null);
   }
 
+  queries = await applyValidatorIfEnabled(queries, schemaBlock);
   return { queries };
+}
+
+/**
+ * Phase 2 SQL validator gate: actually EXPLAIN each trusted-asset SQL on
+ * the warehouse and repair on failure. Off by default; flip on via
+ * FORGE_SQL_REPAIR_ENABLED once telemetry confirms zero-impact on latency.
+ */
+async function applyValidatorIfEnabled(
+  queries: TrustedAssetQuery[],
+  schemaBlock: string,
+): Promise<TrustedAssetQuery[]> {
+  if (!isSqlRepairEnabled() || queries.length === 0) return queries;
+
+  const items: ValidateAndRepairItem[] = queries.map((q) => ({
+    sql: q.sql,
+    kind: "trusted_asset",
+    schemaContext: schemaBlock,
+    surface: "genie-trusted-assets",
+  }));
+  const validated = await validateAndRepairBatch(items);
+  return queries
+    .map((q, i) => {
+      const v = validated[i];
+      if (v.status === "dropped") {
+        logger.warn("Trusted asset SQL dropped by validator", {
+          question: q.question,
+          reason: v.reason,
+        });
+        return null;
+      }
+      return v.finalSql && v.finalSql !== q.sql ? { ...q, sql: v.finalSql } : q;
+    })
+    .filter((q): q is TrustedAssetQuery => q !== null);
 }
 
 function parseArray(val: unknown): Record<string, unknown>[] {
