@@ -20,6 +20,9 @@ jobs:
           cache: npm
           registry-url: "https://registry.npmjs.org/"
 
+      - name: Rewrite lockfile resolved URLs to public registry
+        run: sed -i 's|npm-proxy.dev.databricks.com|registry.npmjs.org|g' package-lock.json
+
       - name: Run npm audit (registry.npmjs.org, lockfile-based)
         run: |
           npm audit \
