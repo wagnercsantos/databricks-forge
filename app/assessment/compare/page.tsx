@@ -112,8 +112,8 @@ export default function AssessmentComparePage() {
 
 function CompareInner() {
   const searchParams = useSearchParams();
-  const fromId = searchParams.get("from") ?? "";
-  const toId = searchParams.get("to") ?? "";
+  const fromId = searchParams?.get("from") ?? "";
+  const toId = searchParams?.get("to") ?? "";
 
   const [from, setFrom] = useState<WafAssessmentDetail | null>(null);
   const [to, setTo] = useState<WafAssessmentDetail | null>(null);

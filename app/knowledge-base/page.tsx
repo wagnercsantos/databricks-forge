@@ -66,7 +66,7 @@ const STATUS_CONFIG: Record<string, { icon: React.ReactNode; label: string; colo
 
 export default function KnowledgeBasePage() {
   const searchParams = useSearchParams();
-  const highlightDocId = searchParams.get("doc") ?? "";
+  const highlightDocId = searchParams?.get("doc") ?? "";
   const [documents, setDocuments] = React.useState<DocumentRecord[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [uploading, setUploading] = React.useState(false);

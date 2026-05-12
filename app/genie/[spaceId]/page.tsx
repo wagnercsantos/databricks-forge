@@ -89,7 +89,7 @@ export default function SpaceDetailPage() {
   const { spaceId } = useParams<{ spaceId: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialTab = searchParams.get("tab") ?? "overview";
+  const initialTab = searchParams?.get("tab") ?? "overview";
   const [activeTab, setActiveTab] = useState(initialTab);
   const [detail, setDetail] = useState<SpaceDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,7 +106,7 @@ export default function SpaceDetailPage() {
   const improveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Auto-improve polling state (when redirected from the improve page)
-  const autoImproveJobId = searchParams.get("autoImprove") ?? "";
+  const autoImproveJobId = searchParams?.get("autoImprove") ?? "";
   const autoImproveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [autoImproveStatus, setAutoImproveStatus] = useState<{
     status: string;

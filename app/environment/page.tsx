@@ -94,10 +94,10 @@ const WAF_REASON_TO_TAB: Record<string, { tab: string; label: string }> = {
 
 export default function EstatePage() {
   const searchParams = useSearchParams();
-  const highlightFqn = useMemo(() => searchParams.get("highlight") ?? "", [searchParams]);
-  const tabParam = useMemo(() => searchParams.get("tab") ?? "", [searchParams]);
-  const scanParam = useMemo(() => searchParams.get("scan") ?? "", [searchParams]);
-  const reasonParam = useMemo(() => searchParams.get("reason") ?? "", [searchParams]);
+  const highlightFqn = useMemo(() => searchParams?.get("highlight") ?? "", [searchParams]);
+  const tabParam = useMemo(() => searchParams?.get("tab") ?? "", [searchParams]);
+  const scanParam = useMemo(() => searchParams?.get("scan") ?? "", [searchParams]);
+  const reasonParam = useMemo(() => searchParams?.get("reason") ?? "", [searchParams]);
   const wafReason = useMemo(
     () => (reasonParam ? WAF_REASON_TO_TAB[reasonParam] ?? null : null),
     [reasonParam],

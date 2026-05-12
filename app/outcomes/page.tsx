@@ -160,8 +160,8 @@ export default function OutcomesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { outcomes, loading } = useIndustryOutcomes();
-  const searchQuery = searchParams.get("q") ?? "";
-  const selectedId = searchParams.get("industry");
+  const searchQuery = searchParams?.get("q") ?? "";
+  const selectedId = searchParams?.get("industry");
 
   const selectedIndustry = useMemo(
     () => (selectedId ? (outcomes.find((i) => i.id === selectedId) ?? null) : null),
@@ -190,7 +190,7 @@ export default function OutcomesPage() {
   );
 
   function setSearchQuery(q: string) {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParams?.toString());
     if (q) {
       params.set("q", q);
     } else {

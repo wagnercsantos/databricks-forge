@@ -133,7 +133,7 @@ type StepKey = (typeof STEPS)[number]["key"];
 
 export default function MigrationWizardPage() {
   const searchParams = useSearchParams();
-  const scanId = searchParams.get("scanId") ?? "";
+  const scanId = searchParams?.get("scanId") ?? "";
 
   const [step, setStep] = useState<StepKey>("config");
   const [targetCatalog, setTargetCatalog] = useState("");
