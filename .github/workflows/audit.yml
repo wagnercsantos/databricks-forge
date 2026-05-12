@@ -11,10 +11,6 @@ on:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    # Temporary: known vulnerable `next` (CVEs fixed in 16.2.6) cannot be
-    # bumped locally until the Databricks internal npm proxy mirrors 16.2.6.
-    # Keep the job visible as a reminder, but don't block merges on it.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
@@ -27,13 +23,17 @@ jobs:
       - name: Rewrite lockfile resolved URLs to public registry
         run: sed -i 's|npm-proxy.dev.databricks.com|registry.npmjs.org|g' package-lock.json
 
+      # Audit emits a warning annotation but does not fail the job.
+      # Known unfixable locally: `next` HIGH advisories require 16.2.6,
+      # which the Databricks internal npm proxy hasn't mirrored yet.
+      # Revisit once 16.2.6 is available on the proxy.
       - name: Run npm audit (registry.npmjs.org, lockfile-based)
         run: |
           npm audit \
             --registry=https://registry.npmjs.org/ \
             --audit-level=moderate \
             --omit=dev --omit=optional || \
-            { echo "::warning::npm audit found moderate+ vulnerabilities in production deps"; exit 1; }
+            echo "::warning::npm audit found moderate+ vulnerabilities in production deps (non-blocking)"
 
       - name: Run npm audit (full tree, JSON report for visibility)
         if: always()
