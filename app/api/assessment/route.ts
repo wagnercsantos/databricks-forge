@@ -5,7 +5,7 @@
  * and the list of recent runs for the history panel.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import {
   getLatestAssessment,
@@ -15,13 +15,23 @@ import {
   listQualitativeResponses,
 } from "@/lib/engines/waf-assessment/service";
 import { handleApiError } from "@/lib/api-utils";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     await ensureMigrated();
+    let user;
+    try {
+      user = await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
     const [latest, history, controls, qualitativeResponses, ignored] = await Promise.all([
-      getLatestAssessment(),
-      listAssessments(20),
+      getLatestAssessment(user.email),
+      listAssessments(user.email, 20),
       listControls(),
       listQualitativeResponses(),
       listIgnoredResources(),

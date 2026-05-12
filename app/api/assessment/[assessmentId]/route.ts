@@ -9,18 +9,28 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import { getAssessmentDetail } from "@/lib/engines/waf-assessment/service";
 import { handleApiError, requireSafeId } from "@/lib/api-utils";
+import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ assessmentId: string }> },
 ) {
   try {
     await ensureMigrated();
+    let user;
+    try {
+      user = await requireUser(request);
+    } catch (e) {
+      if (e instanceof ForgeAuthError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
     const { assessmentId } = await context.params;
     const invalid = requireSafeId(assessmentId, "assessment ID");
     if (invalid) return invalid;
 
-    const detail = await getAssessmentDetail(assessmentId);
+    const detail = await getAssessmentDetail(assessmentId, user.email);
     if (!detail) {
       return NextResponse.json({ error: "Assessment not found" }, { status: 404 });
     }

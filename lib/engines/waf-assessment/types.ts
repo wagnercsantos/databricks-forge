@@ -117,6 +117,7 @@ export interface WafControlResult {
 /** Assessment summary returned by the API. */
 export interface WafAssessmentSummary {
   assessmentId: string;
+  ownerEmail: string | null;
   status: "pending" | "running" | "completed" | "failed";
   scope: string | null;
   triggeredBy: string | null;

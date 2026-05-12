@@ -43,6 +43,7 @@ const QUALITATIVE_ANSWERS: ReadonlySet<WafQualitativeAnswer> = new Set([
 
 function toSummary(row: {
   assessmentId: string;
+  ownerEmail: string | null;
   status: string;
   scope: string | null;
   triggeredBy: string | null;
@@ -62,6 +63,7 @@ function toSummary(row: {
 }): WafAssessmentSummary {
   return {
     assessmentId: row.assessmentId,
+    ownerEmail: row.ownerEmail,
     status: row.status as WafAssessmentSummary["status"],
     scope: row.scope,
     triggeredBy: row.triggeredBy,
@@ -91,6 +93,7 @@ function pillarScore(metByPillar: Map<WafPillar, { met: number; total: number }>
 export async function runAssessment(opts: {
   scope?: string;
   triggeredBy?: string;
+  ownerEmail?: string | null;
 }): Promise<WafAssessmentSummary> {
   await ensureCatalogSeeded();
 
@@ -99,6 +102,7 @@ export async function runAssessment(opts: {
     prisma.forgeWafAssessment.create({
       data: {
         assessmentId,
+        ownerEmail: opts.ownerEmail ?? null,
         status: "running",
         scope: opts.scope ?? null,
         triggeredBy: opts.triggeredBy ?? null,
@@ -258,10 +262,14 @@ export async function runAssessment(opts: {
   }
 }
 
-/** List recent assessments (newest first). */
-export async function listAssessments(limit = 20): Promise<WafAssessmentSummary[]> {
+/** List recent assessments for a user (newest first). */
+export async function listAssessments(
+  ownerEmail: string,
+  limit = 20,
+): Promise<WafAssessmentSummary[]> {
   const rows = await withPrisma((prisma) =>
     prisma.forgeWafAssessment.findMany({
+      where: { ownerEmail },
       orderBy: { createdAt: "desc" },
       take: limit,
     }),
@@ -269,21 +277,24 @@ export async function listAssessments(limit = 20): Promise<WafAssessmentSummary[
   return rows.map(toSummary);
 }
 
-/** Get the most recent completed assessment, or null. */
-export async function getLatestAssessment(): Promise<WafAssessmentDetail | null> {
+/** Get the most recent completed assessment for a user, or null. */
+export async function getLatestAssessment(
+  ownerEmail: string,
+): Promise<WafAssessmentDetail | null> {
   const latest = await withPrisma((prisma) =>
     prisma.forgeWafAssessment.findFirst({
-      where: { status: "completed" },
+      where: { ownerEmail, status: "completed" },
       orderBy: { createdAt: "desc" },
     }),
   );
   if (!latest) return null;
-  return getAssessmentDetail(latest.assessmentId);
+  return getAssessmentDetail(latest.assessmentId, ownerEmail);
 }
 
 /** Get a single assessment with per-control results joined to the catalog. */
 export async function getAssessmentDetail(
   assessmentId: string,
+  ownerEmail: string,
 ): Promise<WafAssessmentDetail | null> {
   const assessment = await withPrisma((prisma) =>
     prisma.forgeWafAssessment.findUnique({
@@ -292,6 +303,7 @@ export async function getAssessmentDetail(
     }),
   );
   if (!assessment) return null;
+  if (assessment.ownerEmail !== ownerEmail) return null;
   return {
     ...toSummary(assessment),
     results: assessment.results.map(

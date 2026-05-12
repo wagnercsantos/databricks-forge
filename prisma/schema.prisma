@@ -1451,6 +1451,7 @@ model ForgeWafControl {
 // Assessment run header — one per execution of the assessment engine.
 model ForgeWafAssessment {
   assessmentId      String    @id @map("assessment_id")
+  ownerEmail        String?   @map("owner_email")
   status            String    @default("pending")                     // pending | running | completed | failed
   scope             String?                                           // optional UC scope label
   triggeredBy       String?   @map("triggered_by")
@@ -1472,6 +1473,7 @@ model ForgeWafAssessment {
 
   @@index([createdAt])
   @@index([status])
+  @@index([ownerEmail])
   @@map("forge_waf_assessments")
 }
 
