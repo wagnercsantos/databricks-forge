@@ -69,8 +69,8 @@ function tableIdSet(space: SpaceJson | unknown): Set<string> {
  * snapshots. Includes paths added or removed entirely.
  */
 function affectedTablePaths(before: SpaceJson, after: SpaceJson): string[] {
-  const beforeTables = ((before?.data_sources?.tables ?? []) as Array<Record<string, unknown>>) ?? [];
-  const afterTables = ((after?.data_sources?.tables ?? []) as Array<Record<string, unknown>>) ?? [];
+  const beforeTables = (before?.data_sources?.tables ?? []) as Array<Record<string, unknown>>;
+  const afterTables = (after?.data_sources?.tables ?? []) as Array<Record<string, unknown>>;
   const indexBy = (rows: Array<Record<string, unknown>>) => {
     const m = new Map<string, Record<string, unknown>>();
     for (const r of rows) m.set(pathOf(r), r);
