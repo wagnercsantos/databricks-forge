@@ -8,11 +8,53 @@
  * @module ai/comment-engine/prompts
  */
 
+import type { CommentOutputLanguage } from "./types";
+
+// ---------------------------------------------------------------------------
+// Output language directive
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the natural-language directive instructing the LLM which language
+ * to use for the generated descriptions. This is independent of the prompt
+ * instructions themselves (which stay in English) -- only the OUTPUT must be
+ * in the requested language.
+ *
+ * Identifiers (table/column FQNs, data types, asset codes) MUST stay verbatim
+ * in any locale -- never translate them.
+ */
+export function buildLanguageDirective(language: CommentOutputLanguage): string {
+  switch (language) {
+    case "pt-BR":
+      return [
+        "### IDIOMA DE SAÍDA",
+        "Escreva todas as descrições em português do Brasil.",
+        "Use terminologia de negócio em português; mantenha nomes técnicos (tabelas, colunas, tipos de dados, códigos de ativos) em inglês como aparecem nos metadados.",
+        "Aplique as diretrizes de estilo abaixo (tempo presente, termos de negócio, sinônimos, etc.) com seus equivalentes em português.",
+      ].join("\n");
+    case "es":
+      return [
+        "### IDIOMA DE SALIDA",
+        "Escribe todas las descripciones en español.",
+        "Usa terminología de negocio en español; mantén los nombres técnicos (tablas, columnas, tipos de datos, códigos de activos) en inglés tal como aparecen en los metadatos.",
+        "Aplica las directrices de estilo a continuación (tiempo presente, términos de negocio, sinónimos, etc.) con sus equivalentes en español.",
+      ].join("\n");
+    case "en":
+    default:
+      return [
+        "### OUTPUT LANGUAGE",
+        "Write all descriptions in English.",
+      ].join("\n");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Phase 2: Table Comments
 // ---------------------------------------------------------------------------
 
 export const TABLE_COMMENT_PROMPT = `You are a senior data catalog expert. Generate the highest-quality business description for each table below. These descriptions will be written into Unity Catalog and used by AI systems (Genie Spaces) to resolve natural language queries.
+
+{language_directive}
 
 {industry_context}
 {business_context_block}
@@ -51,6 +93,8 @@ Return a JSON array:
 
 export const COLUMN_COMMENT_PROMPT = `You are a senior data catalog expert. Generate precise, business-friendly descriptions for each column. These descriptions power natural language query resolution in Genie Spaces -- users will search using business terms, and your descriptions must make columns discoverable.
 
+{language_directive}
+
 {industry_context}
 
 ### TABLE CONTEXT
@@ -87,6 +131,8 @@ Return a JSON array:
 // ---------------------------------------------------------------------------
 
 export const CONSISTENCY_REVIEW_PROMPT = `You are a data governance reviewer. Review the following table and column descriptions for quality and consistency. These descriptions are used by AI systems (Genie Spaces) to resolve natural language queries.
+
+{language_directive}
 
 ### SCHEMA OVERVIEW
 {schema_summary}

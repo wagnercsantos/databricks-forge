@@ -69,9 +69,9 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
     fetchRun,
   } = useRunDetail(runId);
 
-  const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "overview");
-  const highlightUseCaseId = searchParams.get("uc") || undefined;
-  const initialDomain = searchParams.get("domain") || undefined;
+  const [activeTab, setActiveTab] = useState(searchParams?.get("tab") || "overview");
+  const highlightUseCaseId = searchParams?.get("uc") || undefined;
+  const initialDomain = searchParams?.get("domain") || undefined;
   const [insightsOpen, setInsightsOpen] = useState(true);
   const [detailsOpen, setDetailsOpen] = useState(false);
 

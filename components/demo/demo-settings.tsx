@@ -11,9 +11,13 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { useL10n } from "@/i18n/format";
 import { DemoWizard } from "./demo-wizard";
 
 export function DemoModeSettings() {
+  const t = useTranslations("settings.demo");
+  const { integer } = useL10n();
   const [wizardOpen, setWizardOpen] = useState(false);
   const [sessionCount, setSessionCount] = useState<number | null>(null);
 
@@ -30,25 +34,22 @@ export function DemoModeSettings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Wand2 className="h-5 w-5" />
-            Demo Mode
+            {t("title")}
           </CardTitle>
-          <CardDescription>
-            Generate custom synthetic demo datasets for customer engagements.
-            Research a company, design tables, and write directly to Unity Catalog.
-          </CardDescription>
+          <CardDescription>{t("description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-3">
             <Button onClick={() => setWizardOpen(true)}>
               <Wand2 className="mr-2 h-4 w-4" />
-              Launch Demo Wizard
+              {t("launch_button")}
             </Button>
             <Button variant="outline" asChild>
               <Link href="/demo">
-                View All Sessions
+                {t("view_sessions")}
                 {sessionCount !== null && sessionCount > 0 && (
                   <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium">
-                    {sessionCount}
+                    {integer(sessionCount)}
                   </span>
                 )}
                 <ArrowRight className="ml-2 h-4 w-4" />

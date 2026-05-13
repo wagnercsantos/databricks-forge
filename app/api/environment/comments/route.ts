@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { listCommentJobs, createCommentJob } from "@/lib/lakebase/comment-jobs";
+import { isCommentOutputLanguage } from "@/lib/ai/comment-engine/types";
 import { logActivity } from "@/lib/lakebase/activity-log";
 import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
 import { listAccessibleIds } from "@/lib/lakebase/acl";
@@ -60,6 +61,7 @@ export async function POST(request: NextRequest) {
       excludedSchemas,
       excludedTables,
       exclusionPatterns,
+      outputLanguage,
     } = body;
 
     if (!catalogs || !Array.isArray(catalogs) || catalogs.length === 0) {
@@ -77,6 +79,7 @@ export async function POST(request: NextRequest) {
     const job = await createCommentJob({
       scopeJson,
       industryId: industryId ?? undefined,
+      outputLanguage: isCommentOutputLanguage(outputLanguage) ? outputLanguage : undefined,
       scanId: scanId ?? undefined,
       runId: runId ?? undefined,
       ownerEmail: user.email,

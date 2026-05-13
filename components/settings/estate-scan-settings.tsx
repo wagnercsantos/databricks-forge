@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScanLine, Search, Target } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 interface EstateScanSettingsProps {
   estateScanEnabled: boolean;
@@ -55,18 +56,15 @@ export function EstateScanSettings({
   onBenchmarksEnabledChange,
   benchmarksServerEnabled,
 }: EstateScanSettingsProps) {
+  const t = useTranslations("settings.estate_scan");
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ScanLine className="h-5 w-5" />
-          Estate Scan
+          {t("title")}
         </CardTitle>
-        <CardDescription>
-          Run environment intelligence (domain classification, PII detection, health scoring,
-          lineage enrichment) during pipeline runs. This increases run time but provides a
-          comprehensive estate view alongside use case discovery.
-        </CardDescription>
+        <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent>
         <div
@@ -75,11 +73,9 @@ export function EstateScanSettings({
           }`}
         >
           <div>
-            <p className="text-sm font-medium">Estate Scan during pipeline runs</p>
+            <p className="text-sm font-medium">{t("scan.label")}</p>
             <p className="text-xs text-muted-foreground">
-              {estateScanEnabled
-                ? "Enabled — metadata extraction will include full environment intelligence enrichment"
-                : "Disabled — pipeline runs will skip the estate scan enrichment pass (faster runs)"}
+              {estateScanEnabled ? t("scan.enabled") : t("scan.disabled")}
             </p>
           </div>
           <ToggleButton
@@ -98,11 +94,9 @@ export function EstateScanSettings({
               className={`mt-0.5 h-4 w-4 shrink-0 ${assetDiscoveryEnabled ? "text-sky-500" : "text-muted-foreground"}`}
             />
             <div>
-              <p className="text-sm font-medium">Asset Discovery during pipeline runs</p>
+              <p className="text-sm font-medium">{t("asset_discovery.label")}</p>
               <p className="text-xs text-muted-foreground">
-                {assetDiscoveryEnabled
-                  ? "Enabled — existing Genie spaces, dashboards, and metric views will be discovered and used to improve recommendations"
-                  : "Disabled — recommendations are generated without awareness of existing analytics assets (faster runs)"}
+                {assetDiscoveryEnabled ? t("asset_discovery.enabled") : t("asset_discovery.disabled")}
               </p>
             </div>
           </div>
@@ -125,13 +119,13 @@ export function EstateScanSettings({
               className={`mt-0.5 h-4 w-4 shrink-0 ${benchmarksEnabled && benchmarksServerEnabled ? "text-amber-500" : "text-muted-foreground"}`}
             />
             <div>
-              <p className="text-sm font-medium">Benchmark Catalog</p>
+              <p className="text-sm font-medium">{t("benchmarks.label")}</p>
               <p className="text-xs text-muted-foreground">
                 {benchmarksServerEnabled === false
-                  ? "Unavailable — server-side flag FORGE_BENCHMARKS_ENABLED is not set in the deployment configuration"
+                  ? t("benchmarks.unavailable")
                   : benchmarksEnabled
-                    ? "Enabled — industry benchmarks are embedded and injected into pipeline prompts and Ask Forge retrieval"
-                    : "Disabled — pipeline uses generic advisory context; benchmark catalog page and API are hidden"}
+                    ? t("benchmarks.enabled")
+                    : t("benchmarks.disabled")}
               </p>
             </div>
           </div>

@@ -99,6 +99,14 @@ These are the core TypeScript types used throughout the app:
 | `ForgeDemoSession` | A demo data generation run (customer, industry, scope, catalog, research result, status) |
 | `ResearchEngineResult` | Company research output: priorities, assets, nomenclature, narratives |
 | `DemoScope` | Division/department/objective filter narrowing demo to a business unit |
+| `WafAssessmentSummary` | One WAF assessment run header (per-pillar scores, overall, status) |
+| `WafAssessmentDetail` | Assessment summary + per-control results joined to the catalog |
+| `WafControl` | A single WAF best practice (waf_id, pillar, threshold, fix-action engine binding) |
+| `WafControlResult` | Per-run, per-control evaluation row (score %, threshold met flag) |
+| `WafQualitativeResponse` | Workspace-shared answer to a qualitative control (yes/partial/no/n-a) |
+| `WafIgnoredResource` | Workspace-shared exclusion of a control or resource from scoring |
+| `Locale` | Supported UI locale: `"en" \| "pt-BR" \| "es"` (`i18n/config.ts`) |
+| `CommentOutputLanguage` | Natural language for AI-generated comments + use cases (independent of UI locale) |
 
 ## Pipeline Steps (Discover Usecases)
 
@@ -462,13 +470,138 @@ for custom LLM-generated industry outcome maps.
 - `GET /api/demo/sessions/:id` -- session detail + research result
 - `DELETE /api/demo/sessions/:id` -- cleanup: DROP UC objects + delete session
 
+## WAF Assessment (Self-Service Well-Architected Framework)
+
+The WAF Assessment module (`/assessment`) runs deterministic SQL across
+`system.*` tables (via the user's OBO token) to score the workspace
+against the seven Databricks Well-Architected Framework pillars and
+166 best practices. Each failing control links to either a Forge
+"Fix with Forge" engine or the canonical Databricks doc.
+
+Pillar coverage (automatic queries today):
+- Data and AI Governance, Reliability, Cost Optimisation,
+  Performance Efficiency, Interoperability and Usability,
+  Operational Excellence, Security/Compliance/Privacy.
+
+Six controls without a deterministic SQL signal are evaluated
+qualitatively (workspace-shared yes/partial/no/n-a responses).
+
+Key modules:
+- `lib/engines/waf-assessment/engine.ts` -- pillar query runner; loads SQL
+  files, executes via OBO, parses per-control rows
+- `lib/engines/waf-assessment/service.ts` -- orchestrator: insert run,
+  call `runAllPillars()`, materialize qualitative results, apply
+  workspace ignore list, persist results, compute scores
+- `lib/engines/waf-assessment/catalog.ts` -- seeds 166 controls from the
+  bundled CSV on first boot (idempotent)
+- `lib/engines/waf-assessment/queries/*.sql` -- one static SQL file per
+  pillar, no user-input interpolation (system.* only)
+- `lib/engines/waf-assessment/cross-references.ts` -- maps each `waf_id`
+  to AWS WAF / Azure WAF cross-reference badges
+- `lib/engines/waf-assessment/csv.ts` -- CSV export helper for the
+  assessment + drift-compare pages
+- `lib/engines/waf-assessment/dashboard/builder.ts` -- builds the WAF
+  Lakeview dashboard JSON from the bundled `template.lvdash.json`
+- `lib/engines/waf-assessment/genie/builder.ts` -- builds the WAF Genie
+  space `serialized_space`; merge-on-update preserves user-curated
+  joins / measures / filters
+- `app/assessment/page.tsx` -- single-file dashboard: per-pillar tabs,
+  failing-first sort, history, qualitative editor, ignored editor,
+  CSV export, dashboard/Genie regenerate buttons
+- `app/assessment/compare/page.tsx` -- drift compare between two runs
+
+Data model: `ForgeWafControl` (catalog), `ForgeWafAssessment` (run
+header with `ownerEmail` + per-pillar scores), `ForgeWafControlResult`
+(per-run rows, cascades from assessment), `ForgeWafQualitativeResponse`
+(workspace-shared, one row per `wafId`), `ForgeWafIgnoredResource`
+(workspace-shared exclusions). See `prisma/schema.prisma`.
+
+API routes (all enforce `requireUser` -- proxy.ts gates `/api/**`,
+handlers also call `requireUser` for explicit `user.email` access):
+- `GET /api/assessment` -- latest assessment, history, controls,
+  qualitative responses, ignored list (scoped to owner ∪ shared)
+- `POST /api/assessment/run` -- run a fresh assessment synchronously
+  (10-30s on a warm warehouse); emits `waf_assessment_*` activity log
+- `GET /api/assessment/[assessmentId]` -- single assessment detail
+  (404 if caller is neither owner nor in ACL share list)
+- `GET /api/assessment/controls` -- catalog browser
+- `GET /api/assessment/assets` -- presence/URLs of the workspace
+  dashboard + Genie space (drives Generate vs Open toggles)
+- `POST /api/assessment/dashboard` -- create or update the
+  `/Shared/Forge Dashboards/...` Lakeview dashboard; `parentPath` is
+  hard-coded server-side (NEVER honors a client-supplied path)
+- `POST /api/assessment/genie` -- create or update the
+  `/Shared/Forge Genie Spaces/...` Genie space; same `parentPath`
+  lockdown; merges live `serialized_space` to preserve user edits
+- `GET / POST / DELETE /api/assessment/qualitative` -- workspace-shared
+  qualitative answers; `respondedBy` server-derived from `requireUser`
+- `GET / POST / DELETE /api/assessment/ignored` -- workspace-shared
+  control exclusions; `ignoredBy` server-derived from `requireUser`
+
+Workspace-shared vs per-user data:
+- Per-user (filtered by `ownerEmail` + ACL): `ForgeWafAssessment` runs.
+  Sharing via `/api/share` (resourceType=`waf_assessment`) is supported.
+- Workspace-shared (visible to everyone): controls catalog, qualitative
+  responses, ignored resources, the Lakeview dashboard, and the Genie
+  space. This is intentional -- they are configuration, not run output.
+
+Activity log additions: `waf_assessment_started`,
+`waf_assessment_completed`, `waf_assessment_failed`,
+`waf_dashboard_generated`, `waf_genie_generated`.
+
+## Internationalization (i18n)
+
+Forge ships UI translations in three locales: English (`en`),
+Brazilian Portuguese (`pt-BR`), and Spanish (`es`). The AI Comment
+Engine and Discovery use case generation accept an *independent*
+output-language setting so a user reading the UI in English can
+generate comments in pt-BR and vice versa.
+
+Key modules:
+- `i18n/config.ts` -- `SUPPORTED_LOCALES`, `Locale` type,
+  `pickLocaleFromAcceptLanguage()` fallback, `LOCALE_COOKIE` constant
+- `i18n/request.ts` -- `getRequestConfig` for next-intl: cookie
+  (`NEXT_LOCALE`) → Accept-Language fallback; loads `messages/<locale>.json`
+- `i18n/format.ts` -- `useL10n()` client hook bundling
+  `date / dateTime / relative / number / integer / percent` formatters
+- `messages/{en,pt-BR,es}.json` -- string catalogs (~1300 keys each)
+- `components/language-toggle.tsx` -- header dropdown that writes
+  `NEXT_LOCALE` cookie and reloads to apply RSC re-render
+
+UI integration:
+- `app/layout.tsx` wraps the tree in `NextIntlClientProvider` from
+  `next-intl/server` `getMessages()`. Use `useTranslations("namespace")`
+  in client components, `getTranslations("namespace")` in Server
+  Components / route handlers.
+
+AI output language (independent of UI locale):
+- `CommentOutputLanguage` type (`"en" | "pt-BR" | "es"`) in
+  `lib/ai/comment-engine/types.ts`
+- Persisted in `AppSettings.aiCommentLanguage` (Settings UI card)
+- Plumbed through Discovery: `loadSettings().aiCommentLanguage` →
+  `ConfigForm` → `CreateRunSchema.outputLanguage` (default `"en"`) →
+  `PipelineRunConfig.outputLanguage` → `ensureCommentEnrichment()`
+  (cache key includes language so a fresh English job is not reused for
+  a pt-BR/es run) → `{output_language_directive}` placeholder injected
+  into use case generation prompts
+- Comment Engine prompts (table / column / consistency review) all
+  receive the `{language_directive}` placeholder; AI tests in
+  `__tests__/ai/templates-comments.test.ts` whitelist it from the
+  "all placeholders are replaceable" check
+- `ForgeCommentJob.outputLanguage` records the language used so the
+  Comments page can badge non-English jobs
+
+WAF Assessment is fully translated, including all 166 control
+"Best Practice" + "Principle" strings. Score formatting uses
+`useL10n().number()` so commas/decimals follow the active locale.
+
 ## User Isolation & Sharing
 
 Forge is multi-tenant by default. Every "root" resource (run, scan, Genie
 space, demo session, comment job, strategy document, document, fabric scan,
-fabric migration, etc.) carries an `ownerEmail` column. Lists and detail
-endpoints scope to `ownerEmail = $user OR id ∈ shared(user)`; vector search
-filters by parent resource accessibility. Sharing is opt-in:
+fabric migration, WAF assessment, etc.) carries an `ownerEmail` column.
+Lists and detail endpoints scope to `ownerEmail = $user OR id ∈ shared(user)`;
+vector search filters by parent resource accessibility. Sharing is opt-in:
 
 - `ForgeResourceAcl` records per-resource grants (`view` or `edit`).
 - `lib/lakebase/acl.ts` -- `listAccessibleIds`, `share`, `unshare`,
@@ -479,7 +612,8 @@ filters by parent resource accessibility. Sharing is opt-in:
 - `ResourceType` ∈ {`run`, `scan`, `genie_space`, `metadata_genie_space`,
   `demo_session`, `comment_job`, `strategy_document`, `connection`,
   `document`, `bv_portfolio`, `benchmark_run`, `health_score`,
-  `metric_view_proposal`, `fabric_scan`, `fabric_migration`}.
+  `metric_view_proposal`, `fabric_scan`, `fabric_migration`,
+  `waf_assessment`}.
 
 Auth foundation:
 
@@ -544,10 +678,12 @@ Feature flag:
 
 Cutover note: `lib/lakebase/reset.ts` `deleteAllData()` extends to
 `ForgeResourceAcl`, `ForgeUsage`, fabric migrations/connections,
-strategy documents, quality metrics, and space benchmark/health rows.
+strategy documents, quality metrics, space benchmark/health rows, and
+all WAF Assessment tables (assessment runs + cascaded results,
+qualitative responses, ignored resources, controls catalog).
 Demo-mode UC objects (catalogs/schemas dropped via
-`cleanupDemoSession()`) and deployed Genie spaces (live in Databricks)
-survive a wipe; release notes call this out.
+`cleanupDemoSession()`) and deployed Genie spaces / Lakeview dashboards
+(live in Databricks) survive a wipe; release notes call this out.
 
 ## Infrastructure
 

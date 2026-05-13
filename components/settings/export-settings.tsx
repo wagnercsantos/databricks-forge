@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { FileText, FolderOpen, Tag } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { InfoTip } from "@/components/ui/info-tip";
 import { SETTINGS } from "@/lib/help-text";
 
@@ -31,22 +32,21 @@ export function ExportSettings({
   catalogResourcePrefix,
   onCatalogResourcePrefixChange,
 }: ExportSettingsProps) {
+  const t = useTranslations("settings.export");
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FileText className="h-5 w-5" />
-          Export & Naming
+          {t("title")}
         </CardTitle>
-        <CardDescription>
-          Default export format, notebook path, and naming prefix for Unity Catalog resources
-        </CardDescription>
+        <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
-              <Label htmlFor="defaultExport">Default export format</Label>
+              <Label htmlFor="defaultExport">{t("format_label")}</Label>
               <InfoTip tip={SETTINGS.exportFormat} />
             </div>
             <Select value={defaultExportFormat} onValueChange={onDefaultExportFormatChange}>
@@ -54,16 +54,16 @@ export function ExportSettings({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="excel">Excel (.xlsx)</SelectItem>
-                <SelectItem value="pdf">PDF</SelectItem>
-                <SelectItem value="pptx">PowerPoint (.pptx)</SelectItem>
-                <SelectItem value="notebooks">Databricks Notebooks</SelectItem>
+                <SelectItem value="excel">{t("format_options.excel")}</SelectItem>
+                <SelectItem value="pdf">{t("format_options.pdf")}</SelectItem>
+                <SelectItem value="pptx">{t("format_options.pptx")}</SelectItem>
+                <SelectItem value="notebooks">{t("format_options.notebooks")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
-              <Label htmlFor="notebookPath">Notebook deployment path</Label>
+              <Label htmlFor="notebookPath">{t("notebook_path_label")}</Label>
               <InfoTip tip={SETTINGS.notebookPath} />
             </div>
             <div className="flex items-center gap-2">
@@ -80,8 +80,8 @@ export function ExportSettings({
 
         <div className="space-y-2">
           <div className="flex items-center gap-1.5">
-            <Label htmlFor="catalogResourcePrefix">Catalog resource prefix</Label>
-            <InfoTip tip="Prefix applied to all Unity Catalog resources (views, metric views, tables) created by Forge. Makes it easy to identify Forge-generated objects in your database. Must be lowercase alphanumeric/underscores and end with an underscore." />
+            <Label htmlFor="catalogResourcePrefix">{t("prefix_label")}</Label>
+            <InfoTip tip={t("prefix_tip")} />
           </div>
           <div className="flex items-center gap-2">
             <Tag className="h-4 w-4 text-muted-foreground" />
@@ -97,9 +97,10 @@ export function ExportSettings({
             />
           </div>
           <p className="text-[10px] text-muted-foreground">
-            Example: with prefix{" "}
-            <code className="font-mono">{catalogResourcePrefix || "forge_"}</code>, a metric view
-            named <code className="font-mono">order_revenue</code> becomes{" "}
+            {t("prefix_example_pre")}{" "}
+            <code className="font-mono">{catalogResourcePrefix || "forge_"}</code>,{" "}
+            {t("prefix_example_view")} <code className="font-mono">order_revenue</code>{" "}
+            {t("prefix_example_becomes")}{" "}
             <code className="font-mono">{catalogResourcePrefix || "forge_"}order_revenue</code>
           </p>
         </div>

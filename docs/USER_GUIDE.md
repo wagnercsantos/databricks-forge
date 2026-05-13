@@ -151,7 +151,7 @@ Controls the volume and thoroughness of the analysis.
 - **Business Priorities** -- multi-select from 10 options (e.g. Increase Revenue, Reduce Cost, Mitigate Risk). These steer scoring so the most strategically aligned use cases rank highest.
 - **Business Domains** -- optionally focus the analysis on specific domains (e.g. Finance, Marketing). Suggested domains appear as quick-add buttons; you can also type custom ones.
 - **Strategic Goals** -- free-text goals for fine-grained prioritisation (auto-generated if left blank).
-- **Document Languages** -- choose which languages the generated documentation should use (default: English).
+- **Output language** -- the natural language used in AI-generated comments (table/column descriptions) and use case fields (name, statement, solution, business value, beneficiary, sponsor, technical design) is taken from the **AI Comment Language** preference in **Settings → AI** (`English`, `Português (Brasil)`, or `Español`). Technical identifiers (table names, AI/SQL function names) always remain in English. Updating the setting affects future runs only.
 
 ### Launching the Run
 
@@ -912,6 +912,12 @@ Configure estate intelligence options:
 - **Estate Scan Enabled** -- enable or disable the estate scanning capability.
 - **Asset Discovery Enabled** -- enable discovery of data products and assets during scans.
 - **Benchmarks Server Enabled** -- enable server-side benchmark evaluation for Genie Spaces.
+
+### AI / Output Language
+
+- **AI Comment Language** -- the natural language used by AI-generated table and column descriptions on the AI Comments page **and** by AI-generated content in the New Discovery pipeline (table/column comment enrichment + use case fields: name, statement, solution, business value, beneficiary, sponsor, technical design). Available values: `English` (default), `Português (Brasil)`, `Español`. Technical identifiers (FQNs, AI/SQL function names, JSON keys) always remain in English regardless of this setting.
+
+> Other pipeline steps (table filtering, scoring, domain clustering, SQL generation) currently produce English output regardless of this setting. UI strings follow the browser locale via `next-intl`.
 
 ### Semantic Search and RAG
 

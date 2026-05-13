@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { loadSettings, DEFAULT_CATALOG_RESOURCE_PREFIX } from "@/lib/settings";
+import {
+  loadSettings,
+  DEFAULT_CATALOG_RESOURCE_PREFIX,
+  DEFAULT_COMMENT_OUTPUT_LANGUAGE,
+} from "@/lib/settings";
 import {
   DEFAULT_DEPTH_CONFIGS,
   type DiscoveryDepth,
@@ -11,6 +15,7 @@ import type {
   GenieEngineDefaults,
   GenieAuthMode,
   QuestionComplexitySettings,
+  CommentOutputLanguage,
 } from "@/lib/settings";
 
 export function useSettingsState() {
@@ -87,6 +92,10 @@ export function useSettingsState() {
   const [industry, setIndustry] = useState(() => {
     if (typeof window === "undefined") return "";
     return loadSettings().industry;
+  });
+  const [aiCommentLanguage, setAiCommentLanguage] = useState<CommentOutputLanguage>(() => {
+    if (typeof window === "undefined") return DEFAULT_COMMENT_OUTPUT_LANGUAGE;
+    return loadSettings().aiCommentLanguage;
   });
   const [benchmarksServerEnabled, setBenchmarksServerEnabled] = useState<boolean | null>(null);
   const [metricViewsServerEnabled, setMetricViewsServerEnabled] = useState<boolean | null>(null);
@@ -168,6 +177,8 @@ export function useSettingsState() {
     setCatalogResourcePrefix,
     industry,
     setIndustry,
+    aiCommentLanguage,
+    setAiCommentLanguage,
     benchmarksServerEnabled,
     metricViewsServerEnabled,
     demoModeEnabled,

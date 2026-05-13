@@ -17,8 +17,8 @@ import { resolveEndpoint } from "@/lib/dbx/client";
 import { logger as fallbackLogger } from "@/lib/logger";
 import type { Logger } from "@/lib/ports/logger";
 import type { ChatMessage } from "@/lib/dbx/model-serving";
-import type { ConsistencyFix, CommentProgressCallback } from "./types";
-import { CONSISTENCY_REVIEW_PROMPT } from "./prompts";
+import type { ConsistencyFix, CommentProgressCallback, CommentOutputLanguage } from "./types";
+import { CONSISTENCY_REVIEW_PROMPT, buildLanguageDirective } from "./prompts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,9 +49,11 @@ export async function runConsistencyReview(
   tableComments: Map<string, string>,
   columnComments: Map<string, Map<string, string>>,
   schemaSummary: string,
+  outputLanguage: CommentOutputLanguage,
   options: { signal?: AbortSignal; onProgress?: CommentProgressCallback; logger?: Logger } = {},
 ): Promise<ConsistencyFix[]> {
   const { signal, onProgress, logger: log = fallbackLogger } = options;
+  const languageDirective = buildLanguageDirective(outputLanguage);
   const allFixes: ConsistencyFix[] = [];
 
   // Flatten all descriptions into entries
@@ -73,10 +75,9 @@ export async function runConsistencyReview(
 
   const endpoint = resolveEndpoint("classification");
 
-  const basePrompt = CONSISTENCY_REVIEW_PROMPT.replace("{schema_summary}", schemaSummary).replace(
-    "{descriptions_list}",
-    "",
-  );
+  const basePrompt = CONSISTENCY_REVIEW_PROMPT.replace("{language_directive}", languageDirective)
+    .replace("{schema_summary}", schemaSummary)
+    .replace("{descriptions_list}", "");
 
   const baseTokens = estimateTokens(basePrompt);
   const batches = buildTokenAwareBatches(entries, renderDescriptionEntry, baseTokens);
@@ -88,10 +89,9 @@ export async function runConsistencyReview(
 
     const descList = batch.map(renderDescriptionEntry).join("\n");
 
-    const prompt = CONSISTENCY_REVIEW_PROMPT.replace("{schema_summary}", schemaSummary).replace(
-      "{descriptions_list}",
-      descList,
-    );
+    const prompt = CONSISTENCY_REVIEW_PROMPT.replace("{language_directive}", languageDirective)
+      .replace("{schema_summary}", schemaSummary)
+      .replace("{descriptions_list}", descList);
 
     const messages: ChatMessage[] = [{ role: "user", content: prompt }];
 

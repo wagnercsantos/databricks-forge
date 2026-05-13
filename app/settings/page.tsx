@@ -4,12 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Save } from "lucide-react";
-import { saveSettings, DEFAULT_CATALOG_RESOURCE_PREFIX } from "@/lib/settings";
+import { useTranslations } from "next-intl";
+import {
+  saveSettings,
+  DEFAULT_CATALOG_RESOURCE_PREFIX,
+  DEFAULT_COMMENT_OUTPUT_LANGUAGE,
+} from "@/lib/settings";
 import { DEFAULT_DEPTH_CONFIGS } from "@/lib/domain/types";
 import { PageHeader } from "@/components/page-header";
 import {
   ProfileSettings,
   IndustrySettings,
+  AiOutputSettings,
   DataSamplingSettings,
   EstateScanSettings,
   SemanticSearchSettings,
@@ -23,6 +29,8 @@ import { useSettingsState } from "@/components/settings/use-settings-state";
 import { DemoModeSettings } from "@/components/demo/demo-settings";
 
 export default function SettingsPage() {
+  const tPage = useTranslations("settings.page");
+  const tToasts = useTranslations("settings.toasts");
   const state = useSettingsState();
   const {
     sampleRowsPerTable,
@@ -53,6 +61,8 @@ export default function SettingsPage() {
     setCatalogResourcePrefix,
     industry,
     setIndustry,
+    aiCommentLanguage,
+    setAiCommentLanguage,
     benchmarksServerEnabled,
     metricViewsServerEnabled,
     embeddingAvailable,
@@ -73,17 +83,17 @@ export default function SettingsPage() {
       const resp = await fetch("/api/embeddings/backfill", { method: "POST" });
       const data = await resp.json();
       if (resp.ok) {
-        toast.success(data.message ?? "Embeddings rebuilt successfully");
+        toast.success(data.message ?? tToasts("embeddings_rebuilt"));
         const statsResp = await fetch("/api/embeddings/status");
         if (statsResp.ok) {
           const stats = await statsResp.json();
           if (typeof stats.totalRecords === "number") setEmbeddingCount(stats.totalRecords);
         }
       } else {
-        toast.error(data.message ?? "Failed to rebuild embeddings");
+        toast.error(data.message ?? tToasts("embeddings_failed"));
       }
     } catch {
-      toast.error("Network error while rebuilding embeddings");
+      toast.error(tToasts("embeddings_network_error"));
     } finally {
       setRebuildingEmbeddings(false);
     }
@@ -105,8 +115,9 @@ export default function SettingsPage() {
       questionComplexity,
       catalogResourcePrefix,
       industry,
+      aiCommentLanguage,
     });
-    toast.success("Settings saved");
+    toast.success(tToasts("settings_saved"));
   };
 
   const handleClearLocalData = () => {
@@ -142,7 +153,8 @@ export default function SettingsPage() {
       });
       setCatalogResourcePrefix(DEFAULT_CATALOG_RESOURCE_PREFIX);
       setIndustry("");
-      toast.success("Local settings cleared");
+      setAiCommentLanguage(DEFAULT_COMMENT_OUTPUT_LANGUAGE);
+      toast.success(tToasts("local_cleared"));
     }
   };
 
@@ -165,10 +177,10 @@ export default function SettingsPage() {
         throw new Error(body.error || `Request failed (${res.status})`);
       }
       handleClearLocalData();
-      toast.success("All data deleted — app has been reset");
+      toast.success(tToasts("all_data_deleted"));
       window.location.href = "/";
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete data");
+      toast.error(err instanceof Error ? err.message : tToasts("delete_failed"));
     } finally {
       setDeleting(false);
     }
@@ -191,13 +203,18 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-[1400px] space-y-8">
       <PageHeader
-        title="Settings"
-        subtitle="Configure application-wide defaults and preferences."
+        title={tPage("title")}
+        subtitle={tPage("subtitle")}
       />
 
       <ProfileSettings profile={profile} />
 
       <IndustrySettings industry={industry} onIndustryChange={setIndustry} />
+
+      <AiOutputSettings
+        aiCommentLanguage={aiCommentLanguage}
+        onAiCommentLanguageChange={setAiCommentLanguage}
+      />
 
       <DataSamplingSettings
         sampleRowsPerTable={sampleRowsPerTable}
@@ -264,7 +281,7 @@ export default function SettingsPage() {
       <div className="flex justify-end">
         <Button onClick={handleSave} size="lg">
           <Save className="mr-2 h-4 w-4" />
-          Save Settings
+          {tPage("save_button")}
         </Button>
       </div>
     </div>

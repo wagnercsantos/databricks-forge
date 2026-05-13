@@ -35,6 +35,7 @@ pipeline results.
 | **Comment Engine** | Industry-aware table and column description generator (4-phase) | Standalone | [COMMENT_ENGINE.md](COMMENT_ENGINE.md) |
 | **Metric View Engine** | Unity Catalog metric view generation, validation, and deployment | Within Genie (parallel pass) | [METRIC_VIEW_ENGINE.md](METRIC_VIEW_ENGINE.md) |
 | **Estate Scan Engine** | Environment intelligence: health scoring, lineage, governance analysis | Standalone pipeline | [ESTATE_ANALYSIS.md](../ESTATE_ANALYSIS.md) |
+| **WAF Assessment Engine** | Databricks Well-Architected Framework evaluation across 7 pillars (166 controls, automatic + qualitative) with drift compare and CSV export | Standalone | [WAF_ASSESSMENT.md](WAF_ASSESSMENT.md) |
 
 ### Infrastructure Engines
 

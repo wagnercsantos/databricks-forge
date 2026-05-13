@@ -81,6 +81,7 @@ and column comment maps. Enabled by default (`enableConsistencyReview: true`).
 interface CommentEngineConfig {
   industryId?: string;           // Industry for Reference Data Assets
   businessContext?: string;      // Business context string
+  outputLanguage?: CommentOutputLanguage; // "en" | "pt-BR" | "es" (default: "en")
   enableConsistencyReview?: boolean;  // Phase 4 (default: true)
   enableLineage?: boolean;       // Walk lineage graph
   enableHistory?: boolean;       // Include Delta history
@@ -90,6 +91,16 @@ interface CommentEngineConfig {
   deps?: CommentEngineDeps;      // DI overrides
 }
 ```
+
+### Output Language
+
+`outputLanguage` controls the natural language used in generated table/column
+descriptions. Supported values: `en` (default), `pt-BR`, `es`. Technical
+identifiers (table names, column names, FQNs) remain unchanged regardless of
+language. The setting is persisted on the `ForgeCommentJob` row, so the AI
+Comments page and the New Discovery pipeline both honour and surface it; the
+prerequisite cache (`isJobFresh`) refuses to reuse a fresh job whose language
+differs from the requested one.
 
 ### Dependency Injection
 

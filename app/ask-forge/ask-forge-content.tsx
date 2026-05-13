@@ -88,7 +88,7 @@ export default function AskForgeContent() {
   }, []);
 
   React.useEffect(() => {
-    const urlPersona = searchParams.get("persona");
+    const urlPersona = searchParams?.get("persona");
     if (
       urlPersona &&
       VALID_PERSONAS.has(urlPersona as AssistantPersona) &&

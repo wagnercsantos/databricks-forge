@@ -60,9 +60,36 @@ export interface MetadataCounters {
   consistencyFixes?: number;
 }
 
+/**
+ * Output language for generated metadata descriptions.
+ * Independent from the UI locale -- a user can run the UI in English
+ * and request descriptions in Portuguese.
+ */
+export type CommentOutputLanguage = "en" | "pt-BR" | "es";
+
+export const COMMENT_OUTPUT_LANGUAGES: readonly CommentOutputLanguage[] = [
+  "en",
+  "pt-BR",
+  "es",
+] as const;
+
+export const DEFAULT_COMMENT_OUTPUT_LANGUAGE: CommentOutputLanguage = "en";
+
+export function isCommentOutputLanguage(value: unknown): value is CommentOutputLanguage {
+  return (
+    typeof value === "string" &&
+    (COMMENT_OUTPUT_LANGUAGES as readonly string[]).includes(value)
+  );
+}
+
 export interface CommentEngineConfig {
   industryId?: string;
   businessContext?: string;
+  /**
+   * Output language for generated table/column descriptions.
+   * Independent from the UI locale. Default: "en".
+   */
+  outputLanguage?: CommentOutputLanguage;
   /** Enable the consistency review pass (Phase 4). Default: true. */
   enableConsistencyReview?: boolean;
   /** Fetch lineage from system.access.table_lineage. Default: true. */

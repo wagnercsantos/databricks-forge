@@ -280,6 +280,7 @@ export function ConfigForm({
           riskPosture,
           transformationHorizon,
           languages: ["English"],
+          outputLanguage: appSettings.aiCommentLanguage,
           sampleRowsPerTable: appSettings.sampleRowsPerTable,
           discoveryDepth,
           depthConfig: appSettings.discoveryDepthConfigs[discoveryDepth],

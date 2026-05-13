@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages, getTranslations } from "next-intl/server";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,6 +9,7 @@ import { SidebarNav, MobileNav } from "@/components/pipeline/sidebar-nav";
 import { HeaderPageTitle } from "@/components/header-title";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageToggle } from "@/components/language-toggle";
 import { SearchBar } from "@/components/search/search-bar";
 import { AskForgePanel } from "@/components/assistant/ask-forge-panel";
 import { GenieBuildProvider } from "@/components/providers/genie-build-provider";
@@ -40,14 +43,19 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+  const tA11y = await getTranslations("accessibility");
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <body className={`${sans.variable} ${mono.variable} h-screen overflow-hidden antialiased`}>
+        <NextIntlClientProvider locale={locale} messages={messages}>
         <ThemeProvider>
           <TooltipProvider>
             <GenieBuildProvider>
@@ -55,7 +63,7 @@ export default function RootLayout({
                 href="#main-content"
                 className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:outline-none"
               >
-                Skip to main content
+                {tA11y("skip_to_main")}
               </a>
               <div className="flex h-screen overflow-hidden">
                 <SidebarNav />
@@ -70,6 +78,7 @@ export default function RootLayout({
                       <SearchBar />
                       <AskForgePanel />
                       <div className="mx-1 h-5 w-px bg-border/60 hidden sm:block" />
+                      <LanguageToggle />
                       <ThemeToggle />
                     </div>
                   </header>
@@ -84,6 +93,7 @@ export default function RootLayout({
             </GenieBuildProvider>
           </TooltipProvider>
         </ThemeProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

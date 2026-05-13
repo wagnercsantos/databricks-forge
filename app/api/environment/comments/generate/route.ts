@@ -14,6 +14,7 @@ import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
 import { safeErrorMessage } from "@/lib/error-utils";
 import { getCommentJob, createCommentJob } from "@/lib/lakebase/comment-jobs";
 import { generateComments } from "@/lib/ai/comment-generator";
+import { isCommentOutputLanguage } from "@/lib/ai/comment-engine/types";
 import { apiLogger } from "@/lib/logger";
 
 export async function POST(request: NextRequest) {
@@ -33,7 +34,12 @@ export async function POST(request: NextRequest) {
       excludedSchemas,
       excludedTables,
       exclusionPatterns,
+      outputLanguage,
     } = body;
+
+    const validatedOutputLanguage = isCommentOutputLanguage(outputLanguage)
+      ? outputLanguage
+      : undefined;
 
     let effectiveJobId = jobId;
     if (!effectiveJobId) {
@@ -50,6 +56,7 @@ export async function POST(request: NextRequest) {
           ...(exclusionPatterns?.length && { exclusionPatterns }),
         }),
         industryId,
+        outputLanguage: validatedOutputLanguage,
         scanId,
         runId,
         ownerEmail: user.email,
@@ -91,6 +98,7 @@ export async function POST(request: NextRequest) {
       exclusionPatterns: scope.exclusionPatterns,
       industryId: job.industryId ?? undefined,
       businessContext: businessContext ?? undefined,
+      outputLanguage: job.outputLanguage,
     }).catch((err) => {
       log.error("Generation failed", {
         jobId: effectiveJobId,

@@ -1354,12 +1354,13 @@ model ForgeStakeholderProfile {
 // ---------------------------------------------------------------------------
 
 model ForgeCommentJob {
-  id           String   @id @default(uuid()) @map("job_id")
-  scanId       String?  @map("scan_id")
-  runId        String?  @map("run_id")
-  scopeJson    String   @map("scope_json")
-  industryId   String?  @map("industry_id")
-  status       String   @default("draft") // draft | queued | generating | ready | applying | completed | failed
+  id             String   @id @default(uuid()) @map("job_id")
+  scanId         String?  @map("scan_id")
+  runId          String?  @map("run_id")
+  scopeJson      String   @map("scope_json")
+  industryId     String?  @map("industry_id")
+  outputLanguage String   @default("en") @map("output_language")
+  status         String   @default("draft") // draft | queued | generating | ready | applying | completed | failed
   tableCount   Int      @default(0) @map("table_count")
   columnCount  Int      @default(0) @map("column_count")
   appliedCount Int      @default(0) @map("applied_count")
@@ -1498,4 +1499,115 @@ model ForgeUsage {
   @@index([userEmail])
   @@index([day])
   @@map("forge_usage")
+}
+
+// ---------------------------------------------------------------------------
+// WAF (Well-Architected Framework) Assessment
+// ---------------------------------------------------------------------------
+
+// Curated catalog of WAF controls (seeded from waf-controls-catalog.csv).
+// One row per control (e.g. DG-01-03), shared across all assessment runs.
+model ForgeWafControl {
+  wafId                  String   @id @map("waf_id")
+  pillar                 String                                       // governance | interoperability_usability | operational_excellence | security_compliance_privacy | reliability | performance_efficiency | cost_optimisation
+  pillarName             String   @map("pillar_name")                 // verbatim from CSV (e.g. "01 - Data And AI Governance")
+  principle              String
+  bestPractice           String   @map("best_practice")
+  capabilities           String?
+  details                String?
+  thresholdPercentage    Float?   @map("threshold_percentage")        // null for qualitative controls
+  metricDefinition       String?  @map("metric_definition")
+  recommendationIfNotMet String?  @map("recommendation_if_not_met")
+  fixActionEngine        String?  @map("fix_action_engine")           // e.g. comment-engine | tag-engine | estate-scan
+  fixActionParamsJson    String?  @map("fix_action_params_json")
+  evaluationType         String   @default("automatic") @map("evaluation_type") // automatic | qualitative
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  results ForgeWafControlResult[]
+
+  @@index([pillar])
+  @@map("forge_waf_controls")
+}
+
+// Assessment run header — one per execution of the assessment engine.
+model ForgeWafAssessment {
+  assessmentId      String    @id @map("assessment_id")
+  ownerEmail        String?   @map("owner_email")
+  status            String    @default("pending")                     // pending | running | completed | failed
+  scope             String?                                           // optional UC scope label
+  triggeredBy       String?   @map("triggered_by")
+  governanceScore   Float?    @map("governance_score")
+  iuScore           Float?    @map("iu_score")
+  oeScore           Float?    @map("oe_score")
+  scpScore          Float?    @map("scp_score")
+  reliabilityScore  Float?    @map("reliability_score")
+  costScore         Float?    @map("cost_score")
+  performanceScore  Float?    @map("performance_score")
+  overallScore      Float?    @map("overall_score")
+  totalControls     Int       @default(0) @map("total_controls")
+  metControls       Int       @default(0) @map("met_controls")
+  errorMessage      String?   @map("error_message")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  completedAt       DateTime? @map("completed_at")
+
+  results ForgeWafControlResult[]
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([ownerEmail])
+  @@map("forge_waf_assessments")
+}
+
+// Per-control result for a single assessment run.
+model ForgeWafControlResult {
+  id                  String   @id @default(uuid())
+  assessmentId        String   @map("assessment_id")
+  wafId               String   @map("waf_id")
+  pillar              String
+  scorePercentage     Float    @map("score_percentage")
+  thresholdPercentage Float    @map("threshold_percentage")
+  thresholdMet        Boolean  @map("threshold_met")
+  evaluatedAt         DateTime @default(now()) @map("evaluated_at")
+
+  assessment ForgeWafAssessment @relation(fields: [assessmentId], references: [assessmentId], onDelete: Cascade)
+  control    ForgeWafControl    @relation(fields: [wafId], references: [wafId])
+
+  @@unique([assessmentId, wafId])
+  @@index([assessmentId])
+  @@index([wafId])
+  @@index([pillar])
+  @@map("forge_waf_control_results")
+}
+
+// Workspace-level qualitative answer for a WAF control. One row per waf_id;
+// reused across assessment runs (configuration-like, not run-scoped).
+//   response: yes (100) | partial (50) | no (0) | not_applicable (excluded)
+model ForgeWafQualitativeResponse {
+  wafId        String   @id @map("waf_id")
+  response     String                                       // yes | partial | no | not_applicable
+  notes        String?
+  respondedBy  String?  @map("responded_by")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("forge_waf_qualitative_responses")
+}
+
+// Workspace-level exclusion for a WAF control or a specific resource.
+//   resourceType + resourceId NULL  -> the whole control is ignored across runs
+//   resourceType + resourceId set   -> only that resource is ignored (e.g. an
+//                                       idle warehouse intentionally kept warm)
+// V1 honors the control-level case; resource-level is reserved for a follow-up.
+model ForgeWafIgnoredResource {
+  id            String   @id @default(uuid())
+  wafId         String   @map("waf_id")
+  resourceType  String?  @map("resource_type")              // e.g. "warehouse" | "table" | "job" | null
+  resourceId    String?  @map("resource_id")
+  reason        String
+  ignoredBy     String?  @map("ignored_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([wafId, resourceType, resourceId])
+  @@index([wafId])
+  @@map("forge_waf_ignored_resources")
 }

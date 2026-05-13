@@ -5,6 +5,8 @@
  * pipeline steps, UI components, and persistence.
  */
 
+import type { CommentOutputLanguage } from "@/lib/ai/comment-engine/types";
+
 // ---------------------------------------------------------------------------
 // Pipeline
 // ---------------------------------------------------------------------------
@@ -119,6 +121,7 @@ export interface PipelineRunConfig {
   fabricScanId?: string | null; // linked Fabric/Power BI scan for PBI-aware generation
   largeSchemaMode?: boolean; // deprecated: adaptive column budgeting is always on
   businessValueEnabled: boolean; // run business value analysis (step 8) during pipeline execution
+  outputLanguage?: CommentOutputLanguage; // natural-language output for AI-generated content (comments, use cases). Defaults to "en"
 }
 
 /** Per-step timing and metadata logged during pipeline execution. */

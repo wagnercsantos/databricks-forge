@@ -49,7 +49,7 @@ interface SessionDetail {
 export default function DemoSessionPage() {
   const params = useParams();
   const router = useRouter();
-  const sessionId = params.sessionId as string;
+  const sessionId = params?.sessionId as string;
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

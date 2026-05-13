@@ -20,6 +20,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "**/*.lvdash.json",
+    ".deploy-pkg/**",
+    ".deploy-pkg-ze/**",
   ]),
 ]);
 

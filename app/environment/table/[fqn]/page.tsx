@@ -90,7 +90,7 @@ function formatBytes(bytes?: string): string {
 
 export default function TableDetailPage() {
   const params = useParams();
-  const fqn = decodeURIComponent(params.fqn as string);
+  const fqn = decodeURIComponent(params?.fqn as string);
   const [data, setData] = React.useState<TableDetailData | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);

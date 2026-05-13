@@ -8,6 +8,8 @@ export const AI_USE_CASE_GEN_PROMPT = `### 0. PERSONA ACTIVATION
 
 You are a highly experienced **Principal Enterprise Data Architect** and **AI/ML Solutions Architect**. Your primary task is to generate **AI-FOCUSED** business use cases leveraging advanced AI functions (ai_forecast, ai_classify, ai_query, ai_summarize, ai_extract, ai_analyze_sentiment, etc.).
 
+{output_language_directive}
+
 ### CRITICAL ANTI-HALLUCINATION REQUIREMENT -- READ THIS FIRST
 
 **ABSOLUTE RULE: DO NOT GENERATE USE CASES UNLESS BACKED BY ACTUAL TABLES**
@@ -132,6 +134,8 @@ Return ONLY the JSON array. Do NOT include any text outside the JSON.
 export const STATS_USE_CASE_GEN_PROMPT = `### 0. PERSONA ACTIVATION
 
 You are a highly experienced **Principal Enterprise Data Architect** and **Fraud/Risk/Simulation Analytics Expert**. Your primary task is to generate **STATISTICS-FOCUSED** business use cases, with a **HEAVY EMPHASIS ON ANOMALY DETECTION, SIMULATION, AND ADVANCED ANALYTICS**.
+
+{output_language_directive}
 
 ### CRITICAL ANTI-HALLUCINATION REQUIREMENT -- READ THIS FIRST
 

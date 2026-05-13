@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
 import { loadSettings } from "@/lib/settings";
@@ -17,7 +18,7 @@ import { useGenieBuild } from "@/components/providers/genie-build-provider";
 
 interface NavItem {
   href: string;
-  label: string;
+  labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
   requiresEmbedding?: boolean;
   requiresBenchmarks?: boolean;
@@ -26,66 +27,77 @@ interface NavItem {
 }
 
 interface NavSection {
-  label: string;
+  labelKey: string;
   items: NavItem[];
 }
 
 const navSections: NavSection[] = [
   {
-    label: "Explore",
+    labelKey: "explore",
     items: [
-      { href: "/", label: "Dashboard", icon: HomeIcon },
-      { href: "/ask-forge", label: "Ask Forge", icon: AskForgeIcon, requiresEmbedding: true },
-      { href: "/configure", label: "New Discovery", icon: PlusIcon },
-      { href: "/runs", label: "Runs", icon: ListIcon },
+      { href: "/", labelKey: "dashboard", icon: HomeIcon },
+      { href: "/ask-forge", labelKey: "ask_forge", icon: AskForgeIcon, requiresEmbedding: true },
+      { href: "/configure", labelKey: "new_discovery", icon: PlusIcon },
+      { href: "/runs", labelKey: "runs", icon: ListIcon },
     ],
   },
   {
-    label: "Genie Studio",
+    labelKey: "genie",
     items: [
-      { href: "/genie", label: "Genie Studio", icon: GenieSpacesIcon },
-      { href: "/metadata-genie", label: "Metadata Genie", icon: MetadataGenieIcon },
+      { href: "/genie", labelKey: "genie_studio", icon: GenieSpacesIcon },
+      { href: "/metadata-genie", labelKey: "metadata_genie", icon: MetadataGenieIcon },
     ],
   },
   {
-    label: "Estate",
+    labelKey: "estate",
     items: [
-      { href: "/environment", label: "Overview", icon: EnvironmentIcon },
-      { href: "/environment/comments", label: "AI Comments", icon: AICommentsIcon },
+      { href: "/environment", labelKey: "overview", icon: EnvironmentIcon },
+      { href: "/environment/comments", labelKey: "ai_comments", icon: AICommentsIcon },
+      { href: "/assessment", labelKey: "waf_assessment", icon: AssessmentIcon },
     ],
   },
   {
-    label: "Business Value",
+    labelKey: "business_value",
     items: [
-      { href: "/business-value", label: "Portfolio", icon: PortfolioIcon },
-      { href: "/business-value/roadmap", label: "Roadmap", icon: RoadmapIcon },
-      { href: "/business-value/stakeholders", label: "Stakeholders", icon: StakeholdersIcon },
-      { href: "/business-value/tracking", label: "Value Tracking", icon: TrackingIcon },
-      { href: "/business-value/strategy", label: "Strategy", icon: StrategyIcon },
-      { href: "/outcomes", label: "Outcome Maps", icon: OutcomeMapIcon },
-      { href: "/benchmarks", label: "Benchmarks", icon: BenchmarkIcon, requiresBenchmarks: true },
+      { href: "/business-value", labelKey: "portfolio", icon: PortfolioIcon },
+      { href: "/business-value/roadmap", labelKey: "roadmap", icon: RoadmapIcon },
+      { href: "/business-value/stakeholders", labelKey: "stakeholders", icon: StakeholdersIcon },
+      { href: "/business-value/tracking", labelKey: "value_tracking", icon: TrackingIcon },
+      { href: "/business-value/strategy", labelKey: "strategy", icon: StrategyIcon },
+      { href: "/outcomes", labelKey: "outcome_maps", icon: OutcomeMapIcon },
+      {
+        href: "/benchmarks",
+        labelKey: "benchmarks",
+        icon: BenchmarkIcon,
+        requiresBenchmarks: true,
+      },
     ],
   },
   {
-    label: "Demo",
-    items: [{ href: "/demo", label: "Demo Studio", icon: DemoIcon, requiresDemoMode: true }],
+    labelKey: "demo",
+    items: [{ href: "/demo", labelKey: "demo_studio", icon: DemoIcon, requiresDemoMode: true }],
   },
   {
-    label: "Migrate",
-    items: [{ href: "/fabric", label: "Fabric / PBI", icon: FabricIcon, requiresFabric: true }],
+    labelKey: "migrate",
+    items: [{ href: "/fabric", labelKey: "fabric_pbi", icon: FabricIcon, requiresFabric: true }],
   },
   {
-    label: "Admin",
+    labelKey: "admin",
     items: [
-      { href: "/connections", label: "Connections", icon: ConnectionsIcon, requiresFabric: true },
+      {
+        href: "/connections",
+        labelKey: "connections",
+        icon: ConnectionsIcon,
+        requiresFabric: true,
+      },
       {
         href: "/knowledge-base",
-        label: "Knowledge Base",
+        labelKey: "knowledge_base",
         icon: KnowledgeBaseIcon,
         requiresEmbedding: true,
       },
-      { href: "/settings", label: "Settings", icon: SettingsIcon },
-      { href: "/help", label: "Help", icon: HelpIcon },
+      { href: "/settings", labelKey: "settings", icon: SettingsIcon },
+      { href: "/help", labelKey: "help", icon: HelpIcon },
     ],
   },
 ];
@@ -140,6 +152,8 @@ function useFabricEnabled(): boolean {
 
 function NavLinks({ onNavigate, collapsed }: { onNavigate?: () => void; collapsed?: boolean }) {
   const pathname = usePathname();
+  const tSections = useTranslations("sidebar.sections");
+  const tItems = useTranslations("sidebar.items");
   const embeddingEnabled = useEmbeddingEnabled();
   const benchmarksEnabled = useBenchmarksEnabled();
   const fabricEnabled = useFabricEnabled();
@@ -166,7 +180,7 @@ function NavLinks({ onNavigate, collapsed }: { onNavigate?: () => void; collapse
   return (
     <nav className={cn(collapsed ? "px-2 py-3" : "px-3 py-3")}>
       {visibleSections.map((section, sectionIdx) => (
-        <div key={section.label}>
+        <div key={section.labelKey}>
           {sectionIdx > 0 && (
             <div className={cn("my-3", collapsed ? "px-1" : "px-2")}>
               <div className="border-t border-sidebar-border/50" />
@@ -174,7 +188,7 @@ function NavLinks({ onNavigate, collapsed }: { onNavigate?: () => void; collapse
           )}
           {!collapsed && (
             <p className="mb-1.5 mt-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-              {section.label}
+              {tSections(section.labelKey)}
             </p>
           )}
           <div className="space-y-0.5">
@@ -185,7 +199,8 @@ function NavLinks({ onNavigate, collapsed }: { onNavigate?: () => void; collapse
               const isActive =
                 item.href === "/" || isParent
                   ? pathname === item.href
-                  : pathname.startsWith(item.href);
+                  : pathname?.startsWith(item.href) ?? false;
+              const itemLabel = tItems(item.labelKey);
 
               const link = (
                 <Link
@@ -209,7 +224,7 @@ function NavLinks({ onNavigate, collapsed }: { onNavigate?: () => void; collapse
                       <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-violet-500 animate-pulse" />
                     )}
                   </span>
-                  {!collapsed && <span>{item.label}</span>}
+                  {!collapsed && <span>{itemLabel}</span>}
                 </Link>
               );
 
@@ -218,7 +233,7 @@ function NavLinks({ onNavigate, collapsed }: { onNavigate?: () => void; collapse
                   <Tooltip key={item.href} delayDuration={0}>
                     <TooltipTrigger asChild>{link}</TooltipTrigger>
                     <TooltipContent side="right" sideOffset={8}>
-                      {item.label}
+                      {itemLabel}
                     </TooltipContent>
                   </Tooltip>
                 );
@@ -236,6 +251,7 @@ function NavLinks({ onNavigate, collapsed }: { onNavigate?: () => void; collapse
 const SIDEBAR_COLLAPSED_KEY = "forge-sidebar-collapsed";
 
 export function SidebarNav() {
+  const tSidebar = useTranslations("sidebar");
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
@@ -297,7 +313,7 @@ export function SidebarNav() {
             size="sm"
             className="h-7 w-7 p-0 text-muted-foreground/60 hover:text-foreground"
             onClick={toggle}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? tSidebar("expand") : tSidebar("collapse")}
           >
             {collapsed ? <PanelLeft className="size-4" /> : <PanelLeftClose className="size-4" />}
           </Button>
@@ -308,6 +324,7 @@ export function SidebarNav() {
 }
 
 export function MobileNav() {
+  const tA11y = useTranslations("accessibility");
   const [open, setOpen] = useState(false);
 
   return (
@@ -315,11 +332,11 @@ export function MobileNav() {
       <SheetTrigger asChild>
         <Button variant="ghost" size="icon" className="md:hidden">
           <Menu className="h-5 w-5" />
-          <span className="sr-only">Toggle navigation</span>
+          <span className="sr-only">{tA11y("toggle_nav")}</span>
         </Button>
       </SheetTrigger>
       <SheetContent side="left" className="w-64 p-0">
-        <SheetTitle className="sr-only">Navigation</SheetTitle>
+        <SheetTitle className="sr-only">{tA11y("navigation")}</SheetTitle>
         <div className="flex h-16 items-center border-b px-6">
           <Link
             href="/"
@@ -461,6 +478,24 @@ function BenchmarkIcon({ className }: { className?: string }) {
       <path d="M17 6l-2 3" />
       <circle cx="12" cy="14" r="7" />
       <path d="m9 14 2 2 4-4" />
+    </svg>
+  );
+}
+
+function AssessmentIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="m9 12 2 2 4-4" />
     </svg>
   );
 }

@@ -3,6 +3,10 @@
  */
 
 import { withPrisma } from "@/lib/prisma";
+import {
+  DEFAULT_COMMENT_OUTPUT_LANGUAGE,
+  type CommentOutputLanguage,
+} from "@/lib/ai/comment-engine/types";
 
 export type CommentJobStatus =
   | "draft"
@@ -18,6 +22,7 @@ export interface CommentJob {
   runId: string | null;
   scopeJson: string;
   industryId: string | null;
+  outputLanguage: CommentOutputLanguage;
   status: CommentJobStatus;
   tableCount: number;
   columnCount: number;
@@ -31,6 +36,7 @@ export interface CommentJob {
 export async function createCommentJob(input: {
   scopeJson: string;
   industryId?: string;
+  outputLanguage?: CommentOutputLanguage;
   scanId?: string;
   runId?: string;
   ownerEmail?: string | null;
@@ -41,6 +47,7 @@ export async function createCommentJob(input: {
       data: {
         scopeJson: input.scopeJson,
         industryId: input.industryId ?? null,
+        outputLanguage: input.outputLanguage ?? DEFAULT_COMMENT_OUTPUT_LANGUAGE,
         scanId: input.scanId ?? null,
         runId: input.runId ?? null,
         status: "draft",

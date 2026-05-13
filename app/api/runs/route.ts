@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
       assetDiscoveryEnabled: body.assetDiscoveryEnabled ?? false,
       fabricScanId: body.fabricScanId ?? null,
       businessValueEnabled: body.businessValueEnabled ?? false,
+      outputLanguage: body.outputLanguage ?? "en",
     };
 
     await createRun(runId, config, user.email);

@@ -52,8 +52,8 @@ export default function ComparePage() {
 
 function ComparePageInner() {
   const searchParams = useSearchParams();
-  const runAParam = searchParams.get("runA") ?? searchParams.get("run") ?? "";
-  const runBParam = searchParams.get("runB") ?? "";
+  const runAParam = searchParams?.get("runA") ?? searchParams?.get("run") ?? "";
+  const runBParam = searchParams?.get("runB") ?? "";
 
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [runA, setRunA] = useState(runAParam);

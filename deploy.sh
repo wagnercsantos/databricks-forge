@@ -193,7 +193,8 @@ Options:
                              for cost attribution. Applied at create time
                              and reconciled on every subsequent deploy.
   --tag KEY=VALUE             Optional custom tag (repeatable) applied to the
-                             Lakebase project for cost attribution. Example:
+                             Databricks App and the Lakebase project for
+                             cost attribution. Example:
                              --tag team=data-eng --tag cost-center=1234
                              Passing --tag at least once opts in to tag
                              management. In that case, two default tags
@@ -201,12 +202,15 @@ Options:
                              <same-key>=<value>:
                                project=databricks_forge
                                owner=<user running the deploy>
+                             To opt out of a specific default (e.g. when a
+                             workspace tag policy rejects its value), pass
+                             an empty value: --tag project=
                              When --tag is not passed at all, no tags are
-                             applied and existing tags on the Lakebase
-                             project are left untouched.
-                             Note: the Databricks Apps API does not accept
-                             tags on the App resource itself; tags are only
-                             applied to the Lakebase project.
+                             applied and existing tags on either the App or
+                             the Lakebase project are left untouched.
+                             App tags are written via the workspace
+                             tag-assignments endpoint; Lakebase project tags
+                             via FORGE_CUSTOM_TAGS at runtime.
   --skip-probe                Skip model availability probing (use defaults without checking).
                              Useful for air-gapped workspaces or when probing is slow.
   --zero-egress               Build locally and package as a split archive.
@@ -596,7 +600,13 @@ for entry in raw:
     if not entry or "=" not in entry:
         continue
     key, value = entry.split("=", 1)
-    merged[key.strip()] = value.strip()
+    key = key.strip()
+    value = value.strip()
+    # Empty value opts out of a default (or no-ops a user-provided key).
+    if value == "":
+        merged.pop(key, None)
+        continue
+    merged[key] = value
 
 tags = [{"key": k, "value": v} for k, v in merged.items()]
 print(json.dumps(tags, separators=(",", ":")))
@@ -1368,6 +1378,43 @@ print(json.dumps(body))
 }
 
 # -------------------------------------------------------------------------
+# Apply tag assignments to the Databricks App
+#
+# The Apps create/update API does not expose a "tags" field, so tags are
+# applied through the workspace tag-assignments endpoint. The PUT call is
+# a full replace of the entity's tags, mirroring how CUSTOM_TAGS_JSON is
+# treated for the Lakebase project.
+# -------------------------------------------------------------------------
+apply_app_tags() {
+  if [ -z "$CUSTOM_TAGS_JSON" ]; then
+    return
+  fi
+
+  info "Tagging app..."
+
+  local tag_body
+  tag_body=$(CUSTOM_TAGS_JSON="$CUSTOM_TAGS_JSON" python3 -c "
+import json, os
+src = json.loads(os.environ['CUSTOM_TAGS_JSON'])
+out = [{'tag_key': t['key'], 'tag_value': t['value']} for t in src]
+print(json.dumps({'tag_assignments': out}))
+")
+
+  local tag_err
+  if ! tag_err=$(databricks api put \
+       "/api/2.0/tags/tag-assignments/app/${APP_NAME}" \
+       --json "$tag_body" 2>&1); then
+    warn "Failed to apply app tags (continuing)."
+    printf "  %s\n" "$tag_err"
+    return
+  fi
+
+  local tag_count
+  tag_count=$(echo "$CUSTOM_TAGS_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+  ok "${tag_count} tags"
+}
+
+# -------------------------------------------------------------------------
 # Step 5: Upload source code (or zero-egress package)
 # -------------------------------------------------------------------------
 upload_code() {
@@ -1640,6 +1687,7 @@ main() {
   create_app
   wait_for_stable_state
   configure_app
+  apply_app_tags
   prepare_app_yaml
 
   if [ "$ARG_ZERO_EGRESS" = "true" ]; then

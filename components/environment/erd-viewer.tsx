@@ -27,7 +27,7 @@ import {
   MarkerType,
   BackgroundVariant,
 } from "@xyflow/react";
-import dagre from "dagre";
+import dagre from "@dagrejs/dagre";
 import "@xyflow/react/dist/style.css";
 
 import { Badge } from "@/components/ui/badge";

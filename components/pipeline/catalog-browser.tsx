@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,6 +81,7 @@ export function CatalogBrowser({
   selectionMode = "table",
   defaultExpandPath,
 }: CatalogBrowserProps) {
+  const t = useTranslations("comments.catalog_browser");
   const [catalogs, setCatalogs] = useState<CatalogNode[]>([]);
   const [phase, setPhase] = useState<BrowserPhase>("warming-up");
   const [error, setError] = useState<string | null>(null);
@@ -539,7 +541,7 @@ export function CatalogBrowser({
       <div className="space-y-3 rounded-md border p-4">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Zap className="h-4 w-4 animate-pulse text-amber-500" />
-          <span className="font-medium">Starting SQL Warehouse...</span>
+          <span className="font-medium">{t("starting_warehouse")}</span>
         </div>
         {warmupElapsed >= 3 && (
           <p className="text-xs text-muted-foreground">
@@ -580,17 +582,17 @@ export function CatalogBrowser({
         )}
         <p className="text-sm text-destructive">
           {errorCode === "WAREHOUSE_UNAVAILABLE"
-            ? "SQL Warehouse is not responding. It may still be starting up."
+            ? t("warehouse_unavailable")
             : errorCode === "INSUFFICIENT_PERMISSIONS"
-              ? "You don't have permission to view catalogs. Contact your workspace admin."
-              : (error ?? "Failed to load catalogs")}
+              ? t("insufficient_permissions")
+              : (error ?? t("load_failed"))}
         </p>
         {error && errorCode !== "INSUFFICIENT_PERMISSIONS" && (
           <p className="max-w-md text-xs text-muted-foreground">{error}</p>
         )}
         <Button variant="outline" size="sm" onClick={fullRetry}>
           <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-          Retry
+          {t("retry")}
         </Button>
       </div>
     );
@@ -600,14 +602,11 @@ export function CatalogBrowser({
     return (
       <div className="flex flex-col items-center gap-3 rounded-md border border-dashed p-6 text-center">
         <Database className="h-5 w-5 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">No catalogs found in this workspace.</p>
-        <p className="max-w-sm text-xs text-muted-foreground/70">
-          This may happen if the warehouse just started. Try refreshing, or check that your SQL
-          Warehouse has access to Unity Catalog.
-        </p>
+        <p className="text-sm text-muted-foreground">{t("no_catalogs")}</p>
+        <p className="max-w-sm text-xs text-muted-foreground/70">{t("no_catalogs_hint")}</p>
         <Button variant="outline" size="sm" onClick={refreshCatalogs}>
           <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-          Refresh
+          {t("refresh")}
         </Button>
       </div>
     );
@@ -625,7 +624,7 @@ export function CatalogBrowser({
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="text"
-              placeholder="Search catalogs, schemas, and tables..."
+              placeholder={t("search_placeholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-7 pl-7 text-xs"
@@ -639,7 +638,7 @@ export function CatalogBrowser({
             onClick={refreshCatalogs}
           >
             <RefreshCw className="h-3 w-3" />
-            Refresh
+            {t("refresh")}
           </Button>
         </div>
 
@@ -648,7 +647,7 @@ export function CatalogBrowser({
             {filteredCatalogs.length === 0 && search ? (
               <div className="flex flex-col items-center gap-1 py-8 text-center text-xs text-muted-foreground">
                 <Search className="h-4 w-4" />
-                No results match &ldquo;{search}&rdquo;
+                {t("no_results", { query: search })}
               </div>
             ) : (
               filteredCatalogs.map((catalog) => (
@@ -684,7 +683,7 @@ export function CatalogBrowser({
               <Filter className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="text"
-                placeholder="Exclude by pattern (e.g. stg_*, *_backup, __databricks*)"
+                placeholder={t("exclude_placeholder")}
                 value={patternInput}
                 onChange={(e) => {
                   setPatternInput(e.target.value);
@@ -708,7 +707,7 @@ export function CatalogBrowser({
               disabled={!patternInput.trim()}
             >
               <Ban className="h-3 w-3" />
-              Exclude
+              {t("exclude")}
             </Button>
           </div>
           {patternError && <p className="text-xs text-destructive">{patternError}</p>}
@@ -749,7 +748,7 @@ export function CatalogBrowser({
           {selectedSources.length > 0 && (
             <div>
               <p className="mb-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                Included ({selectedSources.length})
+                {t("included", { count: selectedSources.length })}
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {selectedSources.map((source) => {
@@ -782,7 +781,7 @@ export function CatalogBrowser({
           {hasExclusions && (
             <div>
               <p className="mb-1.5 text-xs font-medium text-red-600 dark:text-red-400">
-                Excluded ({excludedSources.length + exclusionPatterns.length})
+                {t("excluded", { count: excludedSources.length + exclusionPatterns.length })}
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {excludedSources.map((source) => {

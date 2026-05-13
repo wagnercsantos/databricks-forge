@@ -26,6 +26,14 @@
 | 16 | KEYWORDS_TRANSLATE_PROMPT | export (multi-lang) | JSON | Defined, not wired |
 | 17 | USE_CASE_TRANSLATE_PROMPT | export (multi-lang) | JSON | Defined, not wired |
 
+> **Output language note.** Use case generation honours `outputLanguage`
+> (`"en"` | `"pt-BR"` | `"es"`) by injecting `{output_language_directive}`
+> into `AI_USE_CASE_GEN_PROMPT` and `STATS_USE_CASE_GEN_PROMPT` (see entry below).
+> The `{output_language}` placeholder listed for `DOMAIN_FINDER_PROMPT`,
+> `SUBDOMAIN_DETECTOR_PROMPT`, and similar templates is documented but **not
+> yet supplied at runtime** — those steps still produce English output. See
+> [ROADMAP.md item #17](ROADMAP.md#17-multi-language-support-i18n).
+
 ---
 
 ## Per-Prompt Temperature Configuration
@@ -135,6 +143,7 @@ and revenue model from an industry/business name.
 - `{ai_functions_summary}`, `{statistical_functions_detailed}`
 - `{schema_markdown}`, `{foreign_key_relationships}`
 - `{previous_use_cases_feedback}`, `{target_use_case_count}`
+- `{output_language_directive}` — optional natural-language directive injected near the top of `AI_USE_CASE_GEN_PROMPT` and `STATS_USE_CASE_GEN_PROMPT`. Computed by `lib/pipeline/steps/usecase-generation.ts:buildOutputLanguageDirective()` from `run.config.outputLanguage`. Empty string for English (default); for `pt-BR` and `es` it instructs the LLM to write the natural-language fields (`name`, `statement`, `solution`, `business_value`, `beneficiary`, `sponsor`, `technical_design`) in the chosen language while keeping technical identifiers (FQNs, AI/SQL function names, JSON keys, `analytics_technique` values) in English.
 
 **Expected output:** CSV with columns:
 `No, Name, type, Analytics Technique, Statement, Solution, Business Value, Beneficiary, Sponsor, Tables Involved, Technical Design`

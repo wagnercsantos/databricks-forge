@@ -17,6 +17,7 @@ import {
   updateCommentProgress,
   type CommentPhase,
 } from "./comment-engine/progress";
+import type { CommentOutputLanguage } from "./comment-engine/types";
 import { createProposals } from "@/lib/lakebase/comment-proposals";
 import { updateCommentJobStatus } from "@/lib/lakebase/comment-jobs";
 import { logger } from "@/lib/logger";
@@ -31,6 +32,7 @@ export interface GenerateCommentsInput {
   exclusionPatterns?: string[];
   industryId?: string;
   businessContext?: string;
+  outputLanguage?: CommentOutputLanguage;
   signal?: AbortSignal;
 }
 
@@ -66,6 +68,7 @@ export async function generateComments(
     exclusionPatterns,
     industryId,
     businessContext,
+    outputLanguage,
     signal,
   } = input;
 
@@ -86,6 +89,7 @@ export async function generateComments(
       {
         industryId,
         businessContext,
+        outputLanguage,
         enableConsistencyReview: true,
         enableLineage: true,
         enableHistory: true,

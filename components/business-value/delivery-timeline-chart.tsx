@@ -31,7 +31,7 @@ export function DeliveryTimelineChart({ phases }: DeliveryTimelineChartProps) {
               className="fill-muted-foreground"
             />
             <Tooltip
-              formatter={(value: number | undefined) => [value ?? 0, "Use Cases"]}
+              formatter={(value) => [typeof value === "number" ? value : 0, "Use Cases"]}
               contentStyle={{
                 backgroundColor: "var(--color-card)",
                 borderColor: "var(--color-border)",

@@ -7,6 +7,7 @@ import {
 
 describe("TABLE_COMMENT_PROMPT", () => {
   it("contains all required placeholders", () => {
+    expect(TABLE_COMMENT_PROMPT).toContain("{language_directive}");
     expect(TABLE_COMMENT_PROMPT).toContain("{industry_context}");
     expect(TABLE_COMMENT_PROMPT).toContain("{business_context_block}");
     expect(TABLE_COMMENT_PROMPT).toContain("{data_asset_context}");
@@ -44,7 +45,8 @@ describe("TABLE_COMMENT_PROMPT", () => {
   });
 
   it("all placeholders are replaceable without residual placeholder patterns", () => {
-    const replaced = TABLE_COMMENT_PROMPT.replace("{industry_context}", "Banking industry")
+    const replaced = TABLE_COMMENT_PROMPT.replace("{language_directive}", "Write in English.")
+      .replace("{industry_context}", "Banking industry")
       .replace("{business_context_block}", "Retail banking focus")
       .replace("{data_asset_context}", "A01: Customer Master")
       .replace("{use_case_linkage}", "A01 powers personalization")
@@ -58,6 +60,7 @@ describe("TABLE_COMMENT_PROMPT", () => {
 
 describe("COLUMN_COMMENT_PROMPT", () => {
   it("contains all required placeholders", () => {
+    expect(COLUMN_COMMENT_PROMPT).toContain("{language_directive}");
     expect(COLUMN_COMMENT_PROMPT).toContain("{industry_context}");
     expect(COLUMN_COMMENT_PROMPT).toContain("{table_fqn}");
     expect(COLUMN_COMMENT_PROMPT).toContain("{table_description}");
@@ -96,7 +99,8 @@ describe("COLUMN_COMMENT_PROMPT", () => {
   });
 
   it("all placeholders are replaceable without residual placeholder patterns", () => {
-    const replaced = COLUMN_COMMENT_PROMPT.replace("{industry_context}", "Banking")
+    const replaced = COLUMN_COMMENT_PROMPT.replace("{language_directive}", "Write in English.")
+      .replace("{industry_context}", "Banking")
       .replace("{table_fqn}", "cat.sch.tbl")
       .replace("{table_description}", "Customer transactions")
       .replace("{table_domain}", "Transaction")
@@ -111,6 +115,7 @@ describe("COLUMN_COMMENT_PROMPT", () => {
 
 describe("CONSISTENCY_REVIEW_PROMPT", () => {
   it("contains all required placeholders", () => {
+    expect(CONSISTENCY_REVIEW_PROMPT).toContain("{language_directive}");
     expect(CONSISTENCY_REVIEW_PROMPT).toContain("{schema_summary}");
     expect(CONSISTENCY_REVIEW_PROMPT).toContain("{descriptions_list}");
   });
@@ -132,10 +137,12 @@ describe("CONSISTENCY_REVIEW_PROMPT", () => {
   });
 
   it("all placeholders are replaceable", () => {
-    const replaced = CONSISTENCY_REVIEW_PROMPT.replace("{schema_summary}", "2 tables").replace(
-      "{descriptions_list}",
-      "- TABLE: cat.sch.tbl: desc",
-    );
+    const replaced = CONSISTENCY_REVIEW_PROMPT.replace(
+      "{language_directive}",
+      "Write in English.",
+    )
+      .replace("{schema_summary}", "2 tables")
+      .replace("{descriptions_list}", "- TABLE: cat.sch.tbl: desc");
 
     expect(replaced).not.toMatch(/\{[a-z_]+\}/);
   });
