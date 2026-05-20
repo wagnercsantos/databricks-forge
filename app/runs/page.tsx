@@ -4,23 +4,25 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/page-header";
 import { RunsContent } from "@/components/runs/runs-content";
-import { listRuns } from "@/lib/lakebase/runs";
+import { listRunSummaries, type PipelineRunSummary } from "@/lib/lakebase/runs";
 import { logger } from "@/lib/logger";
 import { Plus } from "lucide-react";
-import type { PipelineRun } from "@/lib/domain/types";
 import { requireUser } from "@/lib/auth/route-user";
 import { listAccessibleIds } from "@/lib/lakebase/acl";
 
 export const dynamic = "force-dynamic";
 
 async function fetchInitialRuns(): Promise<{
-  runs: PipelineRun[];
+  runs: PipelineRunSummary[];
   error: string | null;
 }> {
   try {
     const user = await requireUser();
     const sharedIds = await listAccessibleIds(user.email, "run");
-    const runs = await listRuns(200, 0, user.email, "all", sharedIds);
+    // Lean summary view -- avoids shipping multi-MB `businessContext` /
+    // `stepLog` / `synthesisJson` through the RSC boundary just to render
+    // a table that uses ~8 columns.
+    const runs = await listRunSummaries(200, 0, user.email, "all", sharedIds);
     return { runs, error: null };
   } catch (err) {
     logger.error("[runs] Failed to fetch initial runs", {

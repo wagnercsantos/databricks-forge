@@ -34,7 +34,12 @@ import { resolveIndustryId } from "@/lib/domain/industry-outcomes";
 import { upsertRoadmapPhases } from "@/lib/lakebase/roadmap-phases";
 import { replaceStakeholderProfiles } from "@/lib/lakebase/stakeholder-profiles";
 import { bulkInitTracking } from "@/lib/lakebase/use-case-tracking";
-import { updateRunMessage } from "@/lib/lakebase/runs";
+import {
+  updateRunMessage,
+  markRunStepDegraded,
+  clearRunStepDegraded,
+} from "@/lib/lakebase/runs";
+import { logActivity } from "@/lib/lakebase/activity-log";
 import { withPrisma } from "@/lib/prisma";
 import { buildStrategyAlignmentPrompt } from "@/lib/domain/strategy-alignment";
 
@@ -87,7 +92,17 @@ function safeParse<T>(raw: string | null | undefined, fallback: T): T {
  * always included so the LLM picks a structured value. Plain text so it can
  * be safely inlined into a template string.
  */
-function buildEconomicPatternsContext(): string {
+/**
+ * Render the canonical economic-patterns table for prompt grounding.
+ *
+ * `compact` drops the per-pattern "Variables:" hint line. The variables
+ * are mostly redundant once the formula is shown, and trimming them
+ * shaves ~30% off this block. Used for large batches (>10 use cases)
+ * where the dominant failure mode is the smaller models abandoning a
+ * very long prompt and emitting empty content.
+ */
+function buildEconomicPatternsContext(opts?: { compact?: boolean }): string {
+  const compact = opts?.compact ?? false;
   const lines: string[] = [];
   for (const p of Object.values(ECONOMIC_PATTERNS)) {
     const range = p.expectedRangePct
@@ -95,7 +110,9 @@ function buildEconomicPatternsContext(): string {
       : "";
     lines.push(`- **${p.name}** [${p.category}]`);
     lines.push(`    Formula: ${p.defaultFormula}.${range}`);
-    lines.push(`    Variables: ${p.variableHints.join(" | ")}`);
+    if (!compact) {
+      lines.push(`    Variables: ${p.variableHints.join(" | ")}`);
+    }
   }
   return lines.join("\n");
 }
@@ -122,14 +139,34 @@ function buildEconomicPatternsContext(): string {
  *
  * Exported for unit testing.
  */
+/**
+ * Default caps applied to the rendered industry-reference block. These
+ * exist because prior versions of the prompt embedded up to 30 reference
+ * cases per industry across an unbounded number of industries, which is
+ * the most plausible reason smaller classification models returned empty
+ * content for the full financial-quantification prompt. The caps below
+ * keep the block well under any plausible context-window concern while
+ * still anchoring estimates with real consultancy-grade benchmarks.
+ */
+const DEFAULT_MAX_INDUSTRIES = 2;
+const DEFAULT_MAX_CASES_PER_INDUSTRY = 8;
+
 export function buildIndustryReferenceCases(opts: {
   canonicalIndustryId?: string | null;
   freeText?: string | null;
+  /** Hard cap on total industries surfaced. Default: 2. */
+  maxIndustries?: number;
+  /** Hard cap on reference cases per industry. Default: 8. */
+  maxCasesPerIndustry?: number;
 }): string {
+  const maxIndustries = opts.maxIndustries ?? DEFAULT_MAX_INDUSTRIES;
+  const maxCasesPerIndustry = opts.maxCasesPerIndustry ?? DEFAULT_MAX_CASES_PER_INDUSTRY;
+
   const seen = new Set<string>();
   const blocks: string[] = [];
 
   function pushIndustry(rawId: string, label: string) {
+    if (seen.size >= maxIndustries) return;
     const resolved = resolveIndustryId(rawId) ?? rawId;
     if (!resolved || seen.has(resolved)) return;
     const enrichment = getMasterRepoEnrichment(resolved);
@@ -140,7 +177,7 @@ export function buildIndustryReferenceCases(opts: {
     if (refs.length === 0) return;
     seen.add(resolved);
     blocks.push(`Industry: ${label}`);
-    for (const uc of refs.slice(0, 30)) {
+    for (const uc of refs.slice(0, maxCasesPerIndustry)) {
       const formula = uc.economicFormula ?? "";
       const kpi = uc.kpiTarget ? ` ${uc.kpiTarget}` : "";
       const bench = uc.benchmarkImpact ?? "";
@@ -164,6 +201,7 @@ export function buildIndustryReferenceCases(opts: {
     .map((s) => s.trim())
     .filter(Boolean);
   for (const token of tokens) {
+    if (seen.size >= maxIndustries) break;
     const normalized = token.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     if (normalized) pushIndustry(normalized, token);
   }
@@ -172,26 +210,215 @@ export function buildIndustryReferenceCases(opts: {
   return blocks.join("\n");
 }
 
+type RawFinancialEstimate = {
+  use_case_id: string;
+  value_low: number;
+  value_mid: number;
+  value_high: number;
+  value_type: string;
+  confidence: string;
+  rationale?: string;
+  assumptions?: string[];
+  industry_benchmark?: string;
+  economic_pattern_name?: string;
+  economic_impact_category?: string;
+  economic_formula_vars?: Record<string, number | string>;
+};
+
+/**
+ * Execute a single financial-quantification batch end-to-end (LLM + parse).
+ * Returns the parsed estimates. Empty array means the model returned no
+ * usable structured output (parse failure, refusal, etc.) -- the caller
+ * decides whether to halve and retry.
+ *
+ * Throws only on non-recoverable errors (cancellation, etc.). All other
+ * failures (empty content, 5xx, timeouts) propagate from `executeAIQuery`
+ * which already does its own retry + endpoint fallback.
+ */
+async function quantifyBatchOnce(
+  ctx: PipelineContext,
+  batch: UseCase[],
+  baseVariables: Omit<Record<string, string>, "use_cases_json">,
+): Promise<RawFinancialEstimate[]> {
+  const variables: Record<string, string> = {
+    ...baseVariables,
+    use_cases_json: summariseCasesForLLM(batch),
+  };
+  const result = await executeAIQuery({
+    runId: ctx.run.runId,
+    promptKey: "FINANCIAL_QUANTIFICATION_PROMPT",
+    variables,
+    modelEndpoint: resolveEndpoint("reasoning"),
+    responseFormat: "json_object",
+    // The agent already retries internally and rotates to a fallback endpoint
+    // on 429 / empty-content. Keep retries low here so the halve-batch loop
+    // (below) gets to act sooner on persistently empty batches.
+    retries: 1,
+  });
+  return safeParse<RawFinancialEstimate[]>(result.rawResponse, []);
+}
+
+/**
+ * Generic halve-batch retry. Repeatedly evaluates `executor(batch)`; if the
+ * executor returns an empty array (or throws), the batch is split in half
+ * and each half is retried, up to `maxHalvings` times.
+ *
+ * Exported for unit testing. Pure -- no LLM, Lakebase, or logger
+ * dependencies leak in here. The pipeline-specific wrapper above passes a
+ * concrete `executor` that calls Model Serving via `executeAIQuery`.
+ */
+export async function halveBatchRetry<T extends { id: string }, R extends { use_case_id: string }>(
+  initialBatch: T[],
+  executor: (sub: T[], depth: number) => Promise<R[]>,
+  options: {
+    maxHalvings?: number;
+    onHalving?: (info: { from: number; to: [number, number]; depth: number; error: string }) => void;
+    onGiveUp?: (info: { subBatchSize: number; depth: number; error: string }) => void;
+  } = {},
+): Promise<{ estimates: R[]; missingItemIds: string[] }> {
+  const maxHalvings = options.maxHalvings ?? 2;
+  type WorkItem = { batch: T[]; depth: number };
+  const queue: WorkItem[] = [{ batch: initialBatch, depth: 0 }];
+  const collected: R[] = [];
+
+  while (queue.length > 0) {
+    const { batch, depth } = queue.shift()!;
+    try {
+      const results = await executor(batch, depth);
+      if (results.length > 0) {
+        collected.push(...results);
+        continue;
+      }
+      // Empty parse -- treat the same as a thrown error so the halving path runs.
+      throw new Error("Empty result set after parse");
+    } catch (err) {
+      const errMsg = String(err);
+      if (batch.length <= 1 || depth >= maxHalvings) {
+        options.onGiveUp?.({ subBatchSize: batch.length, depth, error: errMsg });
+        continue;
+      }
+      const mid = Math.ceil(batch.length / 2);
+      const left = batch.slice(0, mid);
+      const right = batch.slice(mid);
+      options.onHalving?.({
+        from: batch.length,
+        to: [left.length, right.length],
+        depth: depth + 1,
+        error: errMsg,
+      });
+      queue.unshift(
+        { batch: left, depth: depth + 1 },
+        { batch: right, depth: depth + 1 },
+      );
+    }
+  }
+
+  const collectedIds = new Set(collected.map((r) => r.use_case_id));
+  const missingItemIds = initialBatch
+    .filter((u) => !collectedIds.has(u.id))
+    .map((u) => u.id);
+
+  return { estimates: collected, missingItemIds };
+}
+
+/**
+ * Pipeline-specific halve-batch wrapper for the financial-quantification
+ * pass. Delegates to the generic `halveBatchRetry` and threads logger
+ * events through.
+ */
+async function quantifyWithHalveBatchFallback(
+  ctx: PipelineContext,
+  initialBatch: UseCase[],
+  baseVariables: Omit<Record<string, string>, "use_cases_json">,
+  log: typeof fallbackLogger,
+  maxHalvings = 2,
+): Promise<{ estimates: RawFinancialEstimate[]; missingUseCaseIds: string[] }> {
+  const { estimates, missingItemIds } = await halveBatchRetry<UseCase, RawFinancialEstimate>(
+    initialBatch,
+    (sub) => quantifyBatchOnce(ctx, sub, baseVariables),
+    {
+      maxHalvings,
+      onHalving: (info) => {
+        log.warn("Financial quantification: halving sub-batch and retrying", {
+          fn: "runFinancialQuantification",
+          errorCategory: "llm_empty_halving",
+          from: info.from,
+          to: info.to,
+          halvingDepth: info.depth,
+          error: info.error,
+        });
+      },
+      onGiveUp: (info) => {
+        log.warn("Financial quantification: giving up sub-batch", {
+          fn: "runFinancialQuantification",
+          errorCategory: "llm_empty_after_halving",
+          subBatchSize: info.subBatchSize,
+          halvingDepth: info.depth,
+          maxHalvings,
+          error: info.error,
+        });
+      },
+    },
+  );
+  return { estimates, missingUseCaseIds: missingItemIds };
+}
+
+/**
+ * Result of the financial-quantification pass.
+ *
+ * `degraded` is true when one or more use cases ended up without a value
+ * estimate after all retries + halvings. The caller persists this on the
+ * run so the UI can render an amber "Recompute" CTA instead of a silent $0.
+ */
+interface FinancialQuantificationResult {
+  degraded: boolean;
+  missingUseCaseIds: string[];
+}
+
 async function runFinancialQuantification(
   ctx: PipelineContext,
   useCases: UseCase[],
-): Promise<void> {
+): Promise<FinancialQuantificationResult> {
   const log = ctx.logger ?? fallbackLogger;
   const { run } = ctx;
   const bc = run.businessContext;
-  if (!bc || useCases.length === 0) return;
-
-  const economicPatternsContext = buildEconomicPatternsContext();
-  const industryReferenceCases = buildIndustryReferenceCases({
-    canonicalIndustryId: run.config.industry ?? null,
-    freeText: bc.industries,
-  });
+  if (!bc || useCases.length === 0) {
+    return { degraded: false, missingUseCaseIds: [] };
+  }
 
   const batchSize = 25;
-  const batches = [];
+  const batches: UseCase[][] = [];
   for (let i = 0; i < useCases.length; i += batchSize) {
     batches.push(useCases.slice(i, i + batchSize));
   }
+
+  // Use the compact patterns block when any batch will exceed 10 use cases.
+  // The "Variables:" hint is mostly redundant once the formula is shown, and
+  // trimming it shaves token cost on the prompt size that empirically
+  // correlates with empty-content failures.
+  const compactPatterns = useCases.length > 10;
+  const economicPatternsContext = buildEconomicPatternsContext({
+    compact: compactPatterns,
+  });
+  const industryReferenceCases = buildIndustryReferenceCases({
+    canonicalIndustryId: run.config.industry ?? null,
+    freeText: bc.industries,
+    // Caps default to 2 industries x 8 cases each = max 16 reference rows.
+  });
+
+  const baseVariables = {
+    business_name: run.config.businessName,
+    industries: bc.industries,
+    revenue_model: bc.revenueModel,
+    strategic_goals: bc.strategicGoals,
+    value_chain: bc.valueChain,
+    estate_context: `${useCases.length} use cases across ${new Set(useCases.map((u) => u.domain)).size} domains`,
+    economic_patterns_context: economicPatternsContext,
+    industry_reference_cases: industryReferenceCases,
+  };
+
+  const allMissingIds: string[] = [];
+  const allEstimates: RawFinancialEstimate[] = [];
 
   for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
     const batch = batches[batchIdx];
@@ -201,82 +428,71 @@ async function runFinancialQuantification(
         `Quantifying financial value (batch ${batchIdx + 1} of ${batches.length})...`,
       );
     }
-    const variables: Record<string, string> = {
-      business_name: run.config.businessName,
-      industries: bc.industries,
-      revenue_model: bc.revenueModel,
-      strategic_goals: bc.strategicGoals,
-      value_chain: bc.valueChain,
-      estate_context: `${useCases.length} use cases across ${new Set(useCases.map((u) => u.domain)).size} domains`,
-      use_cases_json: summariseCasesForLLM(batch),
-      economic_patterns_context: economicPatternsContext,
-      industry_reference_cases: industryReferenceCases,
-    };
 
     try {
-      const result = await executeAIQuery({
-        runId: run.runId,
-        promptKey: "FINANCIAL_QUANTIFICATION_PROMPT",
-        variables,
-        modelEndpoint: resolveEndpoint("classification"),
-        responseFormat: "json_object",
-      });
-
-      type RawEstimate = {
-        use_case_id: string;
-        value_low: number;
-        value_mid: number;
-        value_high: number;
-        value_type: string;
-        confidence: string;
-        rationale?: string;
-        assumptions?: string[];
-        industry_benchmark?: string;
-        economic_pattern_name?: string;
-        economic_impact_category?: string;
-        economic_formula_vars?: Record<string, number | string>;
-      };
-      const estimates = safeParse<RawEstimate[]>(result.rawResponse, []);
-
-      if (estimates.length > 0) {
-        await upsertValueEstimates(
-          run.runId,
-          estimates.map((e) => {
-            const valueType = (e.value_type || "efficiency_gain") as ValueType;
-            // Prefer the LLM's structured category; fall back via legacy map.
-            const impactCategory =
-              e.economic_impact_category && isEconomicImpactCategory(e.economic_impact_category)
-                ? e.economic_impact_category
-                : (LEGACY_VALUE_TYPE_MAP[valueType] ?? null);
-            const patternName =
-              e.economic_pattern_name && isEconomicPatternName(e.economic_pattern_name)
-                ? e.economic_pattern_name
-                : null;
-            return {
-              useCaseId: e.use_case_id,
-              valueLow: Math.max(0, e.value_low ?? 0),
-              valueMid: Math.max(0, e.value_mid ?? 0),
-              valueHigh: Math.max(0, e.value_high ?? 0),
-              valueType,
-              confidence: (e.confidence || "medium") as ValueConfidence,
-              rationale: e.rationale,
-              assumptions: e.assumptions,
-              industryBenchmark: e.industry_benchmark,
-              economicPatternName: patternName,
-              economicImpactCategory: impactCategory,
-              economicFormulaVars: e.economic_formula_vars ?? null,
-            };
-          }),
-        );
-      }
+      const { estimates, missingUseCaseIds } = await quantifyWithHalveBatchFallback(
+        ctx,
+        batch,
+        baseVariables,
+        log,
+      );
+      allEstimates.push(...estimates);
+      allMissingIds.push(...missingUseCaseIds);
     } catch (err) {
-      log.warn("Financial quantification batch failed", {
-        fn: "runBusinessValueAnalysis",
+      log.warn("Financial quantification batch fully failed", {
+        fn: "runFinancialQuantification",
         errorCategory: "llm_error",
+        batchIdx,
+        batchSize: batch.length,
         error: String(err),
       });
+      allMissingIds.push(...batch.map((u) => u.id));
     }
   }
+
+  if (allEstimates.length > 0) {
+    await upsertValueEstimates(
+      run.runId,
+      allEstimates.map((e) => {
+        const valueType = (e.value_type || "efficiency_gain") as ValueType;
+        // Prefer the LLM's structured category; fall back via legacy map.
+        const impactCategory =
+          e.economic_impact_category && isEconomicImpactCategory(e.economic_impact_category)
+            ? e.economic_impact_category
+            : (LEGACY_VALUE_TYPE_MAP[valueType] ?? null);
+        const patternName =
+          e.economic_pattern_name && isEconomicPatternName(e.economic_pattern_name)
+            ? e.economic_pattern_name
+            : null;
+        return {
+          useCaseId: e.use_case_id,
+          valueLow: Math.max(0, e.value_low ?? 0),
+          valueMid: Math.max(0, e.value_mid ?? 0),
+          valueHigh: Math.max(0, e.value_high ?? 0),
+          valueType,
+          confidence: (e.confidence || "medium") as ValueConfidence,
+          rationale: e.rationale,
+          assumptions: e.assumptions,
+          industryBenchmark: e.industry_benchmark,
+          economicPatternName: patternName,
+          economicImpactCategory: impactCategory,
+          economicFormulaVars: e.economic_formula_vars ?? null,
+        };
+      }),
+    );
+  }
+
+  const degraded = allMissingIds.length > 0;
+  if (degraded) {
+    log.warn("Financial quantification degraded: missing estimates for some use cases", {
+      fn: "runFinancialQuantification",
+      errorCategory: "llm_partial_failure",
+      missingCount: allMissingIds.length,
+      totalCount: useCases.length,
+    });
+  }
+
+  return { degraded, missingUseCaseIds: allMissingIds };
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +599,7 @@ async function runExecutiveSynthesis(ctx: PipelineContext, useCases: UseCase[]):
       runId: run.runId,
       promptKey: "EXECUTIVE_SYNTHESIS_PROMPT",
       variables,
-      modelEndpoint: resolveEndpoint("classification"),
+      modelEndpoint: resolveEndpoint("reasoning"),
       responseFormat: "json_object",
     });
 
@@ -552,18 +768,49 @@ export async function runBusinessValueAnalysis(ctx: PipelineContext): Promise<vo
 
   const runId = ctx.run.runId;
 
-  // Run passes in sequence (each is a single LLM call, fast model)
-  await updateRunMessage(runId, "Quantifying financial value estimates...", 86);
-  await runFinancialQuantification(ctx, useCases);
+  // Financial quantification + executive synthesis use the reasoning tier
+  // (opus / gpt-5) for calibrated estimates and board-ready synthesis. Roadmap
+  // and stakeholder passes stay on the classification tier -- their reasoning
+  // load is light and the prompt log shows they finish reliably on flash-lite.
+  await updateRunMessage(
+    runId,
+    "Quantifying financial value with reasoning model (slower, calibrated)...",
+    86,
+  );
+  const finResult = await runFinancialQuantification(ctx, useCases);
 
   await updateRunMessage(runId, "Building implementation roadmap phases...", 87);
   await runRoadmapPhasing(ctx, useCases);
 
-  await updateRunMessage(runId, "Generating executive synthesis...", 88);
+  await updateRunMessage(runId, "Generating executive synthesis (reasoning model)...", 88);
   await runExecutiveSynthesis(ctx, useCases);
 
   await updateRunMessage(runId, "Analyzing stakeholder profiles...", 89);
   await runStakeholderAnalysis(ctx, useCases);
 
-  log.info("Business value analysis complete");
+  // Surface degradation: when financial-quantification could not produce
+  // estimates for one or more use cases, flag the run so the UI shows an
+  // amber "Recompute" CTA instead of a silent $0.
+  if (finResult.degraded) {
+    await markRunStepDegraded(runId, "financial-quantification");
+    // Fire-and-forget activity log so the failure is visible in the
+    // activity stream and can be alerted on.
+    logActivity("bv_step_degraded", {
+      userId: ctx.ownerEmail ?? null,
+      resourceId: runId,
+      metadata: {
+        step: "financial-quantification",
+        missingUseCaseIds: finResult.missingUseCaseIds,
+        missingCount: finResult.missingUseCaseIds.length,
+        totalUseCases: useCases.length,
+      },
+    });
+  } else {
+    await clearRunStepDegraded(runId, "financial-quantification");
+  }
+
+  log.info("Business value analysis complete", {
+    financialQuantificationDegraded: finResult.degraded,
+    missingEstimateCount: finResult.missingUseCaseIds.length,
+  });
 }

@@ -558,3 +558,34 @@ export class ModelServingError extends Error {
     this.endpointUnavailable = endpointUnavailable;
   }
 }
+
+/**
+ * Thrown when Model Serving returns a structurally valid response but with
+ * no extractable text content. This is observed on:
+ *   - reasoning models that emit only `{type:"thinking"}` blocks (no text)
+ *   - smaller models that abandon a very large structured-output prompt
+ *   - safety/refusal paths that produce zero `{type:"text"}` blocks
+ *
+ * Treated by the retry loop as retryable AND fallback-eligible so the next
+ * priority endpoint is tried instead of hammering the same model.
+ */
+export class EmptyContentError extends ModelServingError {
+  /** The model identifier that returned empty content (for diagnostics). */
+  readonly model: string;
+  /** The finish_reason reported by the model (e.g. "stop", "length"). */
+  readonly finishReason: string | null;
+
+  constructor(promptKey: string, endpoint: string, finishReason: string | null) {
+    super(
+      `FMAPI returned empty content for ${promptKey} (endpoint=${endpoint}, finish_reason=${finishReason ?? "null"})`,
+      0,
+    );
+    this.name = "EmptyContentError";
+    this.model = endpoint;
+    this.finishReason = finishReason;
+  }
+}
+
+export function isEmptyContentError(err: unknown): err is EmptyContentError {
+  return err instanceof EmptyContentError;
+}

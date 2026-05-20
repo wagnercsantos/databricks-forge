@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { RefreshCw, Loader2 } from "lucide-react";
+import { RefreshCw, Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
 import type {
@@ -39,6 +39,7 @@ interface BusinessValueData {
   roadmapPhases: RoadmapPhaseAssignment[];
   stakeholders: StakeholderProfile[];
   synthesis: ExecutiveSynthesis | null;
+  degradedSteps?: string[];
 }
 
 export function BusinessValueTab({ runId }: { runId: string }) {
@@ -186,6 +187,25 @@ export function BusinessValueTab({ runId }: { runId: string }) {
           <span className="text-sm text-muted-foreground">
             Regenerating business value analysis... This typically takes 30&ndash;60 seconds.
           </span>
+        </div>
+      )}
+
+      {!refreshing && data?.degradedSteps?.includes("financial-quantification") && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3">
+          <AlertTriangle
+            className="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
+            aria-hidden="true"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+              Financial estimates incomplete
+            </p>
+            <p className="mt-0.5 text-xs leading-relaxed text-amber-700/80 dark:text-amber-200/80">
+              The reasoning model returned empty content for one or more use case batches.
+              Click <em>Refresh Analysis</em> above to retry -- the run will rotate to a
+              fallback endpoint and split into smaller batches.
+            </p>
+          </div>
         </div>
       )}
 

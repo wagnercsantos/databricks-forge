@@ -119,4 +119,63 @@ describe("buildIndustryReferenceCases", () => {
     );
     expect(calibrated.length).toBeGreaterThan(0);
   });
+
+  describe("prompt-trim caps (regression: BV $0 fix)", () => {
+    // The financial-quantification prompt previously embedded up to 30
+    // reference cases per industry across an unbounded number of industries,
+    // which empirically correlated with the "empty content" failure mode on
+    // smaller classification models. The new defaults are: max 2 industries
+    // x max 8 cases each = max 16 reference rows.
+
+    it("caps reference cases per industry to 8 by default", () => {
+      const out = buildIndustryReferenceCases({ canonicalIndustryId: "banking" });
+      const caseLines = out.split("\n").filter((line) => line.startsWith("  *"));
+      expect(caseLines.length).toBeLessThanOrEqual(8);
+    });
+
+    it("respects an explicit per-industry cap", () => {
+      const out = buildIndustryReferenceCases({
+        canonicalIndustryId: "banking",
+        maxCasesPerIndustry: 3,
+      });
+      const caseLines = out.split("\n").filter((line) => line.startsWith("  *"));
+      expect(caseLines.length).toBeLessThanOrEqual(3);
+    });
+
+    it("caps total industries to 2 by default even when more are present in free-text", () => {
+      const out = buildIndustryReferenceCases({
+        canonicalIndustryId: "banking",
+        // Three additional industries in free-text; default cap should
+        // drop everything past the second resolved one.
+        freeText: "Retail, Manufacturing, Healthcare, Insurance",
+      });
+      const industryHeaders = (out.match(/^Industry:/gm) ?? []).length;
+      expect(industryHeaders).toBeLessThanOrEqual(2);
+    });
+
+    it("respects an explicit max-industries cap", () => {
+      const out = buildIndustryReferenceCases({
+        canonicalIndustryId: "banking",
+        freeText: "Retail, Manufacturing",
+        maxIndustries: 1,
+      });
+      const industryHeaders = (out.match(/^Industry:/gm) ?? []).length;
+      expect(industryHeaders).toBe(1);
+    });
+
+    it("is shorter than the legacy unbounded output for a multi-industry run", () => {
+      const trimmed = buildIndustryReferenceCases({
+        canonicalIndustryId: "banking",
+        freeText: "Retail, Manufacturing, Healthcare",
+      });
+      const looselyCapped = buildIndustryReferenceCases({
+        canonicalIndustryId: "banking",
+        freeText: "Retail, Manufacturing, Healthcare",
+        maxIndustries: 10,
+        maxCasesPerIndustry: 30,
+      });
+      // Default trim should be strictly smaller than the loose-capped block.
+      expect(trimmed.length).toBeLessThan(looselyCapped.length);
+    });
+  });
 });

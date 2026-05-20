@@ -293,6 +293,119 @@ export async function listRuns(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Lean summary view for list surfaces
+// ---------------------------------------------------------------------------
+//
+// `listRuns` returns the full `PipelineRun` including parsed `businessContext`,
+// `stepLog`, and other LLM-generated JSON. For the `/runs` list page (and any
+// other list surface) we only need the columns rendered in the row -- shipping
+// the heavy JSON across the RSC boundary is wasteful and, with deeply nested
+// LLM output, can overflow V8's recursive `JSON.stringify` and surface as
+// "Maximum call stack size exceeded" in the browser.
+//
+// `PipelineRunSummary` is intentionally a strict subset; the Prisma `select`
+// below MUST NOT pull `businessContext`, `synthesisJson`, `schemaSnapshotJson`,
+// `contextSourcesJson`, `filteredTablesJson`, `degradedStepsJson`, or
+// `generationOptions`.
+
+export interface PipelineRunSummary {
+  runId: string;
+  status: RunStatus;
+  currentStep: PipelineStep | null;
+  progressPct: number;
+  statusMessage: string | null;
+  ownerEmail: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  config: {
+    businessName: string;
+    ucMetadata: string;
+  };
+}
+
+function dbRowToRunSummary(row: {
+  runId: string;
+  businessName: string;
+  ucMetadata: string;
+  status: string;
+  currentStep: string | null;
+  progressPct: number;
+  statusMessage: string | null;
+  ownerEmail: string | null;
+  createdBy: string | null;
+  createdAt: Date;
+  completedAt: Date | null;
+}): PipelineRunSummary {
+  return {
+    runId: row.runId,
+    status: row.status as RunStatus,
+    currentStep: (row.currentStep as PipelineStep) ?? null,
+    progressPct: row.progressPct,
+    statusMessage: row.statusMessage ?? null,
+    ownerEmail: row.ownerEmail ?? null,
+    createdBy: row.createdBy ?? null,
+    createdAt: row.createdAt.toISOString(),
+    completedAt: row.completedAt?.toISOString() ?? null,
+    config: {
+      businessName: row.businessName,
+      ucMetadata: row.ucMetadata,
+    },
+  };
+}
+
+/**
+ * List runs as lean summaries for table-style list surfaces.
+ *
+ * Same visibility semantics as `listRuns`, but only selects the columns the
+ * list UI actually renders. Avoids deserialising / re-serialising heavy
+ * JSON fields (`businessContext`, `stepLog`, `synthesisJson`, ...) that
+ * would otherwise be passed through the RSC boundary and risk a recursive
+ * `JSON.stringify` stack overflow on pathological LLM-generated payloads.
+ */
+export async function listRunSummaries(
+  limit = 50,
+  offset = 0,
+  userEmail?: string | null,
+  viewMode: "all" | "owned" | "shared" = "all",
+  sharedIds: string[] = [],
+): Promise<PipelineRunSummary[]> {
+  return withPrisma(async (prisma) => {
+    let where: Record<string, unknown> = {};
+    if (userEmail) {
+      const email = userEmail.toLowerCase().trim();
+      if (viewMode === "owned") {
+        where = { ownerEmail: email };
+      } else if (viewMode === "shared") {
+        where = { runId: { in: sharedIds } };
+      } else {
+        where = { OR: [{ ownerEmail: email }, { runId: { in: sharedIds } }] };
+      }
+    }
+    const rows = await prisma.forgeRun.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+      select: {
+        runId: true,
+        businessName: true,
+        ucMetadata: true,
+        status: true,
+        currentStep: true,
+        progressPct: true,
+        statusMessage: true,
+        ownerEmail: true,
+        createdBy: true,
+        createdAt: true,
+        completedAt: true,
+      },
+    });
+    return rows.map(dbRowToRunSummary);
+  });
+}
+
 export async function updateRunStatus(
   runId: string,
   status: RunStatus,
@@ -428,6 +541,60 @@ export async function updateRunMessage(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Degraded steps tracking
+// ---------------------------------------------------------------------------
+//
+// `degradedStepsJson` is a JSON-encoded array of pipeline step ids that
+// produced incomplete output. The Business Value page reads this to render
+// an amber "Recompute" banner so users never see a silent green tick + $0.
+
+/** Read the degraded-step list for a run. Returns [] when none are flagged. */
+export async function getDegradedSteps(runId: string): Promise<string[]> {
+  return withPrisma(async (prisma) => {
+    const row = await prisma.forgeRun.findUnique({
+      where: { runId },
+      select: { degradedStepsJson: true },
+    });
+    if (!row?.degradedStepsJson) return [];
+    return parseJSON<string[]>(row.degradedStepsJson, []);
+  });
+}
+
+/** Add a step id to the run's degraded-step list (idempotent / additive). */
+export async function markRunStepDegraded(runId: string, stepId: string): Promise<void> {
+  await withPrisma(async (prisma) => {
+    const row = await prisma.forgeRun.findUnique({
+      where: { runId },
+      select: { degradedStepsJson: true },
+    });
+    const current = parseJSON<string[]>(row?.degradedStepsJson ?? null, []);
+    if (current.includes(stepId)) return;
+    const next = [...current, stepId];
+    await prisma.forgeRun.update({
+      where: { runId },
+      data: { degradedStepsJson: JSON.stringify(next) },
+    });
+  });
+}
+
+/** Remove a step id from the degraded list (e.g. after a successful rerun). */
+export async function clearRunStepDegraded(runId: string, stepId: string): Promise<void> {
+  await withPrisma(async (prisma) => {
+    const row = await prisma.forgeRun.findUnique({
+      where: { runId },
+      select: { degradedStepsJson: true },
+    });
+    const current = parseJSON<string[]>(row?.degradedStepsJson ?? null, []);
+    if (!current.includes(stepId)) return;
+    const next = current.filter((s) => s !== stepId);
+    await prisma.forgeRun.update({
+      where: { runId },
+      data: { degradedStepsJson: next.length === 0 ? null : JSON.stringify(next) },
+    });
+  });
+}
+
 /**
  * Delete a pipeline run and all associated data (use cases, exports,
  * environment scans, Genie data). Cascade deletes are handled by the
@@ -552,8 +719,19 @@ export async function getRunFilteredTables(runId: string): Promise<string[] | nu
 }
 
 /**
+ * Maximum number of entries we keep in the per-run `stepLog`. Pipelines
+ * normally produce 8-12 entries (one per step) but resumes, reruns, and
+ * sub-steps can push the count up. Capping defends against pathological
+ * growth that would inflate the run row and make later JSON serialization
+ * (especially across the RSC boundary on `/runs`) brittle.
+ */
+const MAX_STEP_LOG_ENTRIES = 200;
+
+/**
  * Append or update a step log entry in the generationOptions JSON.
  * Reads the current value, merges the entry, and writes back atomically.
+ * The list is capped at {@link MAX_STEP_LOG_ENTRIES} -- when full, the
+ * oldest entries are dropped first (FIFO).
  */
 export async function updateRunStepLog(runId: string, entry: StepLogEntry): Promise<void> {
   await withPrisma(async (prisma) => {
@@ -579,7 +757,13 @@ export async function updateRunStepLog(runId: string, entry: StepLogEntry): Prom
       stepLog.push(entry);
     }
 
-    genOpts.stepLog = stepLog;
+    // Cap to the most recent entries so the row stays serializable.
+    const capped =
+      stepLog.length > MAX_STEP_LOG_ENTRIES
+        ? stepLog.slice(stepLog.length - MAX_STEP_LOG_ENTRIES)
+        : stepLog;
+
+    genOpts.stepLog = capped;
 
     await prisma.forgeRun.update({
       where: { runId },

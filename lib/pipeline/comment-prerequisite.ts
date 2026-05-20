@@ -150,6 +150,7 @@ export async function ensureCommentEnrichment(
   runId?: string,
   signal?: AbortSignal,
   outputLanguage: CommentOutputLanguage = DEFAULT_COMMENT_OUTPUT_LANGUAGE,
+  ownerEmail?: string | null,
 ): Promise<CommentPrerequisiteResult> {
   try {
     // Parse the metadata scope to determine catalogs and schemas
@@ -208,6 +209,11 @@ export async function ensureCommentEnrichment(
       industryId,
       outputLanguage,
       runId,
+      // Carry through the run's owner so the inline-created comment job
+      // never lands in the database with NULL owner_email (which would
+      // make it invisible under per-user isolation and trip the startup
+      // integrity guard on the next deploy).
+      ownerEmail: ownerEmail ?? null,
     });
 
     const result = await generateComments({

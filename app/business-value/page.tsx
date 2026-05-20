@@ -19,6 +19,9 @@ import type { BusinessValuePortfolio } from "@/lib/domain/types";
 import type { PortfolioUseCase } from "@/lib/lakebase/portfolio";
 import { requireUser } from "@/lib/auth/route-user";
 import { listAccessibleIds } from "@/lib/lakebase/acl";
+import { getDegradedSteps, getRunById } from "@/lib/lakebase/runs";
+import { getValueEstimatesForRun } from "@/lib/lakebase/value-estimates";
+import { DegradedFinancialBanner } from "@/components/business-value/degraded-financial-banner";
 import {
   TrendingUp,
   Zap,
@@ -81,6 +84,9 @@ function PriorityBadge({ priority }: { priority: "high" | "medium" | "low" }) {
 async function PortfolioContent() {
   let portfolio: BusinessValuePortfolio & { latestRunId: string | null };
   let useCases: PortfolioUseCase[];
+  let financialDegraded = false;
+  let degradedRunLabel: string | null = null;
+  let degradedMissingCount: number | undefined;
   try {
     const user = await requireUser();
     const accessibleRunIds = await listAccessibleIds(user.email, "run");
@@ -88,6 +94,22 @@ async function PortfolioContent() {
       getPortfolioData(user.email, accessibleRunIds),
       getPortfolioUseCases(user.email, accessibleRunIds),
     ]);
+
+    // Surface step-level degradation so the user never sees a silent $0.
+    if (portfolio.latestRunId) {
+      const [degradedSteps, run, estimates] = await Promise.all([
+        getDegradedSteps(portfolio.latestRunId),
+        getRunById(portfolio.latestRunId),
+        getValueEstimatesForRun(portfolio.latestRunId),
+      ]);
+      financialDegraded = degradedSteps.includes("financial-quantification");
+      degradedRunLabel = run?.config.businessName ?? null;
+      if (financialDegraded) {
+        // useCases comes from the latest run; count the ones missing an estimate.
+        const withEstimate = new Set(estimates.map((e) => e.useCaseId));
+        degradedMissingCount = useCases.filter((uc) => !withEstimate.has(uc.id)).length;
+      }
+    }
   } catch {
     return (
       <Card>
@@ -133,6 +155,14 @@ async function PortfolioContent() {
 
   return (
     <div className="space-y-8">
+      {financialDegraded && portfolio.latestRunId && (
+        <DegradedFinancialBanner
+          runId={portfolio.latestRunId}
+          runLabel={degradedRunLabel}
+          missingCount={degradedMissingCount}
+        />
+      )}
+
       {/* Hero KPI Strip */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="relative overflow-hidden transition-shadow hover:shadow-md">

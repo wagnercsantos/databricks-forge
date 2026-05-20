@@ -53,6 +53,11 @@ model ForgeRun {
   contextSourcesJson String?  @map("context_sources_json")
   schemaSnapshotJson String?  @map("schema_snapshot_json")
   synthesisJson      String?  @map("synthesis_json")
+  // JSON-encoded array of pipeline step ids that produced degraded output
+  // (e.g. ["financial-quantification"]). Used by the UI to surface an
+  // amber "Recompute" banner when an LLM call returned empty content and
+  // could not be recovered via halve-batch + fallback. NULL = healthy.
+  degradedStepsJson  String?  @map("degraded_steps_json")
 
   useCases             ForgeUseCase[]
   exports              ForgeExport[]

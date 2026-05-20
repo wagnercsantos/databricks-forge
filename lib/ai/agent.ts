@@ -21,6 +21,8 @@ import { randomUUID } from "crypto";
 import {
   chatCompletion,
   chatCompletionStream,
+  EmptyContentError,
+  isEmptyContentError,
   ModelServingError,
   type ChatMessage,
   type StreamCallback,
@@ -259,6 +261,7 @@ export async function executeAIQuery(options: AIQueryOptions): Promise<AIQueryRe
 
   let lastError: Error | null = null;
   let exhausted429 = false;
+  let exhaustedEmptyContent = false;
 
   await llmSemaphore.acquire();
   try {
@@ -327,6 +330,21 @@ export async function executeAIQuery(options: AIQueryOptions): Promise<AIQueryRe
           continue;
         }
 
+        // Empty-content: model returned no text (reasoning-only, refusal, or
+        // abandoned a large prompt). Retry quickly; on exhaustion, the
+        // fallback path below rotates to the next-priority endpoint.
+        if (isEmptyContentError(lastError)) {
+          const retryAfterMs = addJitter(2_000);
+          logger.warn("FMAPI returned empty content, backing off briefly", {
+            promptKey: options.promptKey,
+            endpoint: options.modelEndpoint,
+            finishReason: lastError.finishReason,
+            retryAfterMs: Math.round(retryAfterMs),
+          });
+          await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+          continue;
+        }
+
         // Don't retry on other client errors (4xx) -- these are non-retryable
         if (isNonRetryableError(lastError)) {
           break;
@@ -334,16 +352,18 @@ export async function executeAIQuery(options: AIQueryOptions): Promise<AIQueryRe
       }
     }
 
-    // If we exited the loop due to 429s (all retries consumed), mark for fallback
+    // If we exited the loop due to 429s or empty content, mark for fallback.
     if (lastError && isRateLimitError(lastError)) {
       exhausted429 = true;
+    } else if (lastError && isEmptyContentError(lastError)) {
+      exhaustedEmptyContent = true;
     }
   } finally {
     llmSemaphore.release();
   }
 
-  // Attempt fallback endpoint when primary is 429-exhausted
-  if (exhausted429) {
+  // Attempt fallback endpoint when primary is 429-exhausted or empty-content-exhausted
+  if (exhausted429 || exhaustedEmptyContent) {
     const fallback = getFallbackEndpoint(options.modelEndpoint);
     if (fallback) {
       logger.warn("FMAPI falling back to alternate endpoint", {
@@ -509,7 +529,14 @@ async function executeAIQueryOnce(
   const durationMs = Date.now() - startTime;
 
   if (!rawResponse) {
-    throw new Error(`FMAPI returned empty response for ${options.promptKey}`);
+    // Treat as a typed, retryable, fallback-eligible error so the retry loop
+    // can rotate to the next-priority endpoint instead of hammering the same
+    // model. See lib/dbx/model-serving.ts -> EmptyContentError.
+    throw new EmptyContentError(
+      options.promptKey,
+      options.modelEndpoint,
+      response.finishReason,
+    );
   }
 
   const honestyScore = extractHonestyScore(rawResponse);
@@ -595,15 +622,18 @@ export async function executeAIQueryStream(
     const startTime = Date.now();
 
     if (attempt > 0 && lastError) {
-      if (!isRateLimitError(lastError)) break;
-      const baseRetryMs =
-        lastError instanceof ModelServingError && lastError.retryAfterMs
+      // Retry on 429 OR empty content; everything else aborts the stream loop.
+      if (!isRateLimitError(lastError) && !isEmptyContentError(lastError)) break;
+      const baseRetryMs = isRateLimitError(lastError)
+        ? lastError instanceof ModelServingError && lastError.retryAfterMs
           ? lastError.retryAfterMs
-          : DEFAULT_429_BACKOFF_MS;
+          : DEFAULT_429_BACKOFF_MS
+        : 2_000;
       const retryAfterMs = addJitter(baseRetryMs);
-      logger.warn("FMAPI streaming rate-limited (429), backing off with jitter", {
+      logger.warn("FMAPI streaming retrying after retryable error", {
         promptKey: options.promptKey,
         attempt,
+        reason: isRateLimitError(lastError) ? "rate_limit" : "empty_content",
         retryAfterMs: Math.round(retryAfterMs),
       });
       await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
@@ -628,7 +658,11 @@ export async function executeAIQueryStream(
       const durationMs = Date.now() - startTime;
 
       if (!rawResponse) {
-        throw new Error(`FMAPI streaming returned empty response for ${options.promptKey}`);
+        throw new EmptyContentError(
+          options.promptKey,
+          options.modelEndpoint,
+          response.finishReason,
+        );
       }
 
       const honestyScore = extractHonestyScore(rawResponse);
@@ -682,14 +716,15 @@ export async function executeAIQueryStream(
         error: lastError.message,
       });
 
-      if (!isRateLimitError(lastError)) {
+      // Only 429 and empty-content are retryable for streaming.
+      if (!isRateLimitError(lastError) && !isEmptyContentError(lastError)) {
         break;
       }
     }
   }
 
-  // Attempt fallback endpoint when primary is 429-exhausted
-  if (lastError && isRateLimitError(lastError)) {
+  // Attempt fallback endpoint when primary is 429-exhausted or empty-content-exhausted
+  if (lastError && (isRateLimitError(lastError) || isEmptyContentError(lastError))) {
     const fallback = getFallbackEndpoint(options.modelEndpoint);
     if (fallback) {
       logger.warn("FMAPI streaming falling back to alternate endpoint", {
@@ -713,7 +748,7 @@ export async function executeAIQueryStream(
           const durationMs = Date.now() - startTime;
 
           if (!rawResponse) {
-            throw new Error(`FMAPI streaming returned empty response for ${options.promptKey}`);
+            throw new EmptyContentError(options.promptKey, fallback, response.finishReason);
           }
 
           const honestyScore = extractHonestyScore(rawResponse);

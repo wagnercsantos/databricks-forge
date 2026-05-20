@@ -31,7 +31,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ runI
       tracking,
       stakeholders,
       valueCaptures,
-      synthesisRow,
+      runMetadata,
     ] = await Promise.all([
       getValueEstimatesForRun(runId),
       getValueSummaryForRun(runId),
@@ -42,18 +42,30 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ runI
       withPrisma(async (prisma) => {
         const row = await prisma.forgeRun.findUnique({
           where: { runId },
-          select: { synthesisJson: true },
+          select: { synthesisJson: true, degradedStepsJson: true },
         });
-        return row?.synthesisJson ?? null;
+        return row;
       }),
     ]);
 
     let synthesis: ExecutiveSynthesis | null = null;
-    if (synthesisRow) {
+    if (runMetadata?.synthesisJson) {
       try {
-        synthesis = JSON.parse(synthesisRow) as ExecutiveSynthesis;
+        synthesis = JSON.parse(runMetadata.synthesisJson) as ExecutiveSynthesis;
       } catch {
         synthesis = null;
+      }
+    }
+
+    let degradedSteps: string[] = [];
+    if (runMetadata?.degradedStepsJson) {
+      try {
+        const parsed = JSON.parse(runMetadata.degradedStepsJson) as unknown;
+        if (Array.isArray(parsed)) {
+          degradedSteps = parsed.filter((s): s is string => typeof s === "string");
+        }
+      } catch {
+        degradedSteps = [];
       }
     }
 
@@ -65,6 +77,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ runI
       stakeholders,
       valueCaptures,
       synthesis,
+      degradedSteps,
     });
   } catch (err) {
     logger.error("[api/runs/business-value] GET failed", { error: String(err) });

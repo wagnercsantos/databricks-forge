@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { resilientFetchJson, fetchJson } from "@/lib/fetch-json";
@@ -38,8 +38,9 @@ import { toast } from "sonner";
 import { Trash2, Search, ChevronLeft, ChevronRight, ArrowUpDown, Square, Users } from "lucide-react";
 import { LabelWithTip } from "@/components/ui/info-tip";
 import { RUNS_LIST } from "@/lib/help-text";
-import type { PipelineRun } from "@/lib/domain/types";
+import type { PipelineRunSummary } from "@/lib/lakebase/runs";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { hasActiveRunStatuses } from "@/components/runs/active-status";
 
 const STATUS_STYLES: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
@@ -56,15 +57,24 @@ export function RunsContent({
   initialRuns,
   initialError,
 }: {
-  initialRuns: PipelineRun[];
+  initialRuns: PipelineRunSummary[];
   initialError: string | null;
 }) {
   const router = useRouter();
   const { email: currentEmail } = useCurrentUser();
-  const [runs, setRuns] = useState<PipelineRun[]>(initialRuns);
+  const [runs, setRuns] = useState<PipelineRunSummary[]>(initialRuns);
   const [error, setError] = useState<string | null>(initialError);
   const abortRef = useRef<AbortController | null>(null);
   const fetchingRef = useRef(false);
+  // `hasLoadedRef` lets the fetch closure decide whether to surface an
+  // error to the user without needing `runs` in its dependency list.
+  // Once we have ever loaded a non-empty list, transient poll failures
+  // are swallowed silently (the user keeps seeing their previous data).
+  const hasLoadedRef = useRef(initialRuns.length > 0);
+  // Ref-backed callback so the polling effect can call the latest version
+  // without re-running every time `fetchRuns` would be re-created. This is
+  // the same pattern used by `lib/hooks/use-run-detail.ts`.
+  const fetchRunsRef = useRef<() => Promise<void>>(async () => {});
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -81,33 +91,47 @@ export function RunsContent({
     abortRef.current = controller;
 
     try {
-      const data = await resilientFetchJson<{ runs: typeof runs }>("/api/runs?limit=200", {
-        signal: controller.signal,
-      });
+      // `fields=summary` keeps the payload tiny -- only the columns the
+      // table renders, no `businessContext` / `synthesisJson` / `stepLog`.
+      const data = await resilientFetchJson<{ runs: PipelineRunSummary[] }>(
+        "/api/runs?fields=summary&limit=200",
+        { signal: controller.signal },
+      );
       setRuns(data.runs);
+      if (data.runs.length > 0) hasLoadedRef.current = true;
       setError(null);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      if (runs.length === 0) {
+      if (!hasLoadedRef.current) {
         setError(err instanceof Error ? err.message : "Failed to load runs");
       }
     } finally {
       fetchingRef.current = false;
     }
-  }, [runs.length]);
+  }, []);
+
+  useEffect(() => {
+    fetchRunsRef.current = fetchRuns;
+  }, [fetchRuns]);
 
   useEffect(() => {
     return () => abortRef.current?.abort();
   }, []);
 
+  // Derived primitive flag so the polling effect's dep is a stable boolean,
+  // not the `runs` array reference. Without this the effect would tear down
+  // and rebuild the interval on every poll, multiplying load and -- with
+  // the old heavy payload -- pushing the RSC serializer over its recursion
+  // ceiling.
+  const hasActiveRuns = useMemo(() => hasActiveRunStatuses(runs), [runs]);
+
   useEffect(() => {
-    const hasActiveRuns = runs.some(
-      (r) => r.status === "running" || r.status === "pending" || r.status === "queued",
-    );
     if (!hasActiveRuns) return;
-    const interval = setInterval(fetchRuns, 5000);
+    const interval = setInterval(() => {
+      void fetchRunsRef.current();
+    }, 5000);
     return () => clearInterval(interval);
-  }, [runs, fetchRuns]);
+  }, [hasActiveRuns]);
 
   async function handleDelete(runId: string, businessName: string) {
     try {

@@ -368,6 +368,7 @@ export async function startPipeline(
           runId,
           ctx.signal,
           ctx.run.config.outputLanguage,
+          ctx.ownerEmail,
         );
         if (commentResult.enriched) {
           const msg = commentResult.reused

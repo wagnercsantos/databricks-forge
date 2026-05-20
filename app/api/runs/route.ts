@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { apiLogger } from "@/lib/logger";
 import { safeErrorMessage } from "@/lib/error-utils";
-import { createRun, listRuns } from "@/lib/lakebase/runs";
+import { createRun, listRuns, listRunSummaries } from "@/lib/lakebase/runs";
 import { ensureMigrated } from "@/lib/lakebase/schema";
 import { safeParseBody, CreateRunSchema } from "@/lib/validation";
 import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
@@ -111,11 +111,18 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "50", 10) || 50, 1), 200);
     const offset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
     const view = (searchParams.get("view") ?? "all") as "all" | "owned" | "shared";
+    const summary = searchParams.get("fields") === "summary";
 
     await ensureMigrated();
 
     const sharedIds = view === "owned" ? [] : await listAccessibleIds(user.email, "run");
-    const runs = await listRuns(limit, offset, user.email, view, sharedIds);
+    // Summary mode returns only the columns the list UI renders. Avoids
+    // ferrying heavy LLM-generated JSON (`businessContext`, `synthesisJson`,
+    // `stepLog`, ...) that would otherwise be parsed, serialized, and
+    // re-parsed every 5 s while the runs list is polling.
+    const runs = summary
+      ? await listRunSummaries(limit, offset, user.email, view, sharedIds)
+      : await listRuns(limit, offset, user.email, view, sharedIds);
 
     return NextResponse.json(
       { runs },
