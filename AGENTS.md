@@ -211,6 +211,59 @@ Data model: `ForgeValueEstimate`, `ForgeRoadmapPhase`, `ForgeUseCaseTracking`,
 `ForgeStakeholderProfile` (see Prisma schema). `ForgeRun.synthesisJson` stores
 executive synthesis output.
 
+Master Repository v2 grounding (financial-quantification pass):
+- `FINANCIAL_QUANTIFICATION_PROMPT` is now grounded in the canonical
+  `ECONOMIC_PATTERNS` table (`lib/domain/economic-patterns.ts`) and the
+  per-industry Master Repo enrichment (`lib/domain/industry-outcomes/*.enrichment.ts`).
+- The prompt asks the model to (1) pick one of 10 canonical economic patterns
+  per use case, (2) substitute concrete formula variables, and (3) emit
+  `economic_pattern_name`, `economic_impact_category`, and
+  `economic_formula_vars` alongside the legacy `value_type` / low / mid / high.
+- These three new fields are persisted on `ForgeValueEstimate`
+  (`economicPatternName`, `economicImpactCategory`, `economicFormulaVars`) so
+  downstream features (Data Gap value-at-risk, exports) can replay the
+  formula without re-prompting.
+
+## Data Gap Analysis Engine
+
+The Data Gap engine (`lib/engines/data-gap-analysis/engine.ts`) evaluates a
+catalog scope -- a pipeline run or estate scan -- against the industry's
+Master Repository v2 Reference Data Assets and produces an asset-level
+coverage matrix plus economic value-at-risk.
+
+Key modules:
+- `lib/engines/data-gap-analysis/engine.ts` -- pure `runDataGapAnalysis(input)`
+  entry point (no DB / no LLM / no network)
+- `lib/engines/data-gap-analysis/recommendations.ts` --
+  `buildIngestionRecommendations(asset)` ranks the four ingestion paths
+  (Lakeflow Connect, UC Federation, Lakebridge Migrate, Bespoke) using the
+  master repo's `High` / `Low` ratings
+- `lib/engines/data-gap-analysis/economic-value.ts` --
+  `computeValueAtRisk` (per-asset attribution) and
+  `computeSummaryValueAtRisk` (deduplicated portfolio total). VA-only links
+  produce a 30% partial loss vs blocked MC links
+- `lib/engines/data-gap-analysis/types.ts` -- `DataGapResult`,
+  `AssetCoverage`, `AssetValueAtRisk`, `IngestionStrategy`
+- `lib/lakebase/data-gap-analyses.ts` -- CRUD for `ForgeDataGapAnalysis`
+
+Data model: `ForgeDataGapAnalysis` (per run or scan, owner-scoped, stores
+`coverageJson` + `valueAtRiskJson` + summary metrics).
+
+API routes:
+- `GET /api/runs/[runId]/data-gap` -- read latest cached analysis, falling
+  back to an on-demand compute if none exists
+- `POST /api/runs/[runId]/data-gap` -- recompute and persist
+- `GET /api/master-repo/[industryId]` -- serve the Master Repo enrichment
+  (reference data assets + mapped use cases) used by the outcomes browser
+
+UI surfaces:
+- `components/pipeline/run-detail/data-gap-card.tsx` -- Run detail
+  Outcome-Map tab card: per-asset coverage table, MC/VA tallies, ingestion
+  recommendation, top-N missing-asset value-at-risk
+- `components/outcomes/master-repo-section.tsx` -- Outcomes browser detail
+  view: Reference Data Assets grouped by family + mapped Master Repo use
+  cases with economic pattern badges
+
 ## Genie Health Check Engine
 
 The Health Check Engine (`lib/genie/space-health-check.ts`) provides a deterministic

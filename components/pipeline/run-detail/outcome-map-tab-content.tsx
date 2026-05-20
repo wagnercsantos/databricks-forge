@@ -30,6 +30,7 @@ import {
 } from "@/lib/domain/industry-coverage";
 import { useIndustryOutcomes } from "@/lib/hooks/use-industry-outcomes";
 import type { IndustryObjective } from "@/lib/domain/industry-outcomes";
+import { DataGapCard } from "./data-gap-card";
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -192,6 +193,9 @@ export function OutcomeMapTabContent({
 
       {/* Data Gap Summary */}
       {hasGaps && <DataGapSummary coverage={coverage} runId={runId} />}
+
+      {/* Master Repository v2 -- Reference Data Asset coverage + value at risk */}
+      <DataGapCard runId={runId} />
     </div>
   );
 }

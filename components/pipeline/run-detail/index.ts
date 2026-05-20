@@ -6,6 +6,7 @@ export {
 export { BusinessContextCard } from "./business-context-card";
 export { ConfigField } from "./config-field";
 export { CoverageGapCard } from "./coverage-gap-card";
+export { DataGapCard } from "./data-gap-card";
 export { EnvironmentScanCard } from "./environment-scan-card";
 export { IndustryBanner } from "./industry-banner";
 export { IndustryCoverageCard } from "./industry-coverage-card";

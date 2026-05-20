@@ -23,6 +23,14 @@ import { executeAIQuery } from "@/lib/ai/agent";
 import { resolveEndpoint } from "@/lib/dbx/client";
 import { logger as fallbackLogger } from "@/lib/logger";
 import { upsertValueEstimates, getValueEstimatesForRun } from "@/lib/lakebase/value-estimates";
+import {
+  ECONOMIC_PATTERNS,
+  isEconomicImpactCategory,
+  isEconomicPatternName,
+  LEGACY_VALUE_TYPE_MAP,
+} from "@/lib/domain/economic-patterns";
+import { getMasterRepoEnrichment } from "@/lib/domain/industry-outcomes/master-repo-registry";
+import { resolveIndustryId } from "@/lib/domain/industry-outcomes";
 import { upsertRoadmapPhases } from "@/lib/lakebase/roadmap-phases";
 import { replaceStakeholderProfiles } from "@/lib/lakebase/stakeholder-profiles";
 import { bulkInitTracking } from "@/lib/lakebase/use-case-tracking";
@@ -74,6 +82,96 @@ function safeParse<T>(raw: string | null | undefined, fallback: T): T {
 // Pass 1: Financial Quantification
 // ---------------------------------------------------------------------------
 
+/**
+ * Build the canonical economic-patterns prompt block. All 10 patterns are
+ * always included so the LLM picks a structured value. Plain text so it can
+ * be safely inlined into a template string.
+ */
+function buildEconomicPatternsContext(): string {
+  const lines: string[] = [];
+  for (const p of Object.values(ECONOMIC_PATTERNS)) {
+    const range = p.expectedRangePct
+      ? ` Typical D4B range: ${p.expectedRangePct.low}--${p.expectedRangePct.high}%.`
+      : "";
+    lines.push(`- **${p.name}** [${p.category}]`);
+    lines.push(`    Formula: ${p.defaultFormula}.${range}`);
+    lines.push(`    Variables: ${p.variableHints.join(" | ")}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Build a per-industry block of pre-calibrated reference cases. Each entry
+ * carries the master-repo formula and benchmark uplift so the LLM can lean
+ * on a real consultancy-grade anchor instead of inventing one.
+ *
+ * Source priority:
+ *   1. The canonical industry id stored on `run.config.industry` (highest
+ *      signal -- the pipeline auto-detects this earlier in `pipeline/engine.ts`
+ *      and the user can override it via the run config). Building from this
+ *      always finds the matching enrichment when one exists.
+ *   2. Free-form `bc.industries` text (e.g. "Banking & Payments, Capital
+ *      Markets"). Each comma/semicolon-separated token is normalised to an
+ *      id-shaped slug and resolved via `resolveIndustryId()`. This is a
+ *      best-effort fallback for older runs whose `config.industry` is null.
+ *
+ * Both sources are attempted. Results are de-duplicated by canonical id so
+ * that, e.g., a run with both `config.industry = "banking"` and
+ * `bc.industries = "Banking, Capital Markets"` emits the banking block once
+ * and the capital-markets block once.
+ *
+ * Exported for unit testing.
+ */
+export function buildIndustryReferenceCases(opts: {
+  canonicalIndustryId?: string | null;
+  freeText?: string | null;
+}): string {
+  const seen = new Set<string>();
+  const blocks: string[] = [];
+
+  function pushIndustry(rawId: string, label: string) {
+    const resolved = resolveIndustryId(rawId) ?? rawId;
+    if (!resolved || seen.has(resolved)) return;
+    const enrichment = getMasterRepoEnrichment(resolved);
+    if (!enrichment) return;
+    const refs = enrichment.useCases.filter(
+      (uc) => uc.economicPatternName && uc.economicFormula && uc.benchmarkImpact,
+    );
+    if (refs.length === 0) return;
+    seen.add(resolved);
+    blocks.push(`Industry: ${label}`);
+    for (const uc of refs.slice(0, 30)) {
+      const formula = uc.economicFormula ?? "";
+      const kpi = uc.kpiTarget ? ` ${uc.kpiTarget}` : "";
+      const bench = uc.benchmarkImpact ?? "";
+      const pattern = uc.economicPatternName ?? "";
+      blocks.push(
+        `  * ${uc.name} -> ${pattern} | formula: ${formula} | benchmark:${kpi} ${bench}`,
+      );
+    }
+    blocks.push("");
+  }
+
+  // Tier 1: canonical industry id from the run config.
+  if (opts.canonicalIndustryId) {
+    pushIndustry(opts.canonicalIndustryId, opts.canonicalIndustryId);
+  }
+
+  // Tier 2: free-text best-effort. Useful for legacy runs and for runs that
+  // span multiple industries.
+  const tokens = (opts.freeText ?? "")
+    .split(/[,;/]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const token of tokens) {
+    const normalized = token.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    if (normalized) pushIndustry(normalized, token);
+  }
+
+  if (blocks.length === 0) return "(no industry reference cases available)";
+  return blocks.join("\n");
+}
+
 async function runFinancialQuantification(
   ctx: PipelineContext,
   useCases: UseCase[],
@@ -82,6 +180,12 @@ async function runFinancialQuantification(
   const { run } = ctx;
   const bc = run.businessContext;
   if (!bc || useCases.length === 0) return;
+
+  const economicPatternsContext = buildEconomicPatternsContext();
+  const industryReferenceCases = buildIndustryReferenceCases({
+    canonicalIndustryId: run.config.industry ?? null,
+    freeText: bc.industries,
+  });
 
   const batchSize = 25;
   const batches = [];
@@ -105,6 +209,8 @@ async function runFinancialQuantification(
       value_chain: bc.valueChain,
       estate_context: `${useCases.length} use cases across ${new Set(useCases.map((u) => u.domain)).size} domains`,
       use_cases_json: summariseCasesForLLM(batch),
+      economic_patterns_context: economicPatternsContext,
+      industry_reference_cases: industryReferenceCases,
     };
 
     try {
@@ -126,23 +232,41 @@ async function runFinancialQuantification(
         rationale?: string;
         assumptions?: string[];
         industry_benchmark?: string;
+        economic_pattern_name?: string;
+        economic_impact_category?: string;
+        economic_formula_vars?: Record<string, number | string>;
       };
       const estimates = safeParse<RawEstimate[]>(result.rawResponse, []);
 
       if (estimates.length > 0) {
         await upsertValueEstimates(
           run.runId,
-          estimates.map((e) => ({
-            useCaseId: e.use_case_id,
-            valueLow: Math.max(0, e.value_low ?? 0),
-            valueMid: Math.max(0, e.value_mid ?? 0),
-            valueHigh: Math.max(0, e.value_high ?? 0),
-            valueType: (e.value_type || "efficiency_gain") as ValueType,
-            confidence: (e.confidence || "medium") as ValueConfidence,
-            rationale: e.rationale,
-            assumptions: e.assumptions,
-            industryBenchmark: e.industry_benchmark,
-          })),
+          estimates.map((e) => {
+            const valueType = (e.value_type || "efficiency_gain") as ValueType;
+            // Prefer the LLM's structured category; fall back via legacy map.
+            const impactCategory =
+              e.economic_impact_category && isEconomicImpactCategory(e.economic_impact_category)
+                ? e.economic_impact_category
+                : (LEGACY_VALUE_TYPE_MAP[valueType] ?? null);
+            const patternName =
+              e.economic_pattern_name && isEconomicPatternName(e.economic_pattern_name)
+                ? e.economic_pattern_name
+                : null;
+            return {
+              useCaseId: e.use_case_id,
+              valueLow: Math.max(0, e.value_low ?? 0),
+              valueMid: Math.max(0, e.value_mid ?? 0),
+              valueHigh: Math.max(0, e.value_high ?? 0),
+              valueType,
+              confidence: (e.confidence || "medium") as ValueConfidence,
+              rationale: e.rationale,
+              assumptions: e.assumptions,
+              industryBenchmark: e.industry_benchmark,
+              economicPatternName: patternName,
+              economicImpactCategory: impactCategory,
+              economicFormulaVars: e.economic_formula_vars ?? null,
+            };
+          }),
         );
       }
     } catch (err) {

@@ -156,7 +156,14 @@ export interface MetadataFetchCounters {
 export interface SchemaContextOptions {
   industryId?: string;
   /** Reference Data Assets to guide classification (from industry outcome maps). */
-  dataAssetNames?: Array<{ id: string; name: string; description: string; assetFamily: string }>;
+  dataAssetNames?: Array<{
+    id: string;
+    name: string;
+    description: string;
+    assetFamily: string;
+    systemLocation?: string;
+    systemKind?: string;
+  }>;
   includeLineage?: boolean;
   includeHistory?: boolean;
   signal?: AbortSignal;

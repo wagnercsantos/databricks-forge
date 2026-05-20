@@ -36,6 +36,7 @@ import {
 } from "@/lib/domain/industry-outcomes";
 import { useIndustryOutcomes } from "@/lib/hooks/use-industry-outcomes";
 import { PageHeader } from "@/components/page-header";
+import { MasterRepoSection } from "@/components/outcomes/master-repo-section";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 
 // ---------------------------------------------------------------------------
@@ -488,6 +489,11 @@ function IndustryDetailView({
           <ObjectiveSection objective={objective} iconColor={color.icon} />
         </motion.div>
       ))}
+
+      {/* Master Repository v2 -- reference data assets and mapped use cases */}
+      <motion.div variants={staggerItem}>
+        <MasterRepoSection industryId={industry.id} />
+      </motion.div>
     </motion.div>
   );
 }

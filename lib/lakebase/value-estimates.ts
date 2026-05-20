@@ -27,6 +27,9 @@ function dbRowToEstimate(row: {
   rationale: string | null;
   assumptions: string | null;
   industryBenchmark: string | null;
+  economicPatternName?: string | null;
+  economicImpactCategory?: string | null;
+  economicFormulaVars?: string | null;
 }): ValueEstimate {
   return {
     id: row.id,
@@ -41,6 +44,12 @@ function dbRowToEstimate(row: {
     rationale: row.rationale,
     assumptions: parseJSON<string[]>(row.assumptions, []),
     industryBenchmark: row.industryBenchmark,
+    economicPatternName: row.economicPatternName ?? null,
+    economicImpactCategory: row.economicImpactCategory ?? null,
+    economicFormulaVars: parseJSON<Record<string, number | string> | null>(
+      row.economicFormulaVars ?? null,
+      null,
+    ),
   };
 }
 
@@ -64,6 +73,9 @@ export async function upsertValueEstimates(
     rationale?: string;
     assumptions?: string[];
     industryBenchmark?: string;
+    economicPatternName?: string | null;
+    economicImpactCategory?: string | null;
+    economicFormulaVars?: Record<string, number | string> | null;
   }>,
 ): Promise<void> {
   await withPrisma(async (prisma) => {
@@ -83,6 +95,11 @@ export async function upsertValueEstimates(
             rationale: e.rationale ?? null,
             assumptions: e.assumptions ? JSON.stringify(e.assumptions) : null,
             industryBenchmark: e.industryBenchmark ?? null,
+            economicPatternName: e.economicPatternName ?? null,
+            economicImpactCategory: e.economicImpactCategory ?? null,
+            economicFormulaVars: e.economicFormulaVars
+              ? JSON.stringify(e.economicFormulaVars)
+              : null,
           },
           update: {
             valueLow: e.valueLow,
@@ -94,6 +111,11 @@ export async function upsertValueEstimates(
             rationale: e.rationale ?? null,
             assumptions: e.assumptions ? JSON.stringify(e.assumptions) : null,
             industryBenchmark: e.industryBenchmark ?? null,
+            economicPatternName: e.economicPatternName ?? null,
+            economicImpactCategory: e.economicImpactCategory ?? null,
+            economicFormulaVars: e.economicFormulaVars
+              ? JSON.stringify(e.economicFormulaVars)
+              : null,
           },
         }),
       ),

@@ -1,8 +1,8 @@
 {
-  "$schema": "master-repository-benchmarks",
+  "$schema": "master-repository-benchmarks-v2",
   "industry": "insurance",
   "industryName": "Insurance",
-  "generatedAt": "2026-03-10T03:45:37.742Z",
+  "generatedAt": "2026-05-14T08:46:04.342Z",
   "records": [
     {
       "kind": "kpi",
@@ -19,11 +19,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Next in Personalization Report."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Sub_yrΔbindPremAdoptCap"
     },
     {
       "kind": "kpi",
@@ -40,11 +47,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "AnalystHrs_yrΔhrs%Cost_hrAdoptCap"
     },
     {
       "kind": "kpi",
@@ -61,11 +75,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Churn Reduction (Retention / LTV Protection)",
+      "economicFormula": "InforcePrem_yr*Δret%*CM%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -82,11 +103,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Sub_yrΔcloseRev_per_bindAdoptCap"
     },
     {
       "kind": "kpi",
@@ -103,11 +131,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Nividous -- IDP Automation Stats."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Docs_yrΔtouch_minCost_minAdoptCap"
     },
     {
       "kind": "kpi",
@@ -124,11 +159,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Yahoo Finance -- Indico Data AI Submission Triage."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Sub_yrΔbindPremAdoptCap"
     },
     {
       "kind": "kpi",
@@ -145,11 +187,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "ReportHrs_yrΔhrs%Cost_hrAdoptCap"
     },
     {
       "kind": "kpi",
@@ -166,11 +215,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Leads_yrΔconvPremAdoptCap"
     },
     {
       "kind": "kpi",
@@ -187,11 +243,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Next in Personalization Report."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Prospects_yrΔquoteΔbindPremAdopt*Cap"
     },
     {
       "kind": "kpi",
@@ -208,11 +271,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Nationwide (quoting McKinsey) -- Personalization in Insurance Marketing."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Offers_yrΔtakePremAdoptCap"
     },
     {
       "kind": "kpi",
@@ -229,11 +299,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Experience-led Growth (CX Outperformers)."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Cust_yrΔattachPrem_addAdoptCap"
     },
     {
       "kind": "kpi",
@@ -250,11 +327,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Model makeover: Telco to Techco (Analytics)."
-      }
+      },
+      "economicPattern": "Churn Reduction (Retention / LTV Protection)",
+      "economicFormula": "InforcePrem_yr*Δret%*CM%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -271,11 +355,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Checkouts_yrΔattachPrem_microAdoptCap"
     },
     {
       "kind": "kpi",
@@ -292,11 +383,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Events_yrΔattachPrem_onAdoptCap"
     },
     {
       "kind": "kpi",
@@ -313,11 +411,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Carrier Management -- Allstate Drivewise Telematics Results."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "Exp_yrΔEL_per_expAdopt*Cap"
     },
     {
       "kind": "kpi",
@@ -334,11 +439,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Philadelphia Insurance -- PHLYTRAC Telematics Program Data."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Prem_yr*Δrate%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -355,11 +467,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Claims_yrΔadjCostAdopt*Cap"
     },
     {
       "kind": "kpi",
@@ -376,11 +495,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Cross-Industry."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "PrivacyCost_yr*Δrisk%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -397,11 +523,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "ERMCost_yr*Δrisk%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -418,11 +551,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "ConductCost_yr*Δrisk%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -439,11 +579,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "RegHrs_yrΔhrs%Cost_hrAdoptCap"
     },
     {
       "kind": "kpi",
@@ -460,11 +607,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Avatier -- Compliance Automation Case Study."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "RemedCost_yr*Δrisk%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -481,11 +635,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "ModelErrCost_yr*Δrisk%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -502,11 +663,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- FEI Daily -- Accelerating the Close Cycle."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "CloseHrs_yrΔhrs%Cost_hrAdoptCap"
     },
     {
       "kind": "kpi",
@@ -523,11 +691,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "AUM_$ΔyieldAdopt*Cap"
     },
     {
       "kind": "kpi",
@@ -544,11 +719,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Guidewire -- AI FNOL Case Study."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "ClaimDocs_yrΔtouch_minCost_minAdoptCap"
     },
     {
       "kind": "kpi",
@@ -565,11 +747,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Insurance Claims Automation Outlook."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "ClaimsPaid_yr*Δleak%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -586,11 +775,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Insurance Claims Automation Outlook."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "ClaimsPaid_yr*Δleak%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -607,11 +803,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- NAIC -- State of Insurance Fraud Report."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "FraudLoss_yr*Δprevent%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -628,11 +831,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Verisk -- Predictive Analytics in Rating."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Prem_yr*ΔrateAdeq%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -649,11 +859,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Shift Technology -- Subrogation AI Case."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "SubroBase_yr*Δrecovery%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -670,11 +887,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- MITRE -- Insider Threats Detection Guide."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "SecLoss_yr*Δrisk%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -691,11 +915,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- MITRE -- Cyber Threat Hunting Fundamentals."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "BreachCost_yr*Δrisk%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -712,11 +943,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Cross-Industry."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "OutageCost_yr*Δrisk%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -733,11 +971,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Verizon -- DBIR 2025 Insights."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "PhishLoss_yr*Δprevent%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -754,11 +999,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Gartner -- Innovation Insight for XDR."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Alerts_yrΔtriage_minCost_minAdoptCap"
     },
     {
       "kind": "kpi",
@@ -775,11 +1027,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- FEI Daily -- Accelerating the Close Cycle."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "FPnA_Hrs_yrΔhrs%Cost_hrAdoptCap"
     },
     {
       "kind": "kpi",
@@ -796,11 +1055,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "OpsRptHrs_yrΔhrs%Cost_hrAdoptCap"
     },
     {
       "kind": "kpi",
@@ -817,11 +1083,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "ScoreHrs_yrΔhrs%Cost_hrAdoptCap"
     },
     {
       "kind": "kpi",
@@ -838,11 +1111,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "ContSpend_yr*Δsave%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -859,11 +1139,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Everest Group -- IDP Market Report."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Docs_yrΔtouch_minCost_minAdoptCap"
     },
     {
       "kind": "kpi",
@@ -880,11 +1167,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Encompass/Chartis -- Reducing Client Onboarding Time."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Applicants_yrΔcompletePremAdoptCap"
     },
     {
       "kind": "kpi",
@@ -901,11 +1195,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- IBM (via MokaHR) -- Predictive Turnover Analytics."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "FTE_baseΔFTE%Cost_FTEAdoptCap"
     },
     {
       "kind": "kpi",
@@ -922,11 +1223,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Bain (American Banker) -- Branch Network Transformation."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "BranchCost_yr*Δcost%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -943,11 +1251,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Insurance."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "ComplCost_yr*Δescal%AdoptCap"
     },
     {
       "kind": "kpi",
@@ -964,11 +1279,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Gartner -- Top 10 Strategic Tech Trends: AI in Customer Service."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Calls_yrDeflect%AHT_minCost_minAdopt*Cap"
     },
     {
       "kind": "kpi",
@@ -985,11 +1307,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "insurance"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "insurance",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Forrester -- Total Economic Impact of Contact-Center AI."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Calls_yrΔAHT_minCost_minAdoptCap"
     }
   ]
 }

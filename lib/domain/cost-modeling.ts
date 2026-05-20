@@ -10,6 +10,15 @@
 
 import type { EffortEstimate } from "@/lib/domain/types";
 import { getMasterRepoEnrichment } from "@/lib/domain/industry-outcomes/master-repo-registry";
+import {
+  LOE_MATRIX as MASTER_REPO_LOE_MATRIX,
+  LOE_TO_EFFORT as MASTER_REPO_LOE_TO_EFFORT,
+  normalizeModelType as masterRepoNormalizeModelType,
+  resolveLoeLevel as masterRepoResolveLoeLevel,
+  type AccessDifficulty,
+  type LOELevel as MasterRepoLOELevel,
+  type ModelType as MasterRepoModelType,
+} from "@/lib/domain/loe-matrix";
 
 export interface CostEstimate {
   effortEstimate: EffortEstimate;
@@ -106,84 +115,63 @@ export function getEffortOrder(effort: EffortEstimate): number {
 }
 
 // ---------------------------------------------------------------------------
-// Master Repository LOE Matrix
+// Master Repository LOE Matrix (back-compat wrapper)
 // ---------------------------------------------------------------------------
+//
+// The canonical matrix now lives in `lib/domain/loe-matrix.ts`. This module
+// keeps the legacy `estimateLOEFromModelType(modelType, mcCount)` wrapper for
+// callers that have not yet been migrated to the explicit
+// `mcAccessDifficulty` input from the Master Repository.
 
-export type ModelType =
-  | "Basic-ML"
-  | "Intermediate — Traditional AI"
-  | "Advanced — GenAI"
-  | "Expert — AI Agents";
-
+export type ModelType = MasterRepoModelType;
 export type DataCriticality = "low" | "medium" | "high";
+export type { MasterRepoLOELevel as LOELevel };
 
-type LOELevel = "Low" | "Medium" | "High";
-
-/**
- * 4x3 LOE matrix from the Master Repository.
- * Rows = model type, Columns = data criticality (derived from MC asset count).
- */
-const LOE_MATRIX: Record<ModelType, Record<DataCriticality, LOELevel>> = {
-  "Basic-ML": { low: "Low", medium: "Medium", high: "High" },
-  "Intermediate — Traditional AI": { low: "Low", medium: "Medium", high: "High" },
-  "Advanced — GenAI": { low: "Medium", medium: "High", high: "High" },
-  "Expert — AI Agents": { low: "High", medium: "High", high: "High" },
-};
-
-const LOE_TO_EFFORT: Record<LOELevel, EffortEstimate> = {
-  Low: "s",
-  Medium: "m",
-  High: "l",
-};
-
-const MODEL_TYPE_ALIASES: Record<string, ModelType> = {
-  "basic-ml": "Basic-ML",
-  "basic ml": "Basic-ML",
-  intermediate: "Intermediate — Traditional AI",
-  "intermediate — traditional ai": "Intermediate — Traditional AI",
-  "intermediate - traditional ai": "Intermediate — Traditional AI",
-  "traditional ai": "Intermediate — Traditional AI",
-  advanced: "Advanced — GenAI",
-  "advanced — genai": "Advanced — GenAI",
-  "advanced - genai": "Advanced — GenAI",
-  genai: "Advanced — GenAI",
-  expert: "Expert — AI Agents",
-  "expert — ai agents": "Expert — AI Agents",
-  "expert - ai agents": "Expert — AI Agents",
-  "ai agents": "Expert — AI Agents",
-};
-
-function resolveModelType(raw: string): ModelType | null {
-  if (raw in LOE_MATRIX) return raw as ModelType;
-  return MODEL_TYPE_ALIASES[raw.toLowerCase().trim()] ?? null;
+function difficultyFromMcCount(mcCount: number): AccessDifficulty {
+  if (mcCount <= 1) return "Low";
+  if (mcCount <= 3) return "Medium";
+  return "High";
 }
 
-function deriveDataCriticality(mcCount: number): DataCriticality {
-  if (mcCount <= 1) return "low";
-  if (mcCount <= 3) return "medium";
-  return "high";
+function difficultyToLegacyCriticality(d: AccessDifficulty): DataCriticality {
+  return d === "Low" ? "low" : d === "Medium" ? "medium" : "high";
 }
 
 /**
- * Estimate effort from model type and mission-critical data asset count
- * using the Master Repository LOE matrix.
- *
- * Returns null if the model type is unrecognized.
+ * Legacy entry point that derives an LOE from model type + MC asset count.
+ * New callers should use `estimateLOEFromAccessDifficulty` instead, passing
+ * the explicit `mcAccessDifficulty` value from `MasterRepoUseCase`.
  */
 export function estimateLOEFromModelType(
   modelType: string,
   mcCount: number,
-): { effort: EffortEstimate; loeLevel: LOELevel; dataCriticality: DataCriticality } | null {
-  const resolved = resolveModelType(modelType);
+): { effort: EffortEstimate; loeLevel: MasterRepoLOELevel; dataCriticality: DataCriticality } | null {
+  const resolved = masterRepoNormalizeModelType(modelType);
   if (!resolved) return null;
 
-  const criticality = deriveDataCriticality(mcCount);
-  const loeLevel = LOE_MATRIX[resolved][criticality];
+  const difficulty = difficultyFromMcCount(mcCount);
+  const loeLevel = MASTER_REPO_LOE_MATRIX[resolved][difficulty];
 
   return {
-    effort: LOE_TO_EFFORT[loeLevel],
+    effort: MASTER_REPO_LOE_TO_EFFORT[loeLevel],
     loeLevel,
-    dataCriticality: criticality,
+    dataCriticality: difficultyToLegacyCriticality(difficulty),
+  };
+}
+
+/**
+ * Resolve LOE using the explicit Master Repository `mcAccessDifficulty` bucket.
+ * Preferred over `estimateLOEFromModelType` once a use case has been re-seeded.
+ */
+export function estimateLOEFromAccessDifficulty(
+  modelType: string,
+  accessDifficulty: AccessDifficulty,
+): { effort: EffortEstimate; loeLevel: MasterRepoLOELevel } | null {
+  const loeLevel = masterRepoResolveLoeLevel(modelType, accessDifficulty);
+  if (!loeLevel) return null;
+  return {
+    effort: MASTER_REPO_LOE_TO_EFFORT[loeLevel],
+    loeLevel,
   };
 }
 

@@ -24,6 +24,19 @@ ${USER_DATA_DEFENCE}
 **Data Estate Scale:**
 {estate_context}
 
+# Canonical Economic Patterns (Master Repository v2)
+
+Pick exactly ONE of the 10 canonical patterns for each use case. Use the
+pattern's **formula skeleton** as the structural basis for your estimate --
+plug concrete variable values (volumes, deltas, rates, adoption) into the
+formula, then compute low/mid/high by sweeping the variables conservatively.
+
+{economic_patterns_context}
+
+# Industry-Calibrated Reference Cases
+
+{industry_reference_cases}
+
 # Use Cases to Estimate
 
 {use_cases_json}
@@ -32,19 +45,19 @@ ${USER_DATA_DEFENCE}
 
 For EACH use case, estimate the **annual financial impact** as a range (low / mid / high) in USD.
 
-Use these calibration anchors:
-- **Cost Savings**: Process automation (1-5% of operating cost for affected process), data quality improvements (0.5-2% of revenue from error reduction)
-- **Revenue Uplift**: Better targeting/personalization (2-8% of addressable revenue), churn reduction (value of retained customers), pricing optimization (1-3% margin improvement)
-- **Risk Reduction**: Fraud detection (0.5-2% of transaction value), compliance (avoided fines, typically 0.1-1% of revenue)
-- **Efficiency Gain**: Analyst time savings ($100-250K per FTE freed), faster decision cycles (value of speed)
-
-**D4B Industry Benchmarks** (use as additional calibration):
-- Average cost per ad-hoc analyst report: $1,200-$3,500
-- Self-service analytics reduces analyst request queue by 60-80%, freeing 3-7 days per request cycle
-- BI tool consolidation on Databricks typically saves 15-30% of annual analytics tooling spend
-- Organisations with mature data platforms see 2-5x faster time-to-insight vs spreadsheet-driven analysis
-- Data quality automation reduces downstream error remediation costs by 40-60%
-- Centralised governance (Unity Catalog) reduces compliance audit preparation time by 50-70%
+Steps:
+1. **Pick a canonical economic pattern** that fits the use case (one of the 10 above).
+2. **Adopt the pattern's formula** and substitute concrete variables. If an
+   industry reference case matches the use case (by name or close domain),
+   reuse its formula and benchmark uplift -- it is already calibrated.
+3. **Pick a value_type** that maps to the impact category:
+     - Cost                       -> cost_savings
+     - Revenue                    -> revenue_uplift
+     - Productivity / Capacity    -> efficiency_gain
+     - Risk / Loss Avoidance      -> risk_reduction
+     - Cash / Working Capital     -> cost_savings (working capital release)
+4. **Capture the formula variables you used** under \`economic_formula_vars\`
+   so a downstream auditor can reproduce the number.
 
 Scale your estimates based on:
 - The **data estate size** (table row counts, number of tables involved)
@@ -56,7 +69,7 @@ CRITICAL RULES:
 - Be conservative. Round to meaningful increments ($10K, $50K, $100K, $500K, $1M).
 - The LOW estimate should be achievable even with poor execution.
 - The HIGH estimate should represent best-case with ideal execution.
-- Confidence: "high" if you have clear industry benchmarks, "medium" for reasonable estimates, "low" for speculative.
+- Confidence: "high" if you have a matching industry reference case, "medium" for reasonable estimates without an exact match, "low" for speculative.
 - Do NOT inflate values to make use cases look better. Under-promise.
 
 # Output Format
@@ -74,12 +87,17 @@ Return a JSON array, one object per use case:
     "confidence": "medium",
     "rationale": "One-sentence justification with reference to industry benchmark or calculation basis",
     "assumptions": ["Assumes 5% error rate reduction", "Based on 2M transactions/year"],
-    "industry_benchmark": "Industry average: 1-3% fraud loss rate (Nilson Report)"
+    "industry_benchmark": "Industry average: 1-3% fraud loss rate (Nilson Report)",
+    "economic_pattern_name": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+    "economic_impact_category": "Risk / Loss Avoidance",
+    "economic_formula_vars": { "Loss_yr": 2000000, "Delta_pct": 0.15, "Adopt%": 0.6, "Cap%": 0.7 }
   }
 ]
 \`\`\`
 
 value_type must be one of: cost_savings, revenue_uplift, risk_reduction, efficiency_gain.
+economic_impact_category must be one of: Cost, Revenue, Productivity / Capacity, Risk / Loss Avoidance, Cash / Working Capital.
+economic_pattern_name must be one of the 10 canonical pattern names listed above.
 confidence must be one of: low, medium, high.`;
 
 export const ROADMAP_PHASING_PROMPT = `# Persona

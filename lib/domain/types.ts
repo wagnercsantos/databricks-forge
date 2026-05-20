@@ -700,6 +700,10 @@ export interface ValueEstimate {
   rationale: string | null;
   assumptions: string[];
   industryBenchmark: string | null;
+  // Optional Master Repository v2 economic-pattern grounding.
+  economicPatternName: string | null;
+  economicImpactCategory: string | null;
+  economicFormulaVars: Record<string, number | string> | null;
 }
 
 export interface RoadmapPhaseAssignment {

@@ -1,8 +1,8 @@
 {
-  "$schema": "master-repository-benchmarks",
+  "$schema": "master-repository-benchmarks-v2",
   "industry": "energy-utilities",
   "industryName": "Energy & Utilities",
-  "generatedAt": "2026-03-10T03:45:37.735Z",
+  "generatedAt": "2026-05-14T08:46:04.330Z",
   "records": [
     {
       "kind": "kpi",
@@ -19,11 +19,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "ΔIncidents_yrCost_incidentAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -40,11 +47,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "ΔLost_assets_yrRepl_costAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -61,11 +75,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Manufacturing Analytics Unleashes Productivity and Profitability."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "ΔUnplanned_Opex_yrAdoptCapture"
     },
     {
       "kind": "kpi",
@@ -82,11 +103,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Capex Avoidance (Infrastructure / Tool Consolidation)",
+      "economicFormula": "ΔAnnual_Capex_yrAdoptCapture"
     },
     {
       "kind": "kpi",
@@ -103,11 +131,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "ΔProd_boe_yrNetback_boeP_success*Adopt"
     },
     {
       "kind": "kpi",
@@ -124,11 +159,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "ΔProd_boe_yrNetback_boeP_success*Adopt"
     },
     {
       "kind": "kpi",
@@ -145,11 +187,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "ΔRig_days_yrCost_per_rig_dayAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -166,11 +215,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "ΔThroughput_yrMargin_per_unitAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -187,11 +243,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "ΔFindings_yrCost_per_findingAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -208,11 +271,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "ΔLeak_events_yrCost_per_leakAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -229,11 +299,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "ΔkWh_yrElec_priceAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -250,11 +327,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Eng_hours_saved_yrLoaded_rateAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -271,11 +355,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- NREL -- Solar/Wind AI Optimization Results."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "ΔMWh_yrMargin_per_MWhAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -292,11 +383,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "KgH2_yrΔkWh_per_kgElec_price*Adopt"
     },
     {
       "kind": "kpi",
@@ -313,11 +411,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- IAEA -- AI for Nuclear Safety Applications."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "ΔSafety_events_yrCost_per_eventAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -334,11 +439,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Capex Avoidance (Infrastructure / Tool Consolidation)",
+      "economicFormula": "ΔAnnual_Capex_yrAdoptCapture"
     },
     {
       "kind": "kpi",
@@ -355,11 +467,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "ΔPeak_MWCap_cost_per_MWyrAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -376,11 +495,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- EPRI -- AI in Wildfire Risk Mitigation."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "ΔIgnitions_yrCost_per_ignitionAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -397,11 +523,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Capex Avoidance (Infrastructure / Tool Consolidation)",
+      "economicFormula": "ΔPlanned_Capex_yrAdoptCapture"
     },
     {
       "kind": "kpi",
@@ -418,11 +551,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "ΔImbalance_cost_yrAdoptCapture"
     },
     {
       "kind": "kpi",
@@ -439,11 +579,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Smart Scheduling with AI."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "ΔOvertime_hours_yrOT_premium_per_hrAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -460,11 +607,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- ServiceMax -- AI Field Service Benchmark."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "ΔRepeat_visits_yrCost_per_visitAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -481,11 +635,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Working Capital Improvement (Inventory / AR / AP Efficiency)",
+      "economicFormula": "ΔAvg_inv_$Carry_rateAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -502,11 +663,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Google -- Fleet Routing API Case Study."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "ΔMiles_yrCost_per_mileAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -523,11 +691,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Generative AI and the Future of Work."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Reporting_hours_saved_yrLoaded_rateAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -544,11 +719,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "ΔNoncomp_events_yrCost_per_eventAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -565,11 +747,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Generative AI and the Future of Work."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Filing_hours_saved_yrLoaded_rateAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -586,11 +775,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- BCG -- How AI Cuts Procurement Costs for Retailers."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Addressable_spend_yr*ΔPrice_%AdoptCapture"
     },
     {
       "kind": "kpi",
@@ -607,11 +803,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Generative AI and the Future of Work."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Backoffice_hours_saved_yrLoaded_rateAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -628,11 +831,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "ΔSettlement_loss_yrAdoptCapture"
     },
     {
       "kind": "kpi",
@@ -649,11 +859,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Working Capital Improvement (Inventory / AR / AP Efficiency)",
+      "economicFormula": "(Credit_rev_yr/365)ΔDSO_daysAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -670,11 +887,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "ΔData_Opex_yrAdoptCapture"
     },
     {
       "kind": "kpi",
@@ -691,11 +915,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "Contract_value_yr*ΔLeakage_%AdoptCapture"
     },
     {
       "kind": "kpi",
@@ -712,11 +943,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The value of getting personalization right—or wrong—is multiplying."
-      }
+      },
+      "economicPattern": "Churn Reduction (Retention / LTV Protection)",
+      "economicFormula": "Cust_baseΔChurn_%GM_per_cust_yrAdoptCapture"
     },
     {
       "kind": "kpi",
@@ -733,11 +971,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Gartner -- Agentic AI in Customer Service (Press Release)."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "(Deflected_contacts_yr*Cost_per_contact)AdoptCapture"
     },
     {
       "kind": "kpi",
@@ -754,11 +999,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Energy & Utilities."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "ΔPrivacy_incidents_yrCost_per_incidentAdopt*Capture"
     },
     {
       "kind": "kpi",
@@ -775,11 +1027,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "energy-utilities"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "energy-utilities",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- NIST -- SP 800-82 Rev.3 Guide to ICS Security."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "ΔOT_incidents_yrCost_per_incidentAdopt*Capture"
     }
   ]
 }

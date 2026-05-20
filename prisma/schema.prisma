@@ -488,17 +488,57 @@ model ForgeEnvironmentScan {
   createdAt             DateTime @default(now()) @map("created_at")
   ownerEmail            String?  @map("owner_email")
 
-  run        ForgeRun? @relation(fields: [runId], references: [runId], onDelete: Cascade)
-  details    ForgeTableDetail[]
-  histories  ForgeTableHistorySummary[]
-  lineage    ForgeTableLineage[]
-  insights   ForgeTableInsight[]
+  run            ForgeRun? @relation(fields: [runId], references: [runId], onDelete: Cascade)
+  details        ForgeTableDetail[]
+  histories      ForgeTableHistorySummary[]
+  lineage        ForgeTableLineage[]
+  insights       ForgeTableInsight[]
+  dataGapAnalyses ForgeDataGapAnalysis[]
 
   @@index([runId])
   @@index([createdAt])
   @@index([ownerEmail])
   @@index([ownerEmail, createdAt(sort: Desc)])
   @@map("forge_environment_scans")
+}
+
+// ---------------------------------------------------------------------------
+// Data Gap Analysis (Master Repository v2)
+// ---------------------------------------------------------------------------
+
+model ForgeDataGapAnalysis {
+  id                String   @id @default(uuid()) @map("analysis_id")
+  /** Owning resource: either a pipeline run or an environment scan. Exactly one is set. */
+  runId             String?  @map("run_id")
+  scanId            String?  @map("scan_id")
+  industryId        String   @map("industry_id")
+  industryName      String   @map("industry_name")
+  totalAssets       Int      @default(0) @map("total_assets")
+  presentAssets     Int      @default(0) @map("present_assets")
+  missingAssets     Int      @default(0) @map("missing_assets")
+  mcCovered         Int      @default(0) @map("mc_covered")
+  mcMissing         Int      @default(0) @map("mc_missing")
+  vaCovered         Int      @default(0) @map("va_covered")
+  vaMissing         Int      @default(0) @map("va_missing")
+  mcCoveragePct     Float    @default(0) @map("mc_coverage_pct")
+  valueAtRiskLow    Float    @default(0) @map("value_at_risk_low")
+  valueAtRiskMid    Float    @default(0) @map("value_at_risk_mid")
+  valueAtRiskHigh   Float    @default(0) @map("value_at_risk_high")
+  /** Full coverage matrix as JSON: Array<AssetCoverage>. */
+  coverageJson      String   @map("coverage_json")
+  /** Value-at-risk per missing asset as JSON: Array<AssetValueAtRisk>. */
+  valueAtRiskJson   String?  @map("value_at_risk_json")
+  ownerEmail        String?  @map("owner_email")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  scan ForgeEnvironmentScan? @relation(fields: [scanId], references: [scanId], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([scanId])
+  @@index([industryId])
+  @@index([ownerEmail])
+  @@index([ownerEmail, createdAt(sort: Desc)])
+  @@map("forge_data_gap_analyses")
 }
 
 model ForgeTableDetail {
@@ -1193,6 +1233,10 @@ model ForgeValueEstimate {
   rationale       String?
   assumptions     String?  // JSON array of assumption strings
   industryBenchmark String? @map("industry_benchmark")
+  // ---- Master Repository v2 economic pattern fields (optional) -----------
+  economicPatternName     String? @map("economic_pattern_name")
+  economicImpactCategory  String? @map("economic_impact_category")
+  economicFormulaVars     String? @map("economic_formula_vars") // JSON object: variable -> value
   createdAt       DateTime @default(now()) @map("created_at")
 
   run ForgeRun @relation(fields: [runId], references: [runId], onDelete: Cascade)

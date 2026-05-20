@@ -115,7 +115,11 @@ describe("benchmark seed pack files", () => {
       const raw = JSON.parse(readFileSync(join(BENCHMARK_DIR, file), "utf-8"));
 
       it("has valid $schema marker", () => {
-        expect(raw.$schema).toBe("master-repository-benchmarks");
+        // Master Repository v2 seed bumped the marker to `-v2`; accept either
+        // so legacy packs and freshly regenerated packs both validate.
+        expect(["master-repository-benchmarks", "master-repository-benchmarks-v2"]).toContain(
+          raw.$schema,
+        );
       });
 
       it("has at least one record", () => {

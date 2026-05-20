@@ -1,8 +1,8 @@
 {
-  "$schema": "master-repository-benchmarks",
+  "$schema": "master-repository-benchmarks-v2",
   "industry": "manufacturing",
   "industryName": "Manufacturing",
-  "generatedAt": "2026-03-10T03:45:37.734Z",
+  "generatedAt": "2026-05-14T08:46:04.329Z",
   "records": [
     {
       "kind": "kpi",
@@ -19,11 +19,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Manufacturing Analytics Unleashes Productivity and Profitability."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "DowntimeHrs_avoided_yr × CM_$per_hr × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -40,11 +47,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Units_priced_yr × ΔNetPrice_$per_unit × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -61,11 +75,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Quality Control 4.0: Cutting Costs, Raising Yields."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "Claims_yr × ΔCost_$per_claim × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -82,11 +103,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- ServiceMax -- AI Field Service Benchmark."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "TruckRolls_avoided_yr × Cost_$per_roll × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -103,11 +131,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Quality Control 4.0: Cutting Costs, Raising Yields."
-      }
+      },
+      "economicPattern": "Waste Reduction (Spoilage / Returns / Write-downs)",
+      "economicFormula": "ScrapCost_avoided_yr × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -124,11 +159,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The value of getting personalization right—or wrong—is multiplying."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Opps_eligible_yr × ΔWinRate × Avg_GM$_per_win × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -145,11 +187,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Pecan AI -- How and Why to Calculate and Predict Customer Churn."
-      }
+      },
+      "economicPattern": "Churn Reduction (Retention / LTV Protection)",
+      "economicFormula": "AtRiskRev_yr × ΔRetain% × GM% × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -166,11 +215,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "SvcCampaignSpend_yr × ΔIneffectiveSpend% × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -187,11 +243,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The value of getting personalization right—or wrong—is multiplying."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Quotes_eligible_yr × ΔAttachRate × Avg_GM$_per_attach × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -208,11 +271,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Quality Control 4.0: Cutting Costs, Raising Yields."
-      }
+      },
+      "economicPattern": "Waste Reduction (Spoilage / Returns / Write-downs)",
+      "economicFormula": "Defects_caught_yr × Cost$_per_defect × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -229,11 +299,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "PlannedHrs_yr × ΔOEE × CM_$per_hr × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -250,11 +327,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "OT_Hrs_avoided_yr × OT_Premium$_per_hr × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -271,11 +355,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "Incidents_avoided_yr × Cost$_per_incident × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -292,11 +383,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "kWh_saved_yr × $per_kWh × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -313,11 +411,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Units_yr × ΔBOM_Cost$_per_unit × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -334,11 +439,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Units_gain_yr × CM_$per_unit × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -355,11 +467,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Microsoft -- How Copilots Boost Developer Productivity."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "EngHours_saved_yr × LoadedRate_$per_hr × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -376,11 +495,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "IP_Cases_avoided_yr × ExpCost$_per_case × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -397,11 +523,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Tickets_yr × ΔHandleHrs_per_ticket × $per_support_hr × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -418,11 +551,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "NonComp_events_avoided_yr × ExpCost$_per_event × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -439,11 +579,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Working Capital Improvement (Inventory / AR / AP Efficiency)",
+      "economicFormula": "Inv$_reduced × WACC% × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -460,11 +607,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Reinventing Collections to Lower Bad Debt."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Orders_yr × ΔHrs_per_order × LoadedRate_$per_hr × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -481,11 +635,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Working Capital Improvement (Inventory / AR / AP Efficiency)",
+      "economicFormula": "Inv$_reduced × WACC% × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -502,11 +663,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Expedites_avoided_yr × PremiumFreight$_per_ship × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -523,11 +691,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Working Capital Improvement (Inventory / AR / AP Efficiency)",
+      "economicFormula": "Inv$_reduced_from_FC × WACC% × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -544,11 +719,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "tCO2e_avoided_yr × CarbonCost_$per_t × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -565,11 +747,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- BCG -- How Retailers Can Improve Promotion Effectiveness."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Rev_eligible_yr × ΔNetPrice% × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -586,11 +775,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Generative AI and the Future of Work."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Reports_yr × ΔHrs_per_report × LoadedRate_$per_hr × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -607,11 +803,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Five Fifty: Scaling Operations and Maintenance."
-      }
+      },
+      "economicPattern": "Working Capital Improvement (Inventory / AR / AP Efficiency)",
+      "economicFormula": "CashFreed$_avg × WACC% × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -628,11 +831,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Manufacturing."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Scenarios_yr × ΔHrs_per_scn × LoadedRate_$per_hr × Adopt% × Capture%"
     },
     {
       "kind": "kpi",
@@ -649,11 +859,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "manufacturing"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "manufacturing",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Microsoft -- How Copilots Boost Developer Productivity."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Outputs_yr × ΔHrs_per_output × LoadedRate_$per_hr × Adopt% × Capture%"
     }
   ]
 }

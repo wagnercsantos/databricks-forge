@@ -78,6 +78,9 @@ export async function deleteAllData(): Promise<void> {
       // Connections cascade through fabric scans / workspaces / datasets / reports / artifacts
       prisma.forgeFabricMigration.deleteMany(),
       prisma.forgeConnection.deleteMany(),
+      // Data gap analyses can be linked to either a scan (cascades) or a run
+      // (no cascade) -- delete explicitly so run-linked rows are not orphaned.
+      prisma.forgeDataGapAnalysis.deleteMany(),
       // Environment scans cascade to all per-scan child tables
       prisma.forgeEnvironmentScan.deleteMany(),
       // Strategy documents cascade to alignments before runs are dropped

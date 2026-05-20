@@ -70,12 +70,31 @@ import { SUPERANNUATION } from "./superannuation";
 import { CONSTRUCTION_INFRASTRUCTURE } from "./construction-infrastructure";
 import { MINING } from "./mining";
 
+// New Master Repo v2 industries (split from previous collapsed ids).
+import { RETAIL } from "./retail";
+import { CONSUMER_GOODS } from "./consumer-goods";
+import { LIFE_SCIENCES } from "./life-sciences";
+import { HEALTHCARE } from "./healthcare";
+import { CAPITAL_MARKETS } from "./capital-markets";
+import { CASINOS_RESORTS } from "./casinos-resorts";
+import { REAL_MONEY_GAMING } from "./real-money-gaming";
+
 // ---------------------------------------------------------------------------
 // Registry -- Built-in (static) outcome maps
 // ---------------------------------------------------------------------------
 
 /** Built-in industry outcome maps (curated from /docs/outcome maps/). */
 export const INDUSTRY_OUTCOMES: IndustryOutcome[] = [
+  // New, split-out v2 industries first so they show up as the canonical pick.
+  RETAIL,
+  CONSUMER_GOODS,
+  LIFE_SCIENCES,
+  HEALTHCARE,
+  CAPITAL_MARKETS,
+  CASINOS_RESORTS,
+  REAL_MONEY_GAMING,
+  // Legacy collapsed ids retained for backwards compatibility with existing
+  // ForgeRun.config.industry rows. See INDUSTRY_ALIAS_MAP below.
   BANKING,
   INSURANCE,
   HLS,
@@ -94,6 +113,29 @@ export const INDUSTRY_OUTCOMES: IndustryOutcome[] = [
   CONSTRUCTION_INFRASTRUCTURE,
   MINING,
 ];
+
+/**
+ * Maps legacy collapsed industry ids to the canonical v2 id used by the
+ * Master Repository seed. Old `ForgeRun.config.industry='rcg'` rows continue
+ * to resolve their handcrafted outcome map (`RCG`), but downstream master
+ * repo enrichment lookups should prefer the canonical v2 id when a caller
+ * needs to read structured fields like `economicPatternName`.
+ */
+export const INDUSTRY_ALIAS_MAP: Record<string, string> = {
+  rcg: "retail",
+  hls: "life-sciences",
+  banking: "banking",
+  "sports-betting": "real-money-gaming",
+};
+
+/**
+ * Resolve a possibly-legacy industry id to the canonical v2 id used by the
+ * Master Repository seed. Returns the input unchanged if no alias applies.
+ */
+export function resolveIndustryId(id: string | null | undefined): string | null {
+  if (!id) return null;
+  return INDUSTRY_ALIAS_MAP[id] ?? id;
+}
 
 /**
  * Look up an industry outcome by its id (built-in only, synchronous).

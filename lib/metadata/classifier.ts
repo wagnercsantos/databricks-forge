@@ -41,7 +41,14 @@ export interface ClassifierResult {
 
 export interface ClassifyOptions {
   /** Reference Data Assets from industry outcome maps (for asset mapping). */
-  dataAssets?: Array<{ id: string; name: string; description: string; assetFamily: string }>;
+  dataAssets?: Array<{
+    id: string;
+    name: string;
+    description: string;
+    assetFamily: string;
+    systemLocation?: string;
+    systemKind?: string;
+  }>;
   signal?: AbortSignal;
   onProgress?: (pct: number, detail?: string) => void;
 }
@@ -118,16 +125,27 @@ export async function classifySchema(
 
   const endpoint = resolveEndpoint("classification");
 
-  // Build data asset context block
+  // Build data asset context block. When the caller provides system hints
+  // (systemLocation / systemKind from the master repo), include them so the
+  // classifier can match a table sourced from "Salesforce" to the CRM-kind
+  // industry asset even when the table name is opaque.
   let dataAssetContext = "";
   if (dataAssets && dataAssets.length > 0) {
     const lines = [
       "### INDUSTRY DATA ASSETS",
-      "Map tables to the closest matching data asset where appropriate:",
+      "Map tables to the closest matching data asset where appropriate.",
+      "Use the system hints (typical source / system kind) to break ties",
+      "when the table name alone is ambiguous.",
       "",
     ];
     for (const asset of dataAssets) {
-      lines.push(`- ${asset.id}: ${asset.name} [${asset.assetFamily}] -- ${asset.description}`);
+      const sys: string[] = [];
+      if (asset.systemKind) sys.push(`system: ${asset.systemKind}`);
+      if (asset.systemLocation) sys.push(`typical: ${asset.systemLocation}`);
+      const sysStr = sys.length ? ` (${sys.join("; ")})` : "";
+      lines.push(
+        `- ${asset.id}: ${asset.name} [${asset.assetFamily}]${sysStr} -- ${asset.description}`,
+      );
     }
     dataAssetContext = lines.join("\n");
   }

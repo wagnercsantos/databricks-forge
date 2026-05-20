@@ -1,8 +1,8 @@
 {
-  "$schema": "master-repository-benchmarks",
+  "$schema": "master-repository-benchmarks-v2",
   "industry": "communications",
   "industryName": "Communications & Telecom",
-  "generatedAt": "2026-03-10T03:45:37.733Z",
+  "generatedAt": "2026-05-14T08:46:04.328Z",
   "records": [
     {
       "kind": "kpi",
@@ -19,11 +19,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Gartner -- Top Customer Service Automation Trends."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Contacts_yrΔAHT_min/60AgentCost_hr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -40,11 +47,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Pecan AI -- How and Why to Calculate and Predict Customer Churn."
-      }
+      },
+      "economicPattern": "Churn Reduction (Retention / LTV Protection)",
+      "economicFormula": "AtRiskSubs_yrΔSaveRateMargin_sub_yr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -61,11 +75,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "BillInqContacts_yrΔDeflectRateCost_contact*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -82,11 +103,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Reinventing Customer Onboarding with AI."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "NewOrders_yrΔCompletionRateMargin_newsub_yr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -103,11 +131,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The value of getting personalization right—or wrong—is multiplying."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "EligiblePros_yrΔWinRateMargin_sub_yr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -124,11 +159,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- BCG -- What Consumers Want from Personalization."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "OfferImpr_yrΔConvRateMargin_offer_yr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -145,11 +187,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Webex -- Call Deflection Tactics in an AI World."
-      }
+      },
+      "economicPattern": "Churn Reduction (Retention / LTV Protection)",
+      "economicFormula": "AffectedSubs_yrΔChurnRateMargin_sub_yr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -166,11 +215,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Qualtrics -- ROI of Sentiment Analysis in Telecom."
-      }
+      },
+      "economicPattern": "Churn Reduction (Retention / LTV Protection)",
+      "economicFormula": "NegSentSubs_yrΔChurnRateMargin_sub_yr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -187,11 +243,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Next Best Offer in Telecom."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Recos_yrΔMargin_plan_yrAdopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -208,11 +271,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Power of Dynamic Pricing in Telecom."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Quotes_yrΔPrice_or_Discount$BaseMargin*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -229,11 +299,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Generative AI and the Future of Work."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "MACD_yrΔHandle_min/60OpsCost_hr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -250,11 +327,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Reinventing Customer Service with Generative AI."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "WISMO_yrΔDeflectRateCost_contact*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -271,11 +355,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The value of getting personalization right—or wrong—is multiplying."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "SMB_Targets_yrΔConvRateMargin_offer_yr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -292,11 +383,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "Bills_yrΔErrorRateCost_error*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -313,11 +411,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Pecan AI -- How and Why to Calculate and Predict Customer Churn."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "SaveActions_yrΔWasteRateCost_action*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -334,11 +439,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- IBM -- Telecom Revenue Assurance Case Study."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "BillableUsage_$yrΔLeakageRateAdopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -355,11 +467,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Cognizant -- Automation in Telecom Operations."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "WholesaleLines_yrΔLabor_min/60OpsCost_hr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -376,11 +495,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Capgemini -- Order Entry Error Reduction via AI."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "Orders_yrΔBadOrderRateCost_badorder*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -397,11 +523,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- IT/OT Convergence in Scaling Operations."
-      }
+      },
+      "economicPattern": "Working Capital Improvement (Inventory / AR / AP Efficiency)",
+      "economicFormula": "Activations_yrΔDaysToBill/365ARPU_yr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -418,11 +551,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Five Fifty: Scaling Operations and Maintenance."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "ProvEvents_yrΔMisconfigRateCost_incident*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -439,11 +579,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Manufacturing Analytics Unleashes Productivity and Profitability."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "Incidents_yrΔMinutesImpact_per_min*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -460,11 +607,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Reports_yrΔPrep_min/60AnalystCost_hr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -481,11 +635,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Working Capital Improvement (Inventory / AR / AP Efficiency)",
+      "economicFormula": "Inventory_$*CarryCost%*ΔInvRed%*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -502,11 +663,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Reinventing Collections to Lower Bad Debt."
-      }
+      },
+      "economicPattern": "Working Capital Improvement (Inventory / AR / AP Efficiency)",
+      "economicFormula": "Revenue_$yrΔDSO/365WACC%*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -523,11 +691,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "Events_yrΔMTTR_minImpact_per_min*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -544,11 +719,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "Anoms_yrΔEscalationRateCost_majorIncident*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -565,11 +747,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cash / Working Capital"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Capex Avoidance (Infrastructure / Tool Consolidation)",
+      "economicFormula": "PlannedCapex_$yr*ΔOverbuild%*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -586,11 +775,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Manufacturing Analytics Unleashes Productivity and Profitability."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "Faults_yrΔCustomerImpact_minImpact_per_min*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -607,11 +803,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "SLA_yrΔPenaltyRateAvgPenalty_$*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -628,11 +831,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "SliceUnits_yrΔPrice_unitMargin%*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -649,11 +859,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "LegacyLines_yrΔOpex_line_yrAdopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -670,11 +887,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "WorkOrders_yrΔHours/WOFieldCost_hr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -691,11 +915,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Accenture -- Energy Management Trends in Telecom."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "kWh_yr*ΔkWh%Cost_kWhAdopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -712,11 +943,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "DataUnits_yrPrice_unitGM_unit*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -733,11 +971,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Waste Reduction (Spoilage / Returns / Write-downs)",
+      "economicFormula": "Visits_yrΔRepeatRateCost_visit*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -754,11 +999,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Manufacturing Analytics Unleashes Productivity and Profitability."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Assets_yrΔUnplannedRateCost_unplanned*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -775,11 +1027,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Microsoft -- How Copilots Boost Developer Productivity."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "FieldQueries_yrΔSearch_min/60FieldCost_hr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -796,11 +1055,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Smart Scheduling with AI."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Dispatches_yrΔTravel_min/60FieldCost_hr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -817,11 +1083,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Manufacturing Analytics Unleashes Productivity and Profitability."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "RM_Cases_yrΔReview_min/60FieldCost_hr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -838,11 +1111,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "SiteVisits_yrΔDoc_min/60FieldCost_hr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -859,11 +1139,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Mastercard -- Using AI to Fight SSIM Swap Fraud."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "SIMEvents_yrΔFraudRateLoss_fraud*$Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -880,11 +1167,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- SuperAGI -- AI Fraud Detection Tools Analysis."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "FraudTx_yrΔFraudRateLoss_tx$*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -901,11 +1195,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Verizon -- Data Breach Investigations Report (DBIR)."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "AttackMin_yr*ΔMitigated%Impact_per_minAdopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -922,11 +1223,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Mastercard -- AI-Powered Fraud Detection Impact."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "LoginEvents_yrΔATORateLoss_ATO$*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -943,11 +1251,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Mastercard -- AI-Powered Fraud Detection Impact."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "Signups_yrΔFraudRateLoss_signup$*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -964,11 +1279,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "ExpFine_$yr*ΔNonComp%*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -985,11 +1307,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- SuperAGI -- AI Fraud Detection Tools Analysis."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "SecInc_yr*ΔImpact$*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -1006,11 +1335,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- JPMorgan Chase -- AI in AML and KYC."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "AML_Cases_yrΔReview_min/60AnalystCost_hr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -1027,11 +1363,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "QoS_Reports_yrΔPenaltyRateAvgPenalty_$*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -1048,11 +1391,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- SailPoint -- Automated Offboarding Case Study."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "Offboards_yr*ΔResidualAccess%*ExpLoss_event$*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -1069,11 +1419,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "ESG_Reports_yrΔPrep_min/60AnalystCost_hr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -1090,11 +1447,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Communications."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "NetAnoms_yrΔEscalationRateCost_majorIncident*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -1111,11 +1475,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- IBM -- Threat Intelligence Platform Results."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Alerts_yrΔTriage_min/60SecAnalystCost_hr*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -1132,11 +1503,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Elastic -- AI in Cyber Incident Response."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "SecInc_yrΔContain_minImpact_per_min*Adopt%*Capture%"
     },
     {
       "kind": "kpi",
@@ -1153,11 +1531,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "communications"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "communications",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- IBM -- Threat Intelligence Platform Results."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "IoTInc_yr*ΔImpact$*Adopt%*Capture%"
     }
   ]
 }

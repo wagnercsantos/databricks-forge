@@ -68,26 +68,33 @@ const INDUSTRY_ALIASES: Record<string, string> = {
   "financial services": "banking",
   fintech: "banking",
   neobank: "banking",
-  "wealth management": "banking",
-  "capital markets": "banking",
+  "wealth management": "capital-markets",
+  "capital markets": "capital-markets",
+  "investment banking": "capital-markets",
+  "asset management": "capital-markets",
+  "broker dealer": "capital-markets",
   payments: "banking",
-  pharma: "hls",
-  pharmaceutical: "hls",
-  pharmaceuticals: "hls",
-  healthcare: "hls",
-  "life sciences": "hls",
-  biotech: "hls",
-  biotechnology: "hls",
-  "medical devices": "hls",
-  retail: "rcg",
-  "consumer goods": "rcg",
-  cpg: "rcg",
-  ecommerce: "rcg",
-  "e-commerce": "rcg",
-  grocery: "rcg",
-  fashion: "rcg",
-  hospitality: "rcg",
-  travel: "rcg",
+  pharma: "life-sciences",
+  pharmaceutical: "life-sciences",
+  pharmaceuticals: "life-sciences",
+  healthcare: "healthcare",
+  "health system": "healthcare",
+  payer: "healthcare",
+  "health insurance": "healthcare",
+  hospital: "healthcare",
+  "life sciences": "life-sciences",
+  biotech: "life-sciences",
+  biotechnology: "life-sciences",
+  "medical devices": "life-sciences",
+  retail: "retail",
+  "consumer goods": "consumer-goods",
+  cpg: "consumer-goods",
+  ecommerce: "retail",
+  "e-commerce": "retail",
+  grocery: "retail",
+  fashion: "retail",
+  hospitality: "casinos-resorts",
+  travel: "casinos-resorts",
   telco: "communications",
   telecom: "communications",
   telecommunications: "communications",
@@ -121,7 +128,15 @@ const INDUSTRY_ALIASES: Record<string, string> = {
   platform: "digital-natives",
   gaming: "games",
   esports: "games",
-  igaming: "sports-betting",
+  "video game": "games",
+  igaming: "real-money-gaming",
+  "online casino": "real-money-gaming",
+  "sports book": "real-money-gaming",
+  sportsbook: "real-money-gaming",
+  "online sports betting": "real-money-gaming",
+  casino: "casinos-resorts",
+  casinos: "casinos-resorts",
+  "integrated resort": "casinos-resorts",
   rail: "rail-transport",
   railway: "rail-transport",
   freight: "rail-transport",
@@ -132,10 +147,10 @@ const INDUSTRY_ALIASES: Record<string, string> = {
   oem: "automotive-mobility",
   vehicle: "automotive-mobility",
   fleet: "automotive-mobility",
-  betting: "sports-betting",
-  wagering: "sports-betting",
-  gambling: "sports-betting",
-  lotteries: "sports-betting",
+  betting: "real-money-gaming",
+  wagering: "real-money-gaming",
+  gambling: "real-money-gaming",
+  lotteries: "real-money-gaming",
   underwriting: "insurance",
   reinsurance: "insurance",
   claims: "insurance",
@@ -458,7 +473,14 @@ export async function buildIndustryKPIsPrompt(industryId: string): Promise<strin
  */
 export async function buildDataAssetContext(industryId: string): Promise<{
   text: string;
-  assets: Array<{ id: string; name: string; description: string; assetFamily: string }>;
+  assets: Array<{
+    id: string;
+    name: string;
+    description: string;
+    assetFamily: string;
+    systemLocation?: string;
+    systemKind?: string;
+  }>;
 }> {
   const enrichment = getMasterRepoEnrichment(industryId);
   const industry = await getIndustryOutcomeAsync(industryId);
@@ -473,22 +495,40 @@ export async function buildDataAssetContext(industryId: string): Promise<{
     `### INDUSTRY DATA ASSETS (${industryName})`,
     "",
     "These are the standard data assets in this industry. Use them to understand",
-    "what tables represent and to use industry-appropriate terminology:",
+    "what tables represent and to use industry-appropriate terminology. Each",
+    "asset carries a recommended **ingestion strategy** -- callers integrating",
+    "missing assets should prefer the High-rated strategy first.",
     "",
   ];
 
-  const assets: Array<{ id: string; name: string; description: string; assetFamily: string }> = [];
+  const assets: Array<{
+    id: string;
+    name: string;
+    description: string;
+    assetFamily: string;
+    systemLocation?: string;
+    systemKind?: string;
+  }> = [];
 
   for (const asset of enrichment.dataAssets) {
+    const strategies: string[] = [];
+    if (asset.lakeflowConnect === "High") strategies.push("Lakeflow Connect");
+    if (asset.ucFederation === "High") strategies.push("UC Federation");
+    if (asset.lakebridgeMigrate === "High") strategies.push("Lakebridge Migrate");
+    if (asset.bespoke === "High") strategies.push("Bespoke");
+    const stratStr = strategies.length ? ` ingest: ${strategies.join(" / ")}` : "";
+    const kindStr = asset.systemKind ? ` system-kind: ${asset.systemKind}` : "";
     lines.push(
       `- **${asset.id}: ${asset.name}** [${asset.assetFamily}] -- ${asset.description}` +
-        (asset.systemLocation ? ` (typical system: ${asset.systemLocation})` : ""),
+        (asset.systemLocation ? ` (typical: ${asset.systemLocation};${stratStr}${kindStr})` : ""),
     );
     assets.push({
       id: asset.id,
       name: asset.name,
       description: asset.description,
       assetFamily: asset.assetFamily,
+      systemLocation: asset.systemLocation || undefined,
+      systemKind: asset.systemKind,
     });
   }
 
@@ -523,7 +563,7 @@ export async function buildUseCaseLinkageContext(
 
   const useCasesByAsset = new Map<
     string,
-    Array<{ name: string; criticality: string; impact: string }>
+    Array<{ name: string; criticality: string; impact: string; pattern: string }>
   >();
 
   for (const uc of enrichment.useCases) {
@@ -536,11 +576,15 @@ export async function buildUseCaseLinkageContext(
       const critLabel = criticality === "MC" ? "Mission-Critical" : "Value-Add";
       const impact =
         uc.benchmarkImpact && uc.kpiTarget ? `${uc.kpiTarget} ${uc.benchmarkImpact}` : "";
+      const pattern = uc.economicPatternName
+        ? ` [${uc.economicImpactCategory ?? "?"}: ${uc.economicPatternName}]`
+        : "";
 
       useCasesByAsset.get(assetId)!.push({
         name: uc.name,
         criticality: critLabel,
         impact,
+        pattern,
       });
     }
   }
@@ -557,14 +601,14 @@ export async function buildUseCaseLinkageContext(
     if (mcUseCases.length > 0) {
       const mcNames = mcUseCases
         .slice(0, 5)
-        .map((uc) => uc.name + (uc.impact ? ` (${uc.impact})` : ""))
+        .map((uc) => uc.name + (uc.impact ? ` (${uc.impact})` : "") + uc.pattern)
         .join("; ");
       parts.push(`  Mission-Critical for: ${mcNames}`);
     }
     if (vaUseCases.length > 0) {
       const vaNames = vaUseCases
         .slice(0, 3)
-        .map((uc) => uc.name)
+        .map((uc) => uc.name + uc.pattern)
         .join("; ");
       parts.push(`  Value-Add for: ${vaNames}`);
     }

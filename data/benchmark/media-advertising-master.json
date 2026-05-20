@@ -1,8 +1,8 @@
 {
-  "$schema": "master-repository-benchmarks",
+  "$schema": "master-repository-benchmarks-v2",
   "industry": "media-advertising",
   "industryName": "Media, Entertainment & Advertising",
-  "generatedAt": "2026-03-10T03:45:37.731Z",
+  "generatedAt": "2026-05-14T08:46:04.325Z",
   "records": [
     {
       "kind": "kpi",
@@ -19,11 +19,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Pipes_yr×Δhrs_pipe×Rate_hr×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -40,11 +47,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Impr_addr_yr/1000×ΔeCPM_net×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -61,11 +75,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Impr_eff_yr/1000×ΔeCPM_net×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -82,11 +103,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- BCG -- What Consumers Want from Personalization."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Profiles_yr×Δhrs_profile×Rate_hr×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -103,11 +131,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- BCG -- What Consumers Want from Personalization."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Segments_yr×Δhrs_seg×Rate_hr×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -124,11 +159,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- BCG -- What Consumers Want from Personalization."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Spend_base_yr×Δspend%×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -145,11 +187,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- Generative AI and the Future of Work."
-      }
+      },
+      "economicPattern": "Capex Avoidance (Infrastructure / Tool Consolidation)",
+      "economicFormula": "Legacy_cost_yr×Retire%×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -166,11 +215,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Pecan AI -- How and Why to Calculate and Predict Customer Churn."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Elig_users_yr×Δconv×GM_per_conv×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -187,11 +243,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Plans_yr×Δhrs_plan×Rate_hr×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -208,11 +271,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Mkt_spend_yr×Δwaste%×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -229,11 +299,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "Credits_yr×Δerr%×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -250,11 +327,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Exp_yr×Δhrs_exp×Rate_hr×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -271,11 +355,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Ext_research$_yr×Δext%×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -292,11 +383,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Pecan AI -- How and Why to Calculate and Predict Customer Churn."
-      }
+      },
+      "economicPattern": "Churn Reduction (Retention / LTV Protection)",
+      "economicFormula": "Subs_yr×Δchurn×GM_per_sub_yr×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -313,11 +411,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The value of getting personalization right—or wrong—is multiplying."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Users_yr×Δattach×GM_per_attach×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -334,11 +439,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Search_sess_yr×ΔGM_per_sess×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -355,11 +467,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Business Insider -- Why Netflix’s Personalized Recommendation Engine Is Worth $1B Per Year."
-      }
+      },
+      "economicPattern": "Churn Reduction (Retention / LTV Protection)",
+      "economicFormula": "Subs_yr×Δchurn_rec×GM_per_sub_yr×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -376,11 +495,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Business Insider -- Why Netflix’s Personalized Recommendation Engine Is Worth $1B Per Year."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "Bad_sess_yr×Δbad%×Loss_per_bad_sess×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -397,11 +523,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Webex -- Call Deflection Tactics in an AI World."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Tickets_yr×Deflect%×Cost_ticket×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -418,11 +551,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Impr_sold_yr/1000×ΔeCPM_net×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -439,11 +579,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Impr_mix_yr/1000×ΔeCPM_mix×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -460,11 +607,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- Experian -- AI-Powered Identity Resolution."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Onbd_impr_yr/1000×ΔeCPM_net×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -481,11 +635,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Cookieless_impr_yr/1000×ΔeCPM_ctx×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -502,11 +663,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- BCG Digital Ventures -- GROW: Margin-Based Marketing 2.0."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Perf_impr_yr/1000×ΔeCPM_perf×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -523,11 +691,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- BCG -- What Consumers Want from Personalization."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "Elig_users_yr×Δconv×GM_per_conv×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -544,11 +719,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- BCG -- What Consumers Want from Personalization."
-      }
+      },
+      "economicPattern": "Price Realization (Yield / Rate Optimization)",
+      "economicFormula": "Ad_impr_yr/1000×ΔeCPM_adexp×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -565,11 +747,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Waste Reduction (Spoilage / Returns / Write-downs)",
+      "economicFormula": "Content_spend_yr×Δwaste%×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -586,11 +775,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Loss Avoidance (Fraud / Shrink / Leakage / Errors)",
+      "economicFormula": "Lic_rev_at_risk_yr×Δleak%×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -607,11 +803,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Talent_cost_yr×Δoverpay%×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -628,11 +831,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Titles_yr×Δhrs_title×Rate_hr×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -649,11 +859,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Cost"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Cost Takeout (Labor / Opex Reduction)",
+      "economicFormula": "Loc_mins_yr×Δcost_per_min×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -670,11 +887,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Risk / Loss Avoidance"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Risk Avoidance (Compliance / Penalties / Outage Impact)",
+      "economicFormula": "Penalty_exposure_yr×Δnoncomp%×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -691,11 +915,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Productivity / Capacity"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Productivity Capacity (Time-to-Decision / Ticket Deflection)",
+      "economicFormula": "Editorial_hrs_saved_yr×Rate_hr×Adopt%×Cap%"
     },
     {
       "kind": "kpi",
@@ -712,11 +943,18 @@
       "license_class": "citation_required",
       "confidence": 0.6,
       "ttl_days": 365,
-      "tags": ["master-repo", "kpi", "media-advertising"],
+      "tags": [
+        "master-repo",
+        "kpi",
+        "media-advertising",
+        "Revenue"
+      ],
       "provenance": {
         "source_class": "master_repository",
         "notes": "Sourced from Master Repository XLSX -- McKinsey -- The Executive’s AI Playbook—Media, Entertainment, & Advertising."
-      }
+      },
+      "economicPattern": "Revenue Uplift (Conversion / Attach / Cross-sell)",
+      "economicFormula": "ΔRepack_impr_yr/1000×eCPM_net×Adopt%×Cap%"
     }
   ]
 }
