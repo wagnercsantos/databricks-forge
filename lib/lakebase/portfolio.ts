@@ -21,6 +21,24 @@ export type PortfolioUseCase = {
   valueMid: number;
   phase: RoadmapPhase | null;
   effortEstimate: string | null;
+  // ---- Rationale & detail surfaced on expand (Phase 2.1) -------------------
+  // Each pair below is the LLM-produced justification persisted on
+  // ForgeValueEstimate / ForgeRoadmapPhase. They are surfaced as expandable
+  // detail rows on /business-value and /business-value/roadmap so a
+  // consumer never sees a number without the math behind it.
+  valueLow: number | null;
+  valueHigh: number | null;
+  valueType: string | null;
+  confidence: string | null;
+  rationale: string | null;
+  assumptions: string[];
+  industryBenchmark: string | null;
+  economicPatternName: string | null;
+  economicImpactCategory: string | null;
+  economicFormulaVars: Record<string, number | string> | null;
+  phaseRationale: string | null;
+  enablers: string[];
+  dependencies: string[];
 };
 
 function safeParse<T>(raw: string | null | undefined, fallback: T): T {
@@ -216,18 +234,39 @@ export async function getPortfolioUseCases(
 
     const estimates = await prisma.forgeValueEstimate.findMany({
       where: { runId: latestRun.runId },
-      select: { useCaseId: true, valueMid: true },
+      select: {
+        useCaseId: true,
+        valueLow: true,
+        valueMid: true,
+        valueHigh: true,
+        valueType: true,
+        confidence: true,
+        rationale: true,
+        assumptions: true,
+        industryBenchmark: true,
+        economicPatternName: true,
+        economicImpactCategory: true,
+        economicFormulaVars: true,
+      },
     });
-    const valueMap = new Map(estimates.map((e) => [e.useCaseId, e.valueMid]));
+    const estimateMap = new Map(estimates.map((e) => [e.useCaseId, e]));
 
     const phases = await prisma.forgeRoadmapPhase.findMany({
       where: { runId: latestRun.runId },
-      select: { useCaseId: true, phase: true, effortEstimate: true },
+      select: {
+        useCaseId: true,
+        phase: true,
+        effortEstimate: true,
+        rationale: true,
+        enablers: true,
+        dependencies: true,
+      },
     });
     const phaseMap = new Map(phases.map((p) => [p.useCaseId, p]));
 
     return useCases.map((uc) => {
       const p = phaseMap.get(uc.id);
+      const est = estimateMap.get(uc.id);
       return {
         id: uc.id,
         name: uc.name ?? "Untitled",
@@ -236,9 +275,25 @@ export async function getPortfolioUseCases(
         overallScore: uc.overallScore ?? 0,
         feasibilityScore: uc.feasibilityScore ?? 0,
         businessValue: uc.businessValue ?? "",
-        valueMid: valueMap.get(uc.id) ?? 0,
+        valueMid: est?.valueMid ?? 0,
         phase: (p?.phase as RoadmapPhase) ?? null,
         effortEstimate: p?.effortEstimate ?? null,
+        valueLow: est?.valueLow ?? null,
+        valueHigh: est?.valueHigh ?? null,
+        valueType: est?.valueType ?? null,
+        confidence: est?.confidence ?? null,
+        rationale: est?.rationale ?? null,
+        assumptions: safeParse<string[]>(est?.assumptions ?? null, []),
+        industryBenchmark: est?.industryBenchmark ?? null,
+        economicPatternName: est?.economicPatternName ?? null,
+        economicImpactCategory: est?.economicImpactCategory ?? null,
+        economicFormulaVars: safeParse<Record<string, number | string> | null>(
+          est?.economicFormulaVars ?? null,
+          null,
+        ),
+        phaseRationale: p?.rationale ?? null,
+        enablers: safeParse<string[]>(p?.enablers ?? null, []),
+        dependencies: safeParse<string[]>(p?.dependencies ?? null, []),
       };
     });
   });

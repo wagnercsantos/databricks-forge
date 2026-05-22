@@ -158,7 +158,7 @@ export const CreateRunSchema = z.object({
   estateScanEnabled: z.boolean().optional().default(false),
   assetDiscoveryEnabled: z.boolean().optional().default(false),
   fabricScanId: z.string().uuid().optional().nullable(),
-  businessValueEnabled: z.boolean().optional().default(false),
+  businessValueEnabled: z.boolean().optional().default(true),
   outputLanguage: z.enum(["en", "pt-BR", "es"]).optional().default("en"),
 });
 

@@ -46,7 +46,8 @@ export type ActivityAction =
   | "waf_assessment_failed"
   | "waf_dashboard_generated"
   | "waf_genie_generated"
-  | "bv_step_degraded";
+  | "bv_step_degraded"
+  | "app_config_updated";
 
 export interface ActivityLogEntry {
   activityId: string;

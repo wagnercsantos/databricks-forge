@@ -86,7 +86,7 @@ function dbRowToRun(row: {
       estateScanEnabled: genOpts.estateScanEnabled,
       assetDiscoveryEnabled: genOpts.assetDiscoveryEnabled,
       fabricScanId: genOpts.fabricScanId,
-      businessValueEnabled: genOpts.businessValueEnabled ?? false,
+      businessValueEnabled: genOpts.businessValueEnabled ?? true,
     },
     status: row.status as RunStatus,
     currentStep: (row.currentStep as PipelineStep) ?? null,
@@ -146,7 +146,7 @@ function parseGenerationOptions(raw: string | null): {
     estateScanEnabled: false,
     assetDiscoveryEnabled: false,
     fabricScanId: null as string | null,
-    businessValueEnabled: false,
+    businessValueEnabled: true,
     industryAutoDetected: false,
     appVersion: null as string | null,
     promptVersions: null as Record<string, string> | null,
@@ -172,7 +172,10 @@ function parseGenerationOptions(raw: string | null): {
         estateScanEnabled: parsed.estateScanEnabled === true,
         assetDiscoveryEnabled: parsed.assetDiscoveryEnabled === true,
         fabricScanId: parsed.fabricScanId ?? null,
-        businessValueEnabled: parsed.businessValueEnabled === true,
+        // Business value defaults ON: legacy rows where the field is
+        // absent now opt-in to BV. Explicit `false` from older opt-out
+        // runs is still honored.
+        businessValueEnabled: parsed.businessValueEnabled !== false,
         industryAutoDetected: parsed.industryAutoDetected === true,
         appVersion: parsed.appVersion ?? null,
         promptVersions: parsed.promptVersions ?? null,
@@ -199,7 +202,7 @@ function serializeGenerationOptions(config: PipelineRunConfig): string {
     estateScanEnabled: config.estateScanEnabled,
     assetDiscoveryEnabled: config.assetDiscoveryEnabled,
     fabricScanId: config.fabricScanId ?? null,
-    businessValueEnabled: config.businessValueEnabled ?? false,
+    businessValueEnabled: config.businessValueEnabled ?? true,
     appVersion: packageJson.version,
     promptVersions: PROMPT_VERSIONS,
     stepLog: [],
@@ -249,6 +252,36 @@ export async function getRunById(runId: string): Promise<PipelineRun | null> {
   return withPrisma(async (prisma) => {
     const row = await prisma.forgeRun.findUnique({ where: { runId } });
     return row ? dbRowToRun(row) : null;
+  });
+}
+
+/**
+ * Return the most recent completed run (by `completedAt`) that the calling
+ * user can access -- i.e. one they own OR one shared with them via the ACL.
+ *
+ * Used by Business Value pages (e.g. /business-value/data-gap) that need to
+ * surface a deliverable for the user's latest discovery run without making
+ * them pick a runId from a list. Returns just the lightweight identity tuple
+ * the page needs to fetch deeper data through other helpers.
+ *
+ * Returns `null` when the user has no completed runs.
+ */
+export async function getLatestCompletedRunForOwner(
+  userEmail: string,
+  accessibleRunIds: string[],
+): Promise<{ runId: string; businessName: string; completedAt: Date | null } | null> {
+  const email = userEmail.toLowerCase().trim();
+  if (!email) return null;
+  return withPrisma(async (prisma) => {
+    const row = await prisma.forgeRun.findFirst({
+      where: {
+        status: "completed",
+        OR: [{ ownerEmail: email }, { runId: { in: accessibleRunIds } }],
+      },
+      orderBy: { completedAt: "desc" },
+      select: { runId: true, businessName: true, completedAt: true },
+    });
+    return row;
   });
 }
 
@@ -548,6 +581,31 @@ export async function updateRunMessage(
 // `degradedStepsJson` is a JSON-encoded array of pipeline step ids that
 // produced incomplete output. The Business Value page reads this to render
 // an amber "Recompute" banner so users never see a silent green tick + $0.
+
+/**
+ * Read the executive-synthesis provenance recorded against a run.
+ * Returns `{ generatedByModel: null, generatedAt: null }` when the run
+ * has not produced a synthesis yet (legacy rows or BV-disabled runs).
+ *
+ * Lives here (not on the run summary type) because the Business Value
+ * pages are the only consumer today and adding it to every run reader
+ * would inflate the cross-RSC payload unnecessarily.
+ */
+export async function getSynthesisProvenance(
+  runId: string,
+): Promise<{ generatedByModel: string | null; generatedAt: Date | null }> {
+  return withPrisma(async (prisma) => {
+    const row = await prisma.forgeRun.findUnique({
+      where: { runId },
+      select: { synthesisGeneratedByModel: true, synthesisGeneratedAt: true },
+    });
+    if (!row) return { generatedByModel: null, generatedAt: null };
+    return {
+      generatedByModel: row.synthesisGeneratedByModel ?? null,
+      generatedAt: row.synthesisGeneratedAt ?? null,
+    };
+  });
+}
 
 /** Read the degraded-step list for a run. Returns [] when none are flagged. */
 export async function getDegradedSteps(runId: string): Promise<string[]> {

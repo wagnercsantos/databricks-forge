@@ -321,8 +321,16 @@ export async function buildReferenceUseCasesPrompt(
     "The following are recognized high-value use cases for this industry.",
     "Use these as strategic inspiration -- adapt them to the specific tables and",
     "metadata available. Generate use cases that align with these patterns WHERE",
-    "the customer's data supports them. Do NOT copy these verbatim; ground every",
-    "use case in the actual table schemas provided.",
+    "the customer's data supports them. The **customer-facing `name`** field of",
+    "each generated use case MUST be customer-specific (do NOT copy these titles",
+    "verbatim into `name`) and grounded in the actual table schemas provided.",
+    "",
+    "However, EVERY generated use case MUST also emit a `reference_use_case_name`",
+    "field that is a **VERBATIM EXACT COPY** of the closest matching title from",
+    "this list -- character-for-character, including punctuation and capitalization.",
+    "This second field is a hard FK into the master-repo namespace consumed by",
+    "Data Gap analysis, exports, and downstream financial roll-ups. Set it to",
+    "`null` ONLY if no reference title plausibly fits.",
     "",
   ];
 

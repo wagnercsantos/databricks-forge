@@ -5,7 +5,7 @@
  *   - Run Excel (excel.ts)
  *   - Portfolio Excel (portfolio-excel.ts)
  *   - Environment Excel (environment-excel.ts)
- *   - Gap Report Excel (gap-report-excel.ts)
+ *   - Data Gap v2 Excel (data-gap-excel.ts)
  *   - Comparison Excel (comparison-excel.ts)
  */
 

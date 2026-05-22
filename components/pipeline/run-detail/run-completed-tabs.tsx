@@ -40,6 +40,7 @@ export function RunCompletedTabs({
   logsLoading,
   genieGenerating,
   dashboardGenerating,
+  bvGenerating,
   onFetchPromptLogs,
   onRerun,
   isRerunning,
@@ -65,6 +66,7 @@ export function RunCompletedTabs({
   logsLoading: boolean;
   genieGenerating: boolean;
   dashboardGenerating: boolean;
+  bvGenerating: boolean;
   onFetchPromptLogs: () => void;
   onRerun: () => void;
   isRerunning: boolean;
@@ -120,7 +122,10 @@ export function RunCompletedTabs({
         {useCases.length > 0 && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <TabsTrigger value="business-value">Business Value</TabsTrigger>
+              <TabsTrigger value="business-value">
+                Business Value{" "}
+                {bvGenerating && <span className="ml-1 animate-pulse text-emerald-500">●</span>}
+              </TabsTrigger>
             </TooltipTrigger>
             <TooltipContent>Financial estimates, roadmap, and executive synthesis</TooltipContent>
           </Tooltip>

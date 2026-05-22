@@ -23,7 +23,11 @@ import { headers as nextHeaders } from "next/headers";
 import { fetchWithTimeout, TIMEOUTS } from "./fetch-with-timeout";
 
 // Re-export the task router so callers can do `import { resolveEndpoint } from "@/lib/dbx/client"`
-export { resolveEndpoint, getFallbacksForTier } from "./task-router";
+export {
+  resolveEndpoint,
+  getFallbacksForTier,
+  resolvePremiumReasoningEndpoint,
+} from "./task-router";
 export type { TaskTier } from "./task-router";
 
 export interface DatabricksConfig {

@@ -5,7 +5,7 @@ import { validateIdentifier, IdentifierValidationError } from "@/lib/validation"
 import { logger } from "@/lib/logger";
 
 export async function POST(request: Request) {
-  if (!isDemoModeEnabled()) {
+  if (!(await isDemoModeEnabled())) {
     return NextResponse.json({ error: "Demo mode is not enabled" }, { status: 404 });
   }
 

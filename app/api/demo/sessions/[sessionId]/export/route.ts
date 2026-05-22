@@ -11,7 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ sessionId: string }> },
 ) {
   try {
-    if (!isDemoModeEnabled()) {
+    if (!(await isDemoModeEnabled())) {
       return NextResponse.json({ error: "Demo mode is not enabled" }, { status: 404 });
     }
 

@@ -19,7 +19,7 @@ import { checkQuota } from "@/lib/quotas";
 import { recordUsage } from "@/lib/lakebase/usage";
 
 export async function POST(request: Request) {
-  if (!isDemoModeEnabled()) {
+  if (!(await isDemoModeEnabled())) {
     return NextResponse.json({ error: "Demo mode is not enabled" }, { status: 404 });
   }
 

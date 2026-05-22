@@ -64,6 +64,13 @@ Scale your estimates based on:
 - The **industry** (financial services has larger absolute values than retail per use case)
 - The **feasibility score** (lower feasibility = wider confidence band)
 - The **number of tables involved** (more tables = more complex = potentially higher value but also higher uncertainty)
+- The **source systems** the use case touches (when \`source_systems\` is set,
+  this is the customer's actual data plant — e.g. Salesforce + SAP means the
+  benefit accrues to both Sales and Supply Chain; calibrate accordingly).
+- The **blast radius** of the involved tables (when \`blast_radius\` is set,
+  a high \`downstream_table_count\` means the data already powers many
+  downstream workflows, which raises confidence in the upper end of the
+  range — the data is "proven").
 
 CRITICAL RULES:
 - Be conservative. Round to meaningful increments ($10K, $50K, $100K, $500K, $1M).
@@ -242,6 +249,21 @@ Analyze the beneficiary and sponsor fields from each use case. Normalize them in
 2. Assess change complexity: how much behavioral/process/technology change is needed?
 3. Identify potential champions (highest involvement + value)
 4. Flag cross-department dependencies
+5. Explain your reasoning — why is this person a champion, why is the change rated as it is, and what organizational risks should the sponsor expect?
+
+When a use case includes \`source_systems\` (the upstream systems its data
+comes from), use the **system ownership signal** to attribute the use case
+to its TRUE organisational owner — not just the beneficiary label:
+
+- "Salesforce" / "HubSpot" / "Marketo" → CRO, Sales Ops, Marketing Ops
+- "SAP" / "Oracle EBS" / "NetSuite" → CFO, Supply Chain, Procurement
+- "Workday" / "ADP" → CHRO, People Ops
+- "ServiceNow" → CIO, IT Ops, Customer Success
+- "Snowflake" / "BigQuery" → Chief Data Officer
+- Object storage / Kafka → Engineering / Platform
+
+Stakeholders who own the SOURCE system are champion candidates because they
+control the data and therefore the dependency on this use case.
 
 # Output Format
 
@@ -256,7 +278,13 @@ Analyze the beneficiary and sponsor fields from each use case. Normalize them in
     "use_case_types": { "AI": 5, "Statistical": 3, "Geospatial": 0 },
     "change_complexity": "medium",
     "is_champion": true,
-    "is_sponsor": true
+    "is_sponsor": true,
+    "champion_rationale": "Owns 5 of the top-scored use cases and has explicit budget authority over Customer Intelligence; will benefit directly from the personalization uplift.",
+    "complexity_rationale": "Requires new attribution model adoption and a campaign-ops process change, but no organizational restructuring.",
+    "key_risks": [
+      "Existing campaign team may resist new attribution logic without proof of incremental lift.",
+      "Cross-team dependency on Revenue Operations to land in production."
+    ]
   }
 ]
 \`\`\`
@@ -264,4 +292,7 @@ Analyze the beneficiary and sponsor fields from each use case. Normalize them in
 use_case_ids: array of use_case_id values from the input that this stakeholder is beneficiary or sponsor of
 change_complexity: low (reporting/dashboards) | medium (new tools/processes) | high (organizational restructuring, new skills)
 is_champion: true if this stakeholder should champion the program (highest value + involvement)
-is_sponsor: true if this stakeholder appears as sponsor on use cases`;
+is_sponsor: true if this stakeholder appears as sponsor on use cases
+champion_rationale: 1-2 sentence justification when is_champion is true (optional but strongly preferred when true). Anchor to specific use cases or domains from the input.
+complexity_rationale: 1-2 sentence justification for the change_complexity rating. Reference the actual behavioral / process / tooling change needed.
+key_risks: array of 1-3 organizational risks (people, change, dependencies). Be specific — do not return generic items like "stakeholder buy-in".`;

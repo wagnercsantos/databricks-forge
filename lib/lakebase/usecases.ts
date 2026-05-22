@@ -3,7 +3,13 @@
  */
 
 import { withPrisma } from "@/lib/prisma";
-import type { ConsultingScorecard, ScoreRationale, UseCase, UseCaseType } from "@/lib/domain/types";
+import type {
+  BlastRadiusSummary,
+  ConsultingScorecard,
+  ScoreRationale,
+  UseCase,
+  UseCaseType,
+} from "@/lib/domain/types";
 
 // ---------------------------------------------------------------------------
 // Mappers
@@ -48,6 +54,11 @@ function dbRowToUseCase(row: {
   feedback: string | null;
   feedbackAt: Date | null;
   enrichmentTags: string | null;
+  sourceSystems?: string | null;
+  sourceSystemsOrigin?: string | null;
+  blastRadiusJson?: string | null;
+  referenceUseCaseName?: string | null;
+  referenceUseCaseResolvedAt?: Date | null;
 }): UseCase {
   return {
     id: row.id,
@@ -79,6 +90,11 @@ function dbRowToUseCase(row: {
     feedback: (row.feedback as UseCase["feedback"]) ?? null,
     feedbackAt: row.feedbackAt?.toISOString() ?? null,
     enrichmentTags: parseJSON<string[] | null>(row.enrichmentTags, null),
+    sourceSystems: parseJSON<string[] | null>(row.sourceSystems, null),
+    sourceSystemsOrigin: (row.sourceSystemsOrigin as UseCase["sourceSystemsOrigin"]) ?? null,
+    blastRadius: parseJSON<BlastRadiusSummary | null>(row.blastRadiusJson, null),
+    referenceUseCaseName: row.referenceUseCaseName ?? null,
+    referenceUseCaseResolvedAt: row.referenceUseCaseResolvedAt?.toISOString() ?? null,
   };
 }
 
@@ -127,6 +143,13 @@ export async function insertUseCases(useCases: UseCase[]): Promise<void> {
         sqlCode: uc.sqlCode,
         sqlStatus: uc.sqlStatus,
         enrichmentTags: uc.enrichmentTags ? JSON.stringify(uc.enrichmentTags) : null,
+        sourceSystems: uc.sourceSystems ? JSON.stringify(uc.sourceSystems) : null,
+        sourceSystemsOrigin: uc.sourceSystemsOrigin,
+        blastRadiusJson: uc.blastRadius ? JSON.stringify(uc.blastRadius) : null,
+        referenceUseCaseName: uc.referenceUseCaseName ?? null,
+        referenceUseCaseResolvedAt: uc.referenceUseCaseResolvedAt
+          ? new Date(uc.referenceUseCaseResolvedAt)
+          : null,
       })),
       skipDuplicates: true,
     });
@@ -186,6 +209,102 @@ export async function getDomainsForRun(runId: string): Promise<string[]> {
       orderBy: { domain: "asc" },
     });
     return results.map((r: { domain: string | null }) => r.domain ?? "").filter(Boolean);
+  });
+}
+
+/**
+ * Persist the source-system attribution (Phase 3.1) for a batch of use
+ * cases. Designed for the post-generation attribution pass, which walks
+ * lineage once per run and writes the results in a single transaction.
+ *
+ * `sourceSystems` is JSON-serialised to a String column to match the
+ * surrounding storage convention. `sourceSystemsResolvedAt` is set to
+ * `now()` for every updated row so the UI can show freshness.
+ */
+export async function updateUseCaseSourceSystems(
+  updates: Array<{
+    useCaseId: string;
+    sourceSystems: string[];
+    origin: "lineage" | "naming" | "comment" | "mixed";
+  }>,
+): Promise<void> {
+  if (updates.length === 0) return;
+  const now = new Date();
+  await withPrisma(async (prisma) => {
+    await prisma.$transaction(
+      updates.map((u) =>
+        prisma.forgeUseCase.update({
+          where: { id: u.useCaseId },
+          data: {
+            sourceSystems: JSON.stringify(u.sourceSystems),
+            sourceSystemsOrigin: u.origin,
+            sourceSystemsResolvedAt: now,
+          },
+        }),
+      ),
+    );
+  });
+}
+
+/**
+ * Persist the master-repo reference-use-case bridge for a batch of use
+ * cases. Designed for two callers:
+ *
+ *   1. Use case generation — the LLM emits `reference_use_case_name`
+ *      alongside the customer-facing `name`; the parser pre-validates
+ *      against the known master-repo names for the run's industry and
+ *      calls this helper to fill the column.
+ *   2. Data Gap backfill — when a legacy run is opened for the first
+ *      time after this feature ships, a one-shot LLM call maps every UC
+ *      to its closest master-repo title and writes the result here so
+ *      future Data Gap loads are deterministic and cheap.
+ *
+ * `referenceUseCaseName` may be null when the LLM judged no reference
+ * applied (e.g. a deliberately bespoke UC). `referenceUseCaseResolvedAt`
+ * is set to `now()` regardless, so the Data Gap cache invalidator can
+ * distinguish "never resolved" from "resolved as null".
+ */
+export async function updateUseCaseReferenceLinks(
+  updates: Array<{
+    useCaseId: string;
+    referenceUseCaseName: string | null;
+  }>,
+): Promise<void> {
+  if (updates.length === 0) return;
+  const now = new Date();
+  await withPrisma(async (prisma) => {
+    await prisma.$transaction(
+      updates.map((u) =>
+        prisma.forgeUseCase.update({
+          where: { id: u.useCaseId },
+          data: {
+            referenceUseCaseName: u.referenceUseCaseName,
+            referenceUseCaseResolvedAt: now,
+          },
+        }),
+      ),
+    );
+  });
+}
+
+/**
+ * Newest `referenceUseCaseResolvedAt` recorded against any use case in
+ * the run. Used by the Data Gap cache invalidator to detect runs whose
+ * backfill landed after the cached analysis was written.
+ *
+ * Returns `null` when no use case in the run has ever had its reference
+ * link resolved.
+ */
+export async function getNewestReferenceUseCaseResolvedAt(
+  runId: string,
+): Promise<Date | null> {
+  return withPrisma(async (prisma) => {
+    const row = await prisma.forgeUseCase.findFirst({
+      where: { runId, referenceUseCaseResolvedAt: { not: null } },
+      orderBy: { referenceUseCaseResolvedAt: "desc" },
+      select: { referenceUseCaseResolvedAt: true },
+    });
+    return row?.referenceUseCaseResolvedAt ?? null;
   });
 }
 

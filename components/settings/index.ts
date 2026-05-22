@@ -8,4 +8,5 @@ export { DiscoveryDepthSettings } from "./discovery-depth-settings";
 export { GenieDefaultsSettings } from "./genie-defaults-settings";
 export { ExportSettings } from "./export-settings";
 export { AboutSettings } from "./about-settings";
+export { FeatureFlagsSettings } from "./feature-flags-settings";
 export { DataManagementSettings } from "./data-management-settings";

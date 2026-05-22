@@ -202,4 +202,81 @@ describe("attributeTablesToAssets", () => {
     });
     expect(out).toEqual([]);
   });
+
+  // ---------------------------------------------------------------------
+  // Persisted FK preference (`referenceUseCaseName` short-circuits fuzzy)
+  // ---------------------------------------------------------------------
+
+  it("prefers persisted `referenceUseCaseName` over fuzzy `name` matching", () => {
+    // The customer-facing name shares NO meaningful tokens with the
+    // reference title; the fuzzy ladder would return null. The persisted
+    // FK rescues the attribution.
+    const enrichment = makeEnrichment([
+      makeRefUc("Customer Lifetime Value Modeling", ["MC1"]),
+    ]);
+    const out = attributeTablesToAssets({
+      useCases: [
+        {
+          name: "Operationalise Loyalty Tiering with Behavioural Cohorts",
+          referenceUseCaseName: "Customer Lifetime Value Modeling",
+          tablesInvolved: ["cat.s.customers"],
+        },
+      ],
+      enrichment,
+    });
+    expect(out).toEqual([{ fqn: "cat.s.customers", dataAssetId: "MC1" }]);
+  });
+
+  it("resolves persisted `referenceUseCaseName` case-insensitively", () => {
+    const enrichment = makeEnrichment([
+      makeRefUc("Customer Lifetime Value Modeling", ["MC1"]),
+    ]);
+    const out = attributeTablesToAssets({
+      useCases: [
+        {
+          name: "Bespoke",
+          referenceUseCaseName: "customer lifetime value modeling",
+          tablesInvolved: ["cat.s.t"],
+        },
+      ],
+      enrichment,
+    });
+    expect(out).toEqual([{ fqn: "cat.s.t", dataAssetId: "MC1" }]);
+  });
+
+  it("falls back to fuzzy match when `referenceUseCaseName` is null (legacy row)", () => {
+    const enrichment = makeEnrichment([
+      makeRefUc("Customer Lifetime Value Modeling", ["MC1"]),
+    ]);
+    const out = attributeTablesToAssets({
+      useCases: [
+        {
+          name: "Customer Lifetime Value Prediction Engine",
+          referenceUseCaseName: null,
+          tablesInvolved: ["cat.s.t"],
+        },
+      ],
+      enrichment,
+    });
+    expect(out).toEqual([{ fqn: "cat.s.t", dataAssetId: "MC1" }]);
+  });
+
+  it("falls back to fuzzy match when `referenceUseCaseName` points at an unknown title", () => {
+    // Defensive: an LLM-emitted name that doesn't exist in this run's
+    // master repo should not silently drop attribution.
+    const enrichment = makeEnrichment([
+      makeRefUc("Customer Lifetime Value Modeling", ["MC1"]),
+    ]);
+    const out = attributeTablesToAssets({
+      useCases: [
+        {
+          name: "Customer Lifetime Value Prediction Engine",
+          referenceUseCaseName: "Not A Real Reference",
+          tablesInvolved: ["cat.s.t"],
+        },
+      ],
+      enrichment,
+    });
+    expect(out).toEqual([{ fqn: "cat.s.t", dataAssetId: "MC1" }]);
+  });
 });

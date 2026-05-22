@@ -3,13 +3,21 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/page-header";
-import { getStakeholderProfilesForLatestRun } from "@/lib/lakebase/stakeholder-profiles";
+import {
+  getStakeholderProfilesForLatestRun,
+  getStakeholderProvenance,
+} from "@/lib/lakebase/stakeholder-profiles";
+import { getDegradedSteps } from "@/lib/lakebase/runs";
+import { getPortfolioUseCases } from "@/lib/lakebase/portfolio";
 import { requireUser } from "@/lib/auth/route-user";
 import { listAccessibleIds } from "@/lib/lakebase/acl";
 import { formatCurrency } from "@/lib/utils";
 import type { StakeholderProfile } from "@/lib/domain/types";
 import { Users, Crown, Building2, ShieldAlert, BarChart3, Star } from "lucide-react";
 import { StakeholderDrillDown } from "@/components/business-value/stakeholder-drill-down";
+import { BvProgressBanner } from "@/components/business-value/bv-progress-banner";
+import { DegradedStakeholderBanner } from "@/components/business-value/degraded-stakeholder-banner";
+import { ProvenanceFooter } from "@/components/business-value/provenance-footer";
 
 export const dynamic = "force-dynamic";
 
@@ -98,20 +106,35 @@ const COMPLEXITY_CONFIG: Record<string, { label: string; className: string }> = 
 async function StakeholderContent() {
   const user = await requireUser();
   const accessibleRunIds = await listAccessibleIds(user.email, "run");
-  const { runId, profiles } = await getStakeholderProfilesForLatestRun(
-    user.email,
-    accessibleRunIds,
-  );
+  const [{ runId, profiles }, portfolioUseCases] = await Promise.all([
+    getStakeholderProfilesForLatestRun(user.email, accessibleRunIds),
+    getPortfolioUseCases(user.email, accessibleRunIds),
+  ]);
+
+  const degradedSteps = runId ? await getDegradedSteps(runId) : [];
+  const stakeholderDegraded = degradedSteps.includes("stakeholder-analysis");
+  const provenance = runId
+    ? await getStakeholderProvenance(runId)
+    : { generatedByModel: null, generatedAt: null };
 
   if (!runId || profiles.length === 0) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-          <p className="text-muted-foreground">
-            Run a discovery pipeline to generate stakeholder intelligence
-          </p>
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        <BvProgressBanner runId={runId} />
+        {runId && stakeholderDegraded ? (
+          <DegradedStakeholderBanner runId={runId} />
+        ) : (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+              <p className="text-muted-foreground">
+                {runId
+                  ? "Stakeholder intelligence is still generating for the latest run. Business value analysis runs as a background job after the main pipeline completes -- check back in a minute or two, or use Run Business Value to recompute."
+                  : "Run a discovery pipeline to generate stakeholder intelligence. Business value analysis runs by default; you can opt out from the run config."}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     );
   }
 
@@ -125,6 +148,7 @@ async function StakeholderContent() {
 
   return (
     <div className="space-y-8">
+      <BvProgressBanner runId={runId} />
       {/* KPI Strip */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="relative overflow-hidden transition-shadow hover:shadow-md">
@@ -357,10 +381,26 @@ async function StakeholderContent() {
           totalValue: p.totalValue,
           domains: p.domains ?? [],
           useCaseTypes: p.useCaseTypes ?? {},
+          useCaseIds: p.useCaseIds ?? [],
           changeComplexity: p.changeComplexity,
           isChampion: p.isChampion,
           isSponsor: p.isSponsor,
+          championRationale: p.championRationale,
+          complexityRationale: p.complexityRationale,
+          keyRisks: p.keyRisks ?? [],
         }))}
+        useCases={portfolioUseCases.map((uc) => ({
+          id: uc.id,
+          name: uc.name,
+          domain: uc.domain,
+          valueMid: uc.valueMid,
+        }))}
+      />
+
+      <ProvenanceFooter
+        generatedByModel={provenance.generatedByModel}
+        generatedAt={provenance.generatedAt}
+        label="Stakeholder profiles generated"
       />
     </div>
   );

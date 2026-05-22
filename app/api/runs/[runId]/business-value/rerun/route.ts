@@ -22,6 +22,7 @@ import {
 } from "@/lib/lakebase/stakeholder-profiles";
 import { runBusinessValueAnalysis } from "@/lib/pipeline/steps/business-value-analysis";
 import { isPipelineActive } from "@/lib/pipeline/engine";
+import { startBvJob, updateBvJob, completeBvJob, failBvJob } from "@/lib/pipeline/bv-engine-status";
 import { isValidUUID } from "@/lib/validation";
 import { withPrisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/lakebase/activity-log";
@@ -87,8 +88,11 @@ export async function POST(
     const userEmail = guard.user.email;
     const oboToken = guard.user.oboToken;
 
-    // Fire-and-forget: run BV analysis, embed, log activity
+    // Fire-and-forget: run BV analysis, embed, log activity. Mirror the
+    // pipeline's background-job status tracker so the BV status endpoint
+    // can surface rerun progress to the UI in real time.
     (async () => {
+      await startBvJob(runId);
       try {
         await updateRunMessage(runId, "Refreshing business value analysis...");
 
@@ -119,6 +123,7 @@ export async function POST(
         await runBusinessValueAnalysis(ctx);
 
         // Re-embed BV data for Strategic Advisor RAG
+        updateBvJob(runId, "Embedding business value outputs for Strategic Advisor...", 95);
         try {
           const { embedBusinessValueResults } = await import("@/lib/embeddings/embed-pipeline");
           const [estimates, roadmapPhases, stakeholders, synthesisRow] = await Promise.all([
@@ -152,6 +157,7 @@ export async function POST(
         }
 
         await updateRunMessage(runId, "Business value analysis refreshed");
+        await completeBvJob(runId);
 
         logActivity("rerun_business_value", {
           userId: userEmail,
@@ -161,10 +167,9 @@ export async function POST(
 
         logger.info("[bv-rerun] Business value rerun complete", { runId });
       } catch (err) {
-        logger.error("[bv-rerun] Business value rerun failed", {
-          runId,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error("[bv-rerun] Business value rerun failed", { runId, error: msg });
+        await failBvJob(runId, msg).catch(() => {});
         await updateRunMessage(runId, "Business value refresh failed").catch(() => {});
       } finally {
         activeRerunIds.delete(runId);

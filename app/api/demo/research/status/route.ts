@@ -4,7 +4,7 @@ import { getResearchJobStatus } from "@/lib/demo/research-engine/engine-status";
 import { loadDemoSessionOrRespond } from "@/lib/auth/route-guards";
 
 export async function GET(request: Request) {
-  if (!isDemoModeEnabled()) {
+  if (!(await isDemoModeEnabled())) {
     return NextResponse.json({ error: "Demo mode is not enabled" }, { status: 404 });
   }
 

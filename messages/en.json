@@ -51,6 +51,7 @@
       "stakeholders": "Stakeholders",
       "value_tracking": "Value Tracking",
       "strategy": "Strategy",
+      "data_gap": "Data Gap",
       "outcome_maps": "Outcome Maps",
       "benchmarks": "Benchmarks",
       "demo_studio": "Demo Studio",
@@ -379,6 +380,18 @@
       "runtime_label": "Runtime",
       "runtime_apps": "Next.js / Databricks Apps",
       "runtime_local": "Next.js / Local Dev"
+    },
+    "feature_flags": {
+      "title": "Feature Flags",
+      "description": "Workspace-shared runtime toggles. Changes take effect for everyone in this workspace without redeploying the app.",
+      "demo_mode": {
+        "label": "Demo Mode",
+        "enabled": "Enabled. The Demo Wizard appears in the sidebar and Settings; demo APIs are available.",
+        "disabled": "Disabled. Demo APIs return 404 and the Demo Wizard is hidden.",
+        "loading": "Loading current state…",
+        "toast_enabled": "Demo Mode enabled",
+        "toast_disabled": "Demo Mode disabled"
+      }
     },
     "data_management": {
       "title": "Data Management",

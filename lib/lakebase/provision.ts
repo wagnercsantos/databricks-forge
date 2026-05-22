@@ -1,16 +1,27 @@
 /**
- * Lakebase Autoscale self-provisioning.
+ * Lakebase OAuth credential broker (Databricks Apps `postgres` resource).
  *
- * Automatically creates and connects to a Lakebase Autoscale project using
- * OAuth tokens from the Databricks Apps service principal. No secrets, no
- * manual setup, no passwords.
+ * Forge consumes Lakebase as a first-class app resource. When the `postgres`
+ * resource is bound in `app.yaml`, the Apps platform injects:
  *
- * Two modes:
- *   1. Auto-provision (Databricks Apps) -- DATABRICKS_CLIENT_ID present,
- *      DATABASE_URL absent. Creates the project on first boot, generates
- *      short-lived DB credentials, rotates tokens automatically.
- *   2. Static URL (local dev) -- DATABASE_URL set in .env. Falls through
- *      to the caller (lib/prisma.ts) to use the URL directly.
+ *     PGHOST            -- hostname (pooler by default)
+ *     PGPORT            -- 5432
+ *     PGDATABASE        -- database name
+ *     PGUSER            -- service-principal role on the DB
+ *     PGSSLMODE         -- "require"
+ *     LAKEBASE_ENDPOINT -- endpoint resource path
+ *                          (projects/<id>/branches/<id>/endpoints/<id>)
+ *
+ * This module's sole job is to mint short-lived OAuth Postgres credentials
+ * against `LAKEBASE_ENDPOINT` (the password rotates every ~hour) and assemble
+ * the connection URL using the platform-injected host/user/database.
+ *
+ * Everything else that used to live here -- project creation, endpoint listing,
+ * SCIM /Me username resolution, pooler-host derivation, scale-to-zero
+ * enforcement -- is now platform-managed and has been removed.
+ *
+ * Local dev path: when `DATABASE_URL` is set (e.g. via `.deploy_local.sh`),
+ * `lib/prisma.ts` uses the static URL directly and skips this module.
  */
 
 import { createScopedLogger } from "@/lib/logger";
@@ -23,21 +34,16 @@ const log = createScopedLogger({ origin: "Lakebase", module: "lakebase/provision
 // ---------------------------------------------------------------------------
 // Next.js App Router bundles RSC and API routes separately. Module-scoped
 // `let` variables exist independently in each bundle, but they share a
-// single `globalThis`. All mutable provision state lives here so that
-// credential generation counters, cached tokens, and dedup guards are
-// consistent across bundles.
+// single `globalThis`. Cached tokens and credential generation counters live
+// here so they're consistent across bundles.
 
 interface CachedToken {
   value: string;
-  expiresAt: number; // epoch ms
+  expiresAt: number;
 }
 
 const globalForProvision = globalThis as unknown as {
   __provisionInflightMap: Map<string, Promise<unknown>> | undefined;
-  __endpointDirectHost: string | null | undefined;
-  __endpointPoolerHost: string | null | undefined;
-  __endpointName: string | null | undefined;
-  __username: string | null | undefined;
   __wsToken: CachedToken | null | undefined;
   __dbCredential: CachedToken | null | undefined;
   __credentialGeneration: number | undefined;
@@ -46,17 +52,9 @@ const globalForProvision = globalThis as unknown as {
 if (!globalForProvision.__provisionInflightMap) {
   globalForProvision.__provisionInflightMap = new Map();
 }
-globalForProvision.__endpointDirectHost ??= null;
-globalForProvision.__endpointPoolerHost ??= null;
-globalForProvision.__endpointName ??= null;
-globalForProvision.__username ??= null;
 globalForProvision.__wsToken ??= null;
 globalForProvision.__dbCredential ??= null;
 globalForProvision.__credentialGeneration ??= 0;
-
-// ---------------------------------------------------------------------------
-// In-flight deduplication helper
-// ---------------------------------------------------------------------------
 
 function dedup<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const map = globalForProvision.__provisionInflightMap!;
@@ -75,47 +73,46 @@ function dedup<T>(key: string, fn: () => Promise<T>): Promise<T> {
 // Constants
 // ---------------------------------------------------------------------------
 
-const PROJECT_ID_BASE = process.env.FORGE_APP_NAME || "databricks-forge";
-const BRANCH_ID = "production";
-const DATABASE_NAME = "databricks_postgres";
-const PG_VERSION = "17";
-const DISPLAY_NAME =
-  PROJECT_ID_BASE === "databricks-forge" ? "Databricks Forge" : `Forge (${PROJECT_ID_BASE})`;
-const LAKEBASE_AUTH_MODES = ["oauth", "native_password"] as const;
-export type LakebaseAuthMode = (typeof LAKEBASE_AUTH_MODES)[number];
-
-export function getLakebaseAuthMode(): LakebaseAuthMode {
-  const raw = process.env.LAKEBASE_AUTH_MODE ?? "oauth";
-  if (raw === "oauth" || raw === "native_password") {
-    return raw;
-  }
-  log.warn("Invalid LAKEBASE_AUTH_MODE, defaulting to oauth", {
-    value: raw,
-    allowed: LAKEBASE_AUTH_MODES,
-    errorCategory: "config_invalid",
-  });
-  return "oauth";
-}
-
-export function isNativePasswordMode(): boolean {
-  return getLakebaseAuthMode() === "native_password";
-}
-
-function getProjectId(): string {
-  if (process.env.LAKEBASE_PROJECT_ID) return process.env.LAKEBASE_PROJECT_ID;
-  const clientId = process.env.DATABRICKS_CLIENT_ID || "";
-  if (clientId) return `${PROJECT_ID_BASE}-${clientId.slice(0, 8)}`;
-  return PROJECT_ID_BASE;
-}
-
 const LAKEBASE_API_TIMEOUT = 30_000;
-const PROJECT_CREATION_TIMEOUT = 120_000;
-const LRO_POLL_INTERVAL = 5_000;
 
-// (Cached state lives on globalForProvision — see top of file)
+// ---------------------------------------------------------------------------
+// Resource-binding accessors
+// ---------------------------------------------------------------------------
 
-function derivePoolerHost(directHost: string): string {
-  return directHost.replace(/^(ep-[^.]+)/, "$1-pooler");
+interface LakebaseResourceBinding {
+  host: string;
+  port: string;
+  database: string;
+  username: string;
+  sslMode: string;
+  endpointName: string;
+}
+
+function readResourceBinding(): LakebaseResourceBinding | null {
+  const host = process.env.PGHOST;
+  const username = process.env.PGUSER;
+  const endpointName = process.env.LAKEBASE_ENDPOINT;
+  if (!host || !username || !endpointName) return null;
+  return {
+    host,
+    port: process.env.PGPORT || "5432",
+    database: process.env.PGDATABASE || "databricks_postgres",
+    username,
+    sslMode: process.env.PGSSLMODE || "require",
+    endpointName,
+  };
+}
+
+function requireResourceBinding(): LakebaseResourceBinding {
+  const binding = readResourceBinding();
+  if (!binding) {
+    throw new Error(
+      "Lakebase resource binding not found. The `postgres` resource must be " +
+        "bound in app.yaml so the Databricks Apps platform injects PGHOST, " +
+        "PGUSER, PGDATABASE, and LAKEBASE_ENDPOINT. Run deploy.sh to (re)bind.",
+    );
+  }
+  return binding;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +128,7 @@ function getHost(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Workspace OAuth token (for REST API calls, NOT for Postgres)
+// Workspace OAuth token (for REST API calls only, NOT for Postgres)
 // ---------------------------------------------------------------------------
 
 async function getWorkspaceToken(): Promise<string> {
@@ -184,271 +181,7 @@ async function getWorkspaceToken(): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// REST API helpers
-// ---------------------------------------------------------------------------
-
-async function lakebaseApi(method: string, path: string, body?: unknown): Promise<Response> {
-  const host = getHost();
-  const token = await getWorkspaceToken();
-  return fetchWithTimeout(
-    `${host}/api/2.0/postgres/${path}`,
-    {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    },
-    LAKEBASE_API_TIMEOUT,
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Project management (idempotent)
-// ---------------------------------------------------------------------------
-
-async function projectExists(): Promise<boolean> {
-  const projectId = getProjectId();
-  const resp = await lakebaseApi("GET", `projects/${projectId}`);
-  if (resp.status === 404) return false;
-  if (resp.ok) return true;
-  const text = await resp.text();
-  throw new Error(`Check project failed (${resp.status}): ${text}`);
-}
-
-async function createProject(): Promise<void> {
-  const projectId = getProjectId();
-  log.info("Creating Lakebase Autoscale project...", { projectId });
-
-  const resp = await lakebaseApi("POST", `projects?project_id=${encodeURIComponent(projectId)}`, {
-    spec: {
-      display_name: DISPLAY_NAME,
-      pg_version: PG_VERSION,
-    },
-  });
-
-  if (resp.status === 409) {
-    log.info("Lakebase project already exists (409)");
-    return;
-  }
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Create project failed (${resp.status}): ${text}`);
-  }
-
-  const operation = await resp.json();
-
-  if (operation.name && !operation.done) {
-    await pollOperation(operation.name);
-  }
-
-  log.info("Lakebase Autoscale project created", { projectId });
-}
-
-async function pollOperation(operationName: string): Promise<void> {
-  const start = Date.now();
-
-  while (Date.now() - start < PROJECT_CREATION_TIMEOUT) {
-    await new Promise((r) => setTimeout(r, LRO_POLL_INTERVAL));
-
-    const resp = await lakebaseApi("GET", operationName);
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Poll operation failed (${resp.status}): ${text}`);
-    }
-
-    const op = await resp.json();
-    if (op.done) {
-      if (op.error) {
-        throw new Error(`Project creation failed: ${JSON.stringify(op.error)}`);
-      }
-      return;
-    }
-
-    log.info("Waiting for Lakebase project creation...", {
-      elapsedSec: Math.round((Date.now() - start) / 1_000),
-    });
-  }
-
-  throw new Error(`Project creation timed out after ${PROJECT_CREATION_TIMEOUT / 1_000}s`);
-}
-
-// ---------------------------------------------------------------------------
-// Endpoint resolution
-// ---------------------------------------------------------------------------
-
-async function resolveEndpoint(): Promise<{
-  directHost: string;
-  poolerHost: string;
-  name: string;
-}> {
-  if (
-    globalForProvision.__endpointDirectHost &&
-    globalForProvision.__endpointPoolerHost &&
-    globalForProvision.__endpointName
-  ) {
-    return {
-      directHost: globalForProvision.__endpointDirectHost,
-      poolerHost: globalForProvision.__endpointPoolerHost,
-      name: globalForProvision.__endpointName,
-    };
-  }
-
-  return dedup("endpoint", async () => {
-    const envEndpointName = process.env.LAKEBASE_ENDPOINT_NAME;
-    const envPoolerHost = process.env.LAKEBASE_POOLER_HOST;
-
-    if (envEndpointName && envPoolerHost) {
-      const detailResp = await lakebaseApi("GET", envEndpointName);
-      if (!detailResp.ok) {
-        const text = await detailResp.text();
-        throw new Error(`Get endpoint failed (${detailResp.status}): ${text}`);
-      }
-      const detail = await detailResp.json();
-      const directHost: string | undefined = detail.status?.hosts?.host;
-      if (!directHost) {
-        throw new Error(
-          `Endpoint ${envEndpointName} has no host — is the compute still starting? ` +
-            `Detail: ${JSON.stringify(detail)}`,
-        );
-      }
-
-      globalForProvision.__endpointDirectHost = directHost;
-      globalForProvision.__endpointPoolerHost = envPoolerHost;
-      globalForProvision.__endpointName = envEndpointName;
-
-      log.info("Endpoint resolved from startup contract", {
-        endpoint: envEndpointName,
-        directHost,
-        poolerHost: envPoolerHost,
-      });
-
-      return {
-        directHost,
-        poolerHost: envPoolerHost,
-        name: envEndpointName,
-      };
-    }
-
-    const listResp = await lakebaseApi(
-      "GET",
-      `projects/${getProjectId()}/branches/${BRANCH_ID}/endpoints`,
-    );
-    if (!listResp.ok) {
-      const text = await listResp.text();
-      throw new Error(`List endpoints failed (${listResp.status}): ${text}`);
-    }
-
-    const data = await listResp.json();
-    const endpoints: Array<{ name: string }> = data.endpoints ?? data.items ?? [];
-
-    if (endpoints.length === 0) {
-      throw new Error(`No endpoints found on projects/${getProjectId()}/branches/${BRANCH_ID}`);
-    }
-
-    const epName = endpoints[0].name;
-    const detailResp = await lakebaseApi("GET", epName);
-    if (!detailResp.ok) {
-      const text = await detailResp.text();
-      throw new Error(`Get endpoint failed (${detailResp.status}): ${text}`);
-    }
-
-    const detail = await detailResp.json();
-    const directHost: string | undefined = detail.status?.hosts?.host;
-    if (!directHost) {
-      throw new Error(
-        `Endpoint ${epName} has no host — is the compute still starting? ` +
-          `Detail: ${JSON.stringify(detail)}`,
-      );
-    }
-
-    const poolerHost = derivePoolerHost(directHost);
-    globalForProvision.__endpointDirectHost = directHost;
-    globalForProvision.__endpointPoolerHost = poolerHost;
-    globalForProvision.__endpointName = epName;
-
-    log.info("Endpoint resolved", {
-      endpoint: epName,
-      directHost,
-      poolerHost,
-    });
-
-    return { directHost, poolerHost, name: epName };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Username (SCIM Me)
-// ---------------------------------------------------------------------------
-
-async function resolveUsername(): Promise<string> {
-  if (globalForProvision.__username) return globalForProvision.__username;
-
-  // Use the cached username from the startup provisioning script to avoid
-  // a redundant SCIM /Me call that risks 429 rate limiting.
-  const envUsername = process.env.LAKEBASE_USERNAME;
-  if (envUsername) {
-    globalForProvision.__username = envUsername;
-    log.info("Username resolved from LAKEBASE_USERNAME env", {
-      identity: envUsername,
-    });
-    return envUsername;
-  }
-
-  return dedup("username", async () => {
-    const host = getHost();
-    const token = await getWorkspaceToken();
-    const maxRetries = 5;
-    let lastErr: Error | undefined;
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const resp = await fetchWithTimeout(
-        `${host}/api/2.0/preview/scim/v2/Me`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        },
-        TIMEOUTS.AUTH,
-      );
-
-      if (resp.ok) {
-        const data: { userName?: string; displayName?: string } = await resp.json();
-        const identity = data.userName ?? data.displayName ?? null;
-        if (!identity) {
-          throw new Error("Could not determine workspace identity from /Me");
-        }
-        globalForProvision.__username = identity;
-
-        log.info("Username resolved via SCIM /Me", { identity });
-
-        return globalForProvision.__username;
-      }
-
-      const text = await resp.text();
-
-      if (resp.status === 429 && attempt < maxRetries - 1) {
-        const delaySec = Math.pow(2, attempt + 1);
-        log.warn(`SCIM /Me rate-limited (429), retrying in ${delaySec}s`, {
-          attempt: attempt + 1,
-          maxRetries,
-          errorCategory: "rate_limit",
-        });
-        await new Promise((r) => setTimeout(r, delaySec * 1000));
-        continue;
-      }
-
-      lastErr = new Error(`SCIM /Me failed (${resp.status}): ${text}`);
-    }
-
-    throw lastErr!;
-  });
-}
-
-// ---------------------------------------------------------------------------
-// DB credential (Postgres password token, 1-hour TTL)
+// DB credential minting (Postgres password token, ~1-hour TTL)
 // ---------------------------------------------------------------------------
 
 async function generateDbCredential(): Promise<string> {
@@ -458,18 +191,27 @@ async function generateDbCredential(): Promise<string> {
   }
 
   return dedup("dbCredential", async () => {
-    // Re-check after acquiring the dedup slot — another caller may have
-    // populated the cache while we waited.
     const rechecked = globalForProvision.__dbCredential;
     if (rechecked && Date.now() < rechecked.expiresAt - 60_000) {
       return rechecked.value;
     }
 
-    const { name: endpointName } = await resolveEndpoint();
+    const { endpointName } = requireResourceBinding();
+    const host = getHost();
+    const token = await getWorkspaceToken();
 
-    const resp = await lakebaseApi("POST", "credentials", {
-      endpoint: endpointName,
-    });
+    const resp = await fetchWithTimeout(
+      `${host}/api/2.0/postgres/credentials`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ endpoint: endpointName }),
+      },
+      LAKEBASE_API_TIMEOUT,
+    );
 
     if (!resp.ok) {
       const text = await resp.text();
@@ -494,7 +236,6 @@ async function generateDbCredential(): Promise<string> {
 
     log.info("DB credential generated", {
       generation: globalForProvision.__credentialGeneration,
-      hasToken: true,
       tokenLength: data.token.length,
       tokenExpiresInSec: Math.max(Math.round((expiresAt - Date.now()) / 1_000), 0),
       expiresAt: new Date(expiresAt).toISOString(),
@@ -505,119 +246,15 @@ async function generateDbCredential(): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Scale-to-zero enforcement
-// ---------------------------------------------------------------------------
-
-const DEFAULT_SCALE_TO_ZERO_TIMEOUT = 300;
-
-function getDesiredScaleToZeroTimeout(): number | null {
-  const raw = process.env.LAKEBASE_SCALE_TO_ZERO_TIMEOUT ?? "";
-  if (raw === "disabled" || raw === "false" || raw === "off") return null;
-  if (raw === "" || raw === "default") return DEFAULT_SCALE_TO_ZERO_TIMEOUT;
-  const parsed = parseInt(raw, 10);
-  if (isNaN(parsed) || parsed < 0) return DEFAULT_SCALE_TO_ZERO_TIMEOUT;
-  if (parsed === 0) return null;
-  return Math.max(parsed, 60);
-}
-
-async function ensureScaleToZero(): Promise<void> {
-  const desiredTimeout = getDesiredScaleToZeroTimeout();
-  const { name: epName } = await resolveEndpoint();
-
-  const detResp = await lakebaseApi("GET", epName);
-  if (!detResp.ok) {
-    log.warn("Could not read endpoint for scale-to-zero check, skipping", {
-      status: detResp.status,
-      errorCategory: "config_read_failed",
-    });
-    return;
-  }
-  const detail: {
-    spec?: { no_suspension?: boolean; suspend_timeout_duration?: string };
-    status?: { suspend_timeout_duration?: string };
-  } = await detResp.json();
-
-  const currentDuration =
-    detail.status?.suspend_timeout_duration ?? detail.spec?.suspend_timeout_duration ?? null;
-  const currentNoSuspension = detail.spec?.no_suspension === true;
-
-  if (desiredTimeout === null) {
-    if (currentNoSuspension) {
-      log.info("Scale-to-zero already disabled (as requested)");
-      return;
-    }
-    log.info("Disabling scale-to-zero (explicitly requested)...");
-    const patchResp = await lakebaseApi("PATCH", `${epName}?update_mask=spec.no_suspension`, {
-      name: epName,
-      spec: { no_suspension: true },
-    });
-    if (!patchResp.ok) {
-      const text = await patchResp.text();
-      log.warn("Failed to disable scale-to-zero", {
-        status: patchResp.status,
-        text,
-        errorCategory: "api_fail",
-      });
-      return;
-    }
-    const op = await patchResp.json();
-    if (op.name && !op.done) await pollOperation(op.name);
-    log.info("Scale-to-zero disabled");
-    return;
-  }
-
-  const desiredDuration = `${desiredTimeout}s`;
-  if (!currentNoSuspension && currentDuration === desiredDuration) {
-    log.info("Scale-to-zero already enabled", { timeout: desiredDuration });
-    return;
-  }
-
-  log.info("Enabling scale-to-zero...", { timeout: desiredDuration });
-  const patchResp = await lakebaseApi("PATCH", `${epName}?update_mask=spec.no_suspension`, {
-    name: epName,
-    spec: { no_suspension: false },
-  });
-  if (!patchResp.ok) {
-    const text = await patchResp.text();
-    log.warn("Failed to enable scale-to-zero", {
-      status: patchResp.status,
-      text,
-      errorCategory: "api_fail",
-    });
-    return;
-  }
-  const op = await patchResp.json();
-  if (op.name && !op.done) await pollOperation(op.name);
-
-  const timeoutResp = await lakebaseApi(
-    "PATCH",
-    `${epName}?update_mask=spec.suspend_timeout_duration`,
-    { name: epName, spec: { suspend_timeout_duration: desiredDuration } },
-  );
-  if (!timeoutResp.ok) {
-    log.warn("Scale-to-zero enabled but could not set custom timeout; using API default (300s)", {
-      status: timeoutResp.status,
-      desiredDuration,
-      errorCategory: "api_partial",
-    });
-  } else {
-    const top = await timeoutResp.json();
-    if (top.name && !top.done) await pollOperation(top.name);
-  }
-  log.info("Scale-to-zero enabled", { timeout: desiredDuration });
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /**
- * True when running as a Databricks App (SP credentials available) and no
- * static DATABASE_URL has been provided. In this mode the app self-provisions
- * its Lakebase project and manages tokens automatically.
+ * True when the `postgres` app resource is bound (Databricks Apps runtime).
  */
 export function isAutoProvisionEnabled(): boolean {
   return !!(
+    readResourceBinding() &&
     process.env.DATABRICKS_CLIENT_ID &&
     process.env.DATABRICKS_CLIENT_SECRET &&
     process.env.DATABRICKS_HOST &&
@@ -626,14 +263,13 @@ export function isAutoProvisionEnabled(): boolean {
 }
 
 /**
- * True when Databricks App SP credentials are available, regardless of
- * whether DATABASE_URL is set. Used by withPrisma to decide whether
- * auth-error retry can fall back to auto-provisioned credentials even
- * when a static URL was initially configured (e.g. platform resource
- * binding or leaked startup env).
+ * True when SP credentials are available AND the `postgres` resource is bound.
+ * Used by `withPrisma` to decide whether auth-error retry can fall back to
+ * minting a fresh OAuth credential.
  */
 export function canAutoProvision(): boolean {
   return !!(
+    readResourceBinding() &&
     process.env.DATABRICKS_CLIENT_ID &&
     process.env.DATABRICKS_CLIENT_SECRET &&
     process.env.DATABRICKS_HOST
@@ -641,95 +277,86 @@ export function canAutoProvision(): boolean {
 }
 
 /**
- * Ensure the Lakebase Autoscale project exists, creating it on first boot.
- * Also enforces scale-to-zero configuration on the production endpoint.
- * Idempotent -- subsequent calls are near-instant.
+ * No-op in resource-binding mode -- the platform owns project + endpoint
+ * lifecycle (including scale-to-zero). Kept as an export for backward
+ * compatibility with the startup script.
  */
 export async function ensureLakebaseProject(): Promise<void> {
-  if (await projectExists()) {
-    log.info("Lakebase project exists", { projectId: getProjectId() });
-  } else {
-    await createProject();
+  if (!readResourceBinding()) {
+    log.warn(
+      "ensureLakebaseProject called without `postgres` resource binding -- " +
+        "platform now manages Lakebase lifecycle; nothing to do",
+    );
+    return;
   }
-
-  try {
-    await ensureScaleToZero();
-  } catch (err) {
-    log.warn("Scale-to-zero enforcement failed (non-fatal)", {
-      error: err instanceof Error ? err.message : String(err),
-      errorCategory: "non_fatal",
-    });
-  }
+  log.info("Lakebase project lifecycle is platform-managed via app resource binding");
 }
 
 /**
  * Build a complete Postgres connection URL with a fresh OAuth credential.
- * Safe to call repeatedly -- returns cached values until the token nears
+ * Safe to call repeatedly -- returns the same URL until the token nears
  * expiry, then transparently mints a new one.
  */
 export async function getLakebaseConnectionUrl(): Promise<string> {
-  const [{ poolerHost }, username, token] = await Promise.all([
-    resolveEndpoint(),
-    resolveUsername(),
-    generateDbCredential(),
-  ]);
+  const binding = requireResourceBinding();
+  const token = await generateDbCredential();
 
   log.info("Building runtime connection URL", {
-    endpointKind: "pooler",
-    host: poolerHost,
+    host: binding.host,
   });
 
   return (
-    `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(token)}` +
-    `@${poolerHost}/${DATABASE_NAME}?sslmode=require&uselibpqcompat=true`
+    `postgresql://${encodeURIComponent(binding.username)}:${encodeURIComponent(token)}` +
+    `@${binding.host}:${binding.port}/${binding.database}` +
+    `?sslmode=${encodeURIComponent(binding.sslMode)}&uselibpqcompat=true`
   );
 }
 
+/**
+ * Single canonical connection URL plus token metadata. In resource-binding
+ * mode there is exactly one host (the platform decides whether it's pooler
+ * or direct); the legacy dual-URL contract was retired with the self-
+ * provisioning code path.
+ */
 export async function getLakebaseConnectionUrls(): Promise<{
-  poolerUrl: string;
-  directUrl: string;
+  url: string;
   tokenGeneration: number;
   tokenExpiresAt: number | null;
 }> {
-  const [{ poolerHost, directHost }, username, token] = await Promise.all([
-    resolveEndpoint(),
-    resolveUsername(),
-    generateDbCredential(),
-  ]);
-
-  const encodedUser = encodeURIComponent(username);
-  const encodedToken = encodeURIComponent(token);
-  const suffix = `/${DATABASE_NAME}?sslmode=require&uselibpqcompat=true`;
-
+  const url = await getLakebaseConnectionUrl();
   return {
-    poolerUrl: `postgresql://${encodedUser}:${encodedToken}@${poolerHost}${suffix}`,
-    directUrl: `postgresql://${encodedUser}:${encodedToken}@${directHost}${suffix}`,
+    url,
     tokenGeneration: getCredentialGeneration(),
     tokenExpiresAt: getCredentialExpiresAt(),
   };
 }
 
+/**
+ * Hostname + endpoint metadata for diagnostic logging. Reads directly from
+ * the platform-injected env vars.
+ */
 export async function getRuntimeEndpointInfo(): Promise<{
   endpointName: string;
-  directHost: string;
-  poolerHost: string;
+  host: string;
 }> {
-  const { name, directHost, poolerHost } = await resolveEndpoint();
-  return { endpointName: name, directHost, poolerHost };
+  const binding = requireResourceBinding();
+  return {
+    endpointName: binding.endpointName,
+    host: binding.host,
+  };
 }
 
 /**
- * Get a fresh DB credential token (for pool rotation).
- * Returns the cached token if still valid.
+ * Get a fresh DB credential token (for pool rotation). Returns the cached
+ * token if still valid.
  */
 export async function refreshDbCredential(): Promise<string> {
   return generateDbCredential();
 }
 
 /**
- * Force-invalidate the cached DB credential so the next
- * `refreshDbCredential()` / `getLakebaseConnectionUrl()` call mints
- * a new one. Use this when an authentication error is caught to
+ * Force-invalidate the cached DB credential so the next `refreshDbCredential()`
+ * call mints a new one. Use this when an authentication error is caught to
  * guarantee the stale credential is discarded.
  */
 export function invalidateDbCredential(): void {
@@ -737,18 +364,17 @@ export function invalidateDbCredential(): void {
 }
 
 /**
- * Monotonically increasing counter that bumps every time a genuinely new
- * DB credential is minted. Used by lib/prisma.ts to detect token rotation
- * and recreate the connection pool.
+ * Monotonically increasing counter that bumps every time a new DB credential
+ * is minted. Used by `lib/prisma.ts` to detect token rotation and recreate
+ * the connection pool.
  */
 export function getCredentialGeneration(): number {
   return globalForProvision.__credentialGeneration ?? 0;
 }
 
 /**
- * Returns the epoch-ms expiry time of the current DB credential,
- * or null if no credential has been minted yet. Used by lib/prisma.ts
- * to schedule proactive pool rotation before the credential expires.
+ * Epoch-ms expiry of the current DB credential, or null if no credential has
+ * been minted yet. Used by `lib/prisma.ts` to schedule proactive rotation.
  */
 export function getCredentialExpiresAt(): number | null {
   return globalForProvision.__dbCredential?.expiresAt ?? null;

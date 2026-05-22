@@ -107,7 +107,7 @@ export function ConfigForm({
     if (typeof window === "undefined") return false;
     return loadSettings().assetDiscoveryEnabled;
   });
-  const [businessValueEnabled, setBusinessValueEnabled] = useState(false);
+  const [businessValueEnabled, setBusinessValueEnabled] = useState(true);
   const [businessName, setBusinessName] = useState("");
   const settingsIndustry = typeof window !== "undefined" ? loadSettings().industry : "";
   const [industry, setIndustry] = useState(settingsIndustry);

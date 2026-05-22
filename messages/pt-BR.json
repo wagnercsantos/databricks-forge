@@ -51,6 +51,7 @@
       "stakeholders": "Stakeholders",
       "value_tracking": "Acompanhamento de Valor",
       "strategy": "Estratégia",
+      "data_gap": "Gap de Dados",
       "outcome_maps": "Mapas de Resultados",
       "benchmarks": "Benchmarks",
       "demo_studio": "Demo Studio",
@@ -379,6 +380,18 @@
       "runtime_label": "Runtime",
       "runtime_apps": "Next.js / Databricks Apps",
       "runtime_local": "Next.js / Dev Local"
+    },
+    "feature_flags": {
+      "title": "Feature Flags",
+      "description": "Alternâncias de runtime compartilhadas no workspace. As alterações afetam todos os usuários sem precisar reimplantar o app.",
+      "demo_mode": {
+        "label": "Modo Demo",
+        "enabled": "Ativado. O Assistente Demo aparece na barra lateral e em Configurações; as APIs de demo estão disponíveis.",
+        "disabled": "Desativado. As APIs de demo retornam 404 e o Assistente Demo fica oculto.",
+        "loading": "Carregando estado atual…",
+        "toast_enabled": "Modo Demo ativado",
+        "toast_disabled": "Modo Demo desativado"
+      }
     },
     "data_management": {
       "title": "Gerenciamento de Dados",

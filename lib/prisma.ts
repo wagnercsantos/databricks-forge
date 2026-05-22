@@ -8,11 +8,12 @@
  * of concurrent queries hit Lakebase's connection rate limiter.
  *
  * Two modes (chosen automatically):
- *   1. **Auto-provisioned** (Databricks Apps) -- DATABRICKS_CLIENT_ID is
- *      present. The provision module generates short-lived OAuth DB
- *      credentials with automatic rotation and uses the pooler endpoint.
- *   2. **Static URL** (local dev fallback) -- DATABASE_URL is set and app
- *      service principal credentials are not available.
+ *   1. **Resource-binding** (Databricks Apps) -- the `postgres` resource is
+ *      bound in app.yaml; PGHOST/PGUSER/PGDATABASE/LAKEBASE_ENDPOINT are
+ *      injected by the platform. We mint short-lived OAuth Postgres tokens
+ *      via lib/lakebase/provision.ts and rotate them automatically.
+ *   2. **Static URL** (local dev) -- DATABASE_URL is set and SP credentials
+ *      are not available. Uses the URL directly without rotation.
  *
  * The standard Next.js pattern caches the client on `globalThis` to survive
  * HMR reloads in development.
@@ -23,11 +24,10 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/lib/generated/prisma/client";
 import {
   canAutoProvision,
-  getLakebaseAuthMode,
-  getLakebaseConnectionUrls,
   getRuntimeEndpointInfo,
   getCredentialGeneration,
   getCredentialExpiresAt,
+  getLakebaseConnectionUrl,
   refreshDbCredential,
   invalidateDbCredential,
 } from "@/lib/lakebase/provision";
@@ -87,9 +87,6 @@ const globalForPrisma = globalThis as unknown as {
   __dbReady: boolean | undefined;
   __rotationResolvedAt: number | undefined;
   __lastRotationAttemptAt: number | undefined;
-  __poolerFailoverCount: number | undefined;
-  __poolerConsecutiveSuccesses: number | undefined;
-  __lastSelectedEndpointKind: "pooler" | "direct" | null | undefined;
 };
 
 globalForPrisma.__rotationInFlight ??= null;
@@ -98,9 +95,6 @@ globalForPrisma.__staticInitInFlight ??= null;
 globalForPrisma.__dbReady ??= false;
 globalForPrisma.__rotationResolvedAt ??= 0;
 globalForPrisma.__lastRotationAttemptAt ??= 0;
-globalForPrisma.__poolerFailoverCount ??= 0;
-globalForPrisma.__poolerConsecutiveSuccesses ??= 0;
-globalForPrisma.__lastSelectedEndpointKind ??= null;
 
 // ---------------------------------------------------------------------------
 // Pool configuration
@@ -113,36 +107,6 @@ const POOL_OPTIONS: pg.PoolConfig = {
 };
 
 const POOL_WARM_TARGET = 2;
-const LAKEBASE_AUTH_MODE = getLakebaseAuthMode();
-const REQUIRE_POOLER = process.env.LAKEBASE_REQUIRE_POOLER === "true";
-const RUNTIME_MODE = process.env.LAKEBASE_RUNTIME_MODE ?? "oauth_direct_only";
-const ENABLE_POOLER_EXPERIMENT = process.env.LAKEBASE_ENABLE_POOLER_EXPERIMENT === "true";
-const POOLER_READINESS_SUCCESS_TARGET = Number(
-  process.env.LAKEBASE_POOLER_READINESS_SUCCESS_TARGET ?? "3",
-);
-const DATABASE_NAME = process.env.LAKEBASE_DATABASE ?? "databricks_postgres";
-
-function getNativePoolerConnectionUrl(): string {
-  const host = process.env.LAKEBASE_POOLER_HOST;
-  const user = process.env.LAKEBASE_NATIVE_USER;
-  const password = process.env.LAKEBASE_NATIVE_PASSWORD;
-  if (!host || !user || !password) {
-    throw new Error(
-      "LAKEBASE_AUTH_MODE=native_password requires LAKEBASE_POOLER_HOST, LAKEBASE_NATIVE_USER, and LAKEBASE_NATIVE_PASSWORD",
-    );
-  }
-  return (
-    `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}` +
-    `@${host}/${DATABASE_NAME}?sslmode=require&uselibpqcompat=true`
-  );
-}
-
-function shouldAttemptPooler(): boolean {
-  if (REQUIRE_POOLER) return true;
-  if (RUNTIME_MODE === "pooler_preferred") return true;
-  if (ENABLE_POOLER_EXPERIMENT) return true;
-  return false;
-}
 
 // ---------------------------------------------------------------------------
 // Pool creation + pre-warming
@@ -175,7 +139,6 @@ async function createAndWarmPool(
     await new Promise((r) => setTimeout(r, initialDelayMs));
   }
 
-  // Verify first connection (with retry for credential propagation)
   let lastError: unknown;
   for (let i = 0; i <= verifyRetries; i++) {
     if (i > 0) {
@@ -204,9 +167,6 @@ async function createAndWarmPool(
   }
 
   // Pre-warm additional connections concurrently (best-effort).
-  // pg.Pool creates connections lazily, so concurrent connect() calls force
-  // it to open multiple TCP connections. These stay idle in the pool for
-  // idleTimeoutMillis, ready for the dashboard's burst of parallel queries.
   if (POOL_WARM_TARGET > 1) {
     const results = await Promise.allSettled(
       Array.from({ length: POOL_WARM_TARGET - 1 }, () =>
@@ -248,11 +208,6 @@ async function createAndWarmPool(
 // ---------------------------------------------------------------------------
 
 export async function getPrisma(): Promise<PrismaClient> {
-  if (LAKEBASE_AUTH_MODE === "native_password") {
-    return getNativePasswordPrisma();
-  }
-  // Databricks Apps runtime should always prefer auto-provisioned credentials
-  // when app service principal credentials are available.
   if (canAutoProvision()) {
     return getAutoProvisionedPrisma();
   }
@@ -265,37 +220,11 @@ export function isDatabaseReady(): boolean {
 
 export function getDatabaseAuthRuntimeState(): {
   ready: boolean;
-  authMode: "oauth" | "native_password";
-  poolerFailoverCount: number;
-  poolerConsecutiveSuccesses: number;
-  lastSelectedEndpointKind: "pooler" | "direct" | null;
-  requirePooler: boolean;
-  runtimeMode: string;
-  enablePoolerExperiment: boolean;
-  poolerAttemptEnabled: boolean;
-  poolerReadinessSuccessTarget: number;
-  poolerReadinessGatePassed: boolean;
+  authMode: "oauth";
 } {
-  const consecutive = globalForPrisma.__poolerConsecutiveSuccesses ?? 0;
-  const failovers = globalForPrisma.__poolerFailoverCount ?? 0;
-  const poolerAttemptEnabled =
-    LAKEBASE_AUTH_MODE === "native_password" ? true : shouldAttemptPooler();
-  const poolerReadinessGatePassed =
-    LAKEBASE_AUTH_MODE === "native_password"
-      ? true
-      : failovers === 0 && consecutive >= POOLER_READINESS_SUCCESS_TARGET;
   return {
     ready: isDatabaseReady(),
-    authMode: LAKEBASE_AUTH_MODE,
-    poolerFailoverCount: failovers,
-    poolerConsecutiveSuccesses: consecutive,
-    lastSelectedEndpointKind: globalForPrisma.__lastSelectedEndpointKind ?? null,
-    requirePooler: REQUIRE_POOLER,
-    runtimeMode: RUNTIME_MODE,
-    enablePoolerExperiment: ENABLE_POOLER_EXPERIMENT,
-    poolerAttemptEnabled,
-    poolerReadinessSuccessTarget: POOLER_READINESS_SUCCESS_TARGET,
-    poolerReadinessGatePassed,
+    authMode: "oauth",
   };
 }
 
@@ -325,13 +254,13 @@ export async function invalidatePrismaClient(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Auto-provisioned mode (Databricks Apps)
+// Resource-binding mode (Databricks Apps, OAuth-only)
 // ---------------------------------------------------------------------------
 
 async function getAutoProvisionedPrisma(): Promise<PrismaClient> {
   await refreshDbCredential();
   const generation = getCredentialGeneration();
-  const tokenId = `autoscale_${generation}`;
+  const tokenId = `oauth_${generation}`;
 
   if (globalForPrisma.__prisma && globalForPrisma.__prismaTokenId === tokenId) {
     return globalForPrisma.__prisma;
@@ -350,7 +279,6 @@ async function buildAutoProvisionedClient(
   tokenId: string,
   generation: number,
 ): Promise<PrismaClient> {
-  // Clean up previous client + pool
   if (globalForPrisma.__prisma) {
     try {
       await globalForPrisma.__prisma.$disconnect();
@@ -367,21 +295,17 @@ async function buildAutoProvisionedClient(
   }
 
   const endpointInfo = await getRuntimeEndpointInfo();
-  log.info("Runtime endpoint candidates resolved", {
+  log.info("Runtime endpoint resolved", {
     endpointName: endpointInfo.endpointName,
-    poolerHost: endpointInfo.poolerHost,
-    directHost: endpointInfo.directHost,
+    host: endpointInfo.host,
   });
 
-  // Pooler credential propagation can lag on cold starts; retry with
-  // regenerated credentials rather than reusing a single potentially stale token.
+  // Pooler credential propagation can lag on cold starts. Retry with
+  // regenerated credentials rather than reusing a single potentially stale
+  // token.
   const MAX_CREDENTIAL_GENERATIONS = 3;
   let pool: pg.Pool | null = null;
   let lastError: unknown;
-  let selectedEndpointKind: "pooler" | "direct" | null = null;
-  let selectedHost: string | null = null;
-  let poolerAttempted = false;
-  let poolerFailureObserved = false;
 
   for (let attempt = 1; attempt <= MAX_CREDENTIAL_GENERATIONS; attempt++) {
     if (attempt > 1) {
@@ -389,144 +313,35 @@ async function buildAutoProvisionedClient(
       await refreshDbCredential();
     }
 
-    const { poolerUrl, directUrl, tokenGeneration, tokenExpiresAt } =
-      await getLakebaseConnectionUrls();
+    const connectionString = await getLakebaseConnectionUrl();
+    const tokenGeneration = getCredentialGeneration();
+    const tokenExpiresAt = getCredentialExpiresAt();
+    logConnectionInfo(connectionString);
 
-    const poolerAttemptEnabled = shouldAttemptPooler();
-    const probeResults: Record<"pooler" | "direct", "ok" | "error" | "skipped"> = {
-      pooler: poolerAttemptEnabled ? "error" : "skipped",
-      direct: "error",
-    };
-    const endpointProbe = async (
-      endpointKind: "pooler" | "direct",
-      host: string,
-      connectionString: string,
-    ): Promise<void> => {
-      const probePool = new pg.Pool({
-        connectionString,
-        max: 1,
-        connectionTimeoutMillis: 8_000,
-      });
-      try {
-        await probePool.query("SELECT 1");
-        probeResults[endpointKind] = "ok";
-      } catch (err) {
-        log.warn("Endpoint auth probe failed", {
-          endpointKind,
-          host,
-          tokenGeneration,
-          tokenExpiresInSec: tokenExpiresAt
-            ? Math.max(Math.round((tokenExpiresAt - Date.now()) / 1000), 0)
-            : null,
-          errorClass: classifyDbError(err),
-          error: err instanceof Error ? err.message : String(err),
-          errorCategory: "auth_probe_failed",
-        });
-      } finally {
-        await probePool.end().catch(() => {});
-      }
-    };
-
-    if (poolerAttemptEnabled) {
-      poolerAttempted = true;
-      await endpointProbe("pooler", endpointInfo.poolerHost, poolerUrl);
-    }
-    await endpointProbe("direct", endpointInfo.directHost, directUrl);
-    const fastFailoverTriggered =
-      !REQUIRE_POOLER && probeResults.pooler === "error" && probeResults.direct === "ok";
-    if (fastFailoverTriggered) {
-      poolerFailureObserved = true;
-    }
-    log.info("Endpoint auth probes complete", {
-      tokenGeneration,
-      probeResultPooler: probeResults.pooler,
-      probeResultDirect: probeResults.direct,
-      poolerAttemptEnabled,
-      fastFailoverTriggered,
-      runtimeMode: RUNTIME_MODE,
-      enablePoolerExperiment: ENABLE_POOLER_EXPERIMENT,
-    });
-
-    const endpointCandidates: Array<{
-      endpointKind: "pooler" | "direct";
-      host: string;
-      connectionString: string;
-    }> = [
-      {
-        endpointKind: "pooler",
-        host: endpointInfo.poolerHost,
-        connectionString: poolerUrl,
-      },
-      {
-        endpointKind: "direct",
-        host: endpointInfo.directHost,
-        connectionString: directUrl,
-      },
-    ];
-
-    const orderedCandidates = REQUIRE_POOLER
-      ? endpointCandidates.filter((c) => c.endpointKind === "pooler")
-      : !poolerAttemptEnabled
-        ? endpointCandidates.filter((c) => c.endpointKind === "direct")
-        : fastFailoverTriggered
-          ? endpointCandidates.filter((c) => c.endpointKind === "direct")
-          : endpointCandidates;
-
-    if (fastFailoverTriggered) {
-      log.warn("Fast failover activated after probe results", {
+    try {
+      // ~65s max per attempt (5s initial + 20 * 3s retries)
+      pool = await createAndWarmPool(connectionString, 20, 3_000, 5_000);
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn("Auto-provision pool bootstrap failed", {
+        attempt,
+        maxAttempts: MAX_CREDENTIAL_GENERATIONS,
+        host: endpointInfo.host,
         tokenGeneration,
-        endpointKindAttempted: "pooler",
-        endpointKindSelected: "direct",
-        errorCategory: "failover",
+        tokenExpiresInSec: tokenExpiresAt
+          ? Math.max(Math.round((tokenExpiresAt - Date.now()) / 1000), 0)
+          : null,
+        errorClass: classifyDbError(err),
+        authError: isAuthError(err),
+        rateLimited: isRateLimitError(err),
+        propagationLikely: isCredentialPropagationError(err),
+        error: msg,
+        errorCategory: "bootstrap_failed",
       });
     }
-    if (!poolerAttemptEnabled) {
-      log.info("Pooler attempts disabled by runtime flags", {
-        runtimeMode: RUNTIME_MODE,
-        enablePoolerExperiment: ENABLE_POOLER_EXPERIMENT,
-        endpointKindSelected: "direct",
-      });
-    }
-
-    for (const candidate of orderedCandidates) {
-      if (candidate.endpointKind === "pooler") {
-        poolerAttempted = true;
-      }
-      logConnectionInfo(candidate.connectionString);
-
-      try {
-        // ~65s max per endpoint attempt (5s initial + 20 * 3s retries)
-        pool = await createAndWarmPool(candidate.connectionString, 20, 3_000, 5_000);
-        selectedEndpointKind = candidate.endpointKind;
-        selectedHost = candidate.host;
-        lastError = null;
-        break;
-      } catch (err) {
-        if (candidate.endpointKind === "pooler") {
-          poolerFailureObserved = true;
-        }
-        lastError = err;
-        const msg = err instanceof Error ? err.message : String(err);
-        log.warn("Auto-provision pool bootstrap failed", {
-          attempt,
-          maxAttempts: MAX_CREDENTIAL_GENERATIONS,
-          endpointKind: candidate.endpointKind,
-          host: candidate.host,
-          tokenGeneration,
-          tokenExpiresInSec: tokenExpiresAt
-            ? Math.max(Math.round((tokenExpiresAt - Date.now()) / 1000), 0)
-            : null,
-          errorClass: classifyDbError(err),
-          authError: isAuthError(err),
-          rateLimited: isRateLimitError(err),
-          propagationLikely: isCredentialPropagationError(err),
-          error: msg,
-          errorCategory: "bootstrap_failed",
-        });
-      }
-    }
-
-    if (pool && selectedEndpointKind) break;
 
     if (attempt < MAX_CREDENTIAL_GENERATIONS) {
       await new Promise((r) => setTimeout(r, 2_000 * attempt));
@@ -537,48 +352,6 @@ async function buildAutoProvisionedClient(
     throw lastError ?? new Error("Failed to initialize pool");
   }
 
-  const fallbackTriggered =
-    selectedEndpointKind === "direct" && poolerAttempted && poolerFailureObserved;
-  if (selectedEndpointKind === "direct") {
-    if (fallbackTriggered) {
-      globalForPrisma.__poolerFailoverCount = (globalForPrisma.__poolerFailoverCount ?? 0) + 1;
-    }
-    globalForPrisma.__poolerConsecutiveSuccesses = 0;
-    globalForPrisma.__lastSelectedEndpointKind = "direct";
-    if (fallbackTriggered) {
-      log.warn("Pooler bootstrap failed; using direct endpoint fallback for runtime", {
-        fallbackTriggered: true,
-        poolerFailoverCount: globalForPrisma.__poolerFailoverCount,
-        errorCategory: "failover",
-      });
-    } else {
-      log.info("Direct endpoint selected by runtime policy", {
-        runtimeMode: RUNTIME_MODE,
-        enablePoolerExperiment: ENABLE_POOLER_EXPERIMENT,
-        requirePooler: REQUIRE_POOLER,
-      });
-    }
-  } else {
-    globalForPrisma.__poolerConsecutiveSuccesses =
-      (globalForPrisma.__poolerConsecutiveSuccesses ?? 0) + 1;
-    globalForPrisma.__lastSelectedEndpointKind = "pooler";
-  }
-
-  const runtimeState = getDatabaseAuthRuntimeState();
-  log.info("Runtime endpoint selected", {
-    endpointName: endpointInfo.endpointName,
-    endpointKind: selectedEndpointKind,
-    host: selectedHost,
-    fallbackTriggered,
-    poolerFailoverCount: runtimeState.poolerFailoverCount,
-  });
-  log.info("Pooler readiness gate status", {
-    poolerConsecutiveSuccesses: runtimeState.poolerConsecutiveSuccesses,
-    poolerFailoverCount: runtimeState.poolerFailoverCount,
-    poolerReadinessSuccessTarget: runtimeState.poolerReadinessSuccessTarget,
-    poolerReadinessGatePassed: runtimeState.poolerReadinessGatePassed,
-  });
-
   globalForPrisma.__pool = pool;
 
   const adapter = new PrismaPg(pool);
@@ -588,9 +361,10 @@ async function buildAutoProvisionedClient(
   globalForPrisma.__prismaTokenId = tokenId;
   globalForPrisma.__dbReady = true;
 
-  log.info("Client created (auto-provision mode)", {
+  log.info("Client created (resource-binding OAuth mode)", {
     generation,
     tokenId,
+    host: endpointInfo.host,
   });
 
   scheduleProactiveRefresh();
@@ -644,15 +418,16 @@ function scheduleProactiveRefresh(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Static URL mode (local dev or startup credential from start.sh)
+// Static URL mode (local dev)
 // ---------------------------------------------------------------------------
 
 async function getStaticPrisma(): Promise<PrismaClient> {
   const url = process.env.DATABASE_URL;
   if (!url) {
     throw new Error(
-      "DATABASE_URL is not set and Lakebase auto-provisioning is not available. " +
-        "Set DATABASE_URL in .env for local dev, or deploy as a Databricks App.",
+      "DATABASE_URL is not set and Lakebase resource binding is not available. " +
+        "Set DATABASE_URL in .env for local dev, or deploy as a Databricks App " +
+        "with the `postgres` resource bound.",
     );
   }
 
@@ -694,50 +469,6 @@ async function getStaticPrisma(): Promise<PrismaClient> {
   return globalForPrisma.__staticInitInFlight;
 }
 
-async function getNativePasswordPrisma(): Promise<PrismaClient> {
-  if (globalForPrisma.__prisma && globalForPrisma.__prismaTokenId === "__native_password__") {
-    return globalForPrisma.__prisma;
-  }
-
-  if (globalForPrisma.__staticInitInFlight) {
-    return globalForPrisma.__staticInitInFlight;
-  }
-
-  globalForPrisma.__staticInitInFlight = (async () => {
-    if (globalForPrisma.__prisma) {
-      await globalForPrisma.__prisma.$disconnect().catch(() => {});
-    }
-    if (globalForPrisma.__pool) {
-      await globalForPrisma.__pool.end().catch(() => {});
-    }
-
-    const url = getNativePoolerConnectionUrl();
-    logConnectionInfo(url);
-
-    const pool = await createAndWarmPool(url, 3, 2_000, 2_000);
-    globalForPrisma.__pool = pool;
-    globalForPrisma.__lastSelectedEndpointKind = "pooler";
-
-    const adapter = new PrismaPg(pool);
-    const prisma = new PrismaClient({ adapter });
-
-    globalForPrisma.__prisma = prisma;
-    globalForPrisma.__prismaTokenId = "__native_password__";
-    globalForPrisma.__dbReady = true;
-
-    log.info("Client created (native password mode)", {
-      authMode: LAKEBASE_AUTH_MODE,
-      endpointKind: "pooler",
-    });
-
-    return prisma;
-  })().finally(() => {
-    globalForPrisma.__staticInitInFlight = null;
-  });
-
-  return globalForPrisma.__staticInitInFlight;
-}
-
 // ---------------------------------------------------------------------------
 // Resilient wrapper with auth-error retry
 // ---------------------------------------------------------------------------
@@ -746,21 +477,21 @@ const MAX_AUTH_RETRIES = 3;
 const RETRY_DELAY_MS = 2_000;
 
 /**
- * Execute a callback with a PrismaClient. If the call fails with a
- * database authentication error (stale credential), the client and
- * credential are invalidated and the call is retried.
+ * Execute a callback with a PrismaClient. If the call fails with a database
+ * authentication error (stale credential), the client and credential are
+ * invalidated and the call is retried.
  *
  * Strategy on auth error:
  *   1. **Quick retry** — Wait briefly and retry. Lakebase credential
- *      propagation is eventually consistent across backends; a short
- *      delay often resolves transient auth failures without the cost of
- *      a full credential rotation.
- *   2. **Rotate** — If the quick retry also fails, invalidate the client
- *      and mint a new credential.
+ *      propagation is eventually consistent across backends; a short delay
+ *      often resolves transient auth failures without the cost of a full
+ *      credential rotation.
+ *   2. **Rotate** — If the quick retry also fails, invalidate the client and
+ *      mint a new credential.
  *   3. **Final retry** — One last attempt after rotation.
  *
- * Concurrent callers that all hit an auth error at the same time share
- * a single rotation promise — rotatePrismaClient verifies the connection
+ * Concurrent callers that all hit an auth error at the same time share a
+ * single rotation promise — `rotatePrismaClient` verifies the connection
  * before returning and enforces a cooldown to prevent callers from
  * disconnecting each other's working pools.
  */
@@ -788,20 +519,6 @@ export async function withPrisma<T>(fn: (prisma: PrismaClient) => Promise<T>): P
       }
 
       if (!isAuthError(err)) throw err;
-      if (LAKEBASE_AUTH_MODE === "native_password") {
-        log.warn("Native password auth error (no rotation path)", {
-          attempt: attempt + 1,
-          maxRetries: MAX_AUTH_RETRIES,
-          errorClass: classifyDbError(err),
-          error: err instanceof Error ? err.message : String(err),
-          errorCategory: "auth_error",
-        });
-        if (attempt < MAX_AUTH_RETRIES) {
-          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-          continue;
-        }
-        throw err;
-      }
       if (!canAutoProvision()) throw err;
 
       if (attempt < MAX_AUTH_RETRIES) {
@@ -861,11 +578,7 @@ async function rotatePrismaClient(reason: string): Promise<PrismaClient> {
       await invalidatePrismaClient();
       log.info("Credential rotation starting", { reason });
 
-      // getPrisma → buildAutoProvisionedClient → createAndWarmPool
-      // handles credential propagation retries and pool pre-warming.
       const client = await getPrisma();
-
-      // Final verification with a model query
       await client.forgeRun.count();
 
       globalForPrisma.__rotationResolvedAt = Date.now();

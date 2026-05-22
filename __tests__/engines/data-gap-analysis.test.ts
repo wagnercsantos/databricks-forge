@@ -111,6 +111,16 @@ describe("Data Gap Analysis engine", () => {
       row.blockedUseCases.includes(usecaseWithMc.name),
     );
     expect(blockedRowsMissing.length).toBeGreaterThan(0);
+    // The per-asset impactedUseCases payload (Phase 2.3) must surface the
+    // attributed UC with its criticality + attributed value.
+    const impactedRow = blockedRowsMissing[0]!;
+    expect(impactedRow.impactedUseCases.length).toBeGreaterThan(0);
+    const mcImpact = impactedRow.impactedUseCases.find(
+      (u) => u.name === usecaseWithMc.name && u.criticality === "MC",
+    );
+    expect(mcImpact).toBeDefined();
+    expect(mcImpact!.valueMid).toBe(500_000);
+    expect(mcImpact!.useCaseId).toBe(usecaseWithMc.name);
 
     // Scenario B -- ALL MC assets for this UC are present -> the UC must no
     // longer appear in any blockedUseCases list.
@@ -135,6 +145,125 @@ describe("Data Gap Analysis engine", () => {
     if (!present) return;
     const blockedNames = present.valueAtRisk.flatMap((r) => r.blockedUseCases);
     expect(blockedNames).not.toContain(usecaseWithMc.name);
+  });
+
+  it("bridges customer estimate names to master-repo names so value-at-risk populates even when titles do not match verbatim", () => {
+    // Regression for the production bug where Annual Value was uniformly $0:
+    // customer ForgeValueEstimate rows carry LLM-generated names that never
+    // match the master-repo UC names the value-at-risk aggregator looks up.
+    // The fix is `bridgeEstimatesToMasterRepo` inside the engine. This test
+    // would have caught the bug — the previous test on the same engine
+    // cheats by passing the master-repo name itself as the estimate name.
+    const enrichment = getMasterRepoEnrichment("retail");
+    if (!enrichment) return;
+
+    const usecaseWithMc = enrichment.useCases.find((u) =>
+      Object.values(u.dataAssetCriticality ?? {}).includes("MC"),
+    );
+    expect(usecaseWithMc).toBeDefined();
+    if (!usecaseWithMc) return;
+
+    // Perturb the master-repo name so it does NOT match verbatim but still
+    // shares enough tokens to hit the Jaccard tier of findReferenceMatch.
+    // Appending "Engine" preserves all meaningful tokens, guaranteeing
+    // Jaccard >= 0.5 for any master-repo name with at least one meaningful
+    // token (the canonical case).
+    const customerName = `${usecaseWithMc.name} Engine`;
+    expect(customerName.toLowerCase()).not.toBe(usecaseWithMc.name.toLowerCase());
+
+    const result = runDataGapAnalysis({
+      industryId: "retail",
+      classifiedTables: [],
+      useCaseValueEstimates: [
+        {
+          useCaseId: "uc-customer-id",
+          name: customerName,
+          valueLow: 100_000,
+          valueMid: 500_000,
+          valueHigh: 1_000_000,
+          economicImpactCategory: "Cost",
+        },
+      ],
+    });
+    expect(result).not.toBeNull();
+    if (!result) return;
+
+    // Bridge worked -> summary value-at-risk is non-zero.
+    expect(result.summary.valueAtRiskMid).toBeGreaterThan(0);
+
+    // The UC surfaces on at least one missing MC asset row, AND the per-asset
+    // impactedUseCases entry carries the master-repo name (proves the rename
+    // actually happened — without the bridge the name would still be the
+    // perturbed customer string OR the entry would have valueMid: 0).
+    const blockedRow = result.valueAtRisk.find((row) =>
+      row.blockedUseCases.includes(usecaseWithMc.name),
+    );
+    expect(blockedRow).toBeDefined();
+    const mcImpact = blockedRow!.impactedUseCases.find(
+      (u) => u.name === usecaseWithMc.name && u.criticality === "MC",
+    );
+    expect(mcImpact).toBeDefined();
+    expect(mcImpact!.valueMid).toBe(500_000);
+  });
+
+  it("joins useCaseSourceSystems by master-repo use-case name, not customer-side name", () => {
+    // Regression for the route bug where `useCaseSourceSystems[].name` was
+    // populated with the customer-generated `uc.name`. The engine looks up
+    // by master-repo UC name (case-insensitive) inside `descriptor.useCases`,
+    // so a customer-name keyed entry never joined — lineage signal was
+    // silently dropped and per-asset origin downgraded to master-repo /
+    // unknown. The route now prefers `referenceUseCaseName` so the key
+    // matches what this test asserts.
+    const enrichment = getMasterRepoEnrichment("retail");
+    if (!enrichment) return;
+
+    const usecaseWithMc = enrichment.useCases.find((u) =>
+      Object.values(u.dataAssetCriticality ?? {}).includes("MC"),
+    );
+    expect(usecaseWithMc).toBeDefined();
+    if (!usecaseWithMc) return;
+
+    const firstMcAssetId = Object.entries(usecaseWithMc.dataAssetCriticality ?? {})
+      .find(([, role]) => role === "MC")?.[0];
+    expect(firstMcAssetId).toBeDefined();
+    if (!firstMcAssetId) return;
+
+    // Positive: join key matches master-repo title -> lineage origin wins.
+    const matched = runDataGapAnalysis({
+      industryId: "retail",
+      classifiedTables: [],
+      useCaseSourceSystems: [
+        { name: usecaseWithMc.name, sourceSystems: ["Salesforce"] },
+      ],
+    });
+    expect(matched).not.toBeNull();
+    if (!matched) return;
+    const matchedRow = matched.coverage.find((c) => c.assetId === firstMcAssetId);
+    expect(matchedRow).toBeDefined();
+    const lineageHits = matchedRow!.resolvedSourceSystems.filter(
+      (s) => s.origin === "lineage",
+    );
+    expect(lineageHits.map((s) => s.name)).toContain("Salesforce");
+
+    // Negative: same vendor but a customer-only name (no match in the
+    // master repo) -> no lineage signal flows for this asset.
+    const customerName = "Operationalise Loyalty Tiering with Behavioural Cohorts";
+    expect(customerName.toLowerCase()).not.toBe(usecaseWithMc.name.toLowerCase());
+
+    const mismatched = runDataGapAnalysis({
+      industryId: "retail",
+      classifiedTables: [],
+      useCaseSourceSystems: [
+        { name: customerName, sourceSystems: ["Salesforce"] },
+      ],
+    });
+    expect(mismatched).not.toBeNull();
+    if (!mismatched) return;
+    const mismatchedRow = mismatched.coverage.find((c) => c.assetId === firstMcAssetId);
+    expect(mismatchedRow).toBeDefined();
+    expect(
+      mismatchedRow!.resolvedSourceSystems.some((s) => s.name === "Salesforce"),
+    ).toBe(false);
   });
 
   it("sorts missing-with-most-MC-use-cases ahead of present rows", () => {

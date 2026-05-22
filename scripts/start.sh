@@ -5,74 +5,48 @@
 # Zero-egress mode: bootstrap.sh extracts the pre-built archive first.
 # In both cases .prebuilt marker determines server.js location.
 #
-# 1. Auto-provisions Lakebase Autoscale (if running as a Databricks App).
-# 2. Syncs the Prisma schema to Lakebase (retries for cold-start wake-up).
-#    Exits with error if sync fails — the app cannot run with a stale schema.
-# 3. Starts the Next.js standalone server with a verified credential.
+# Contract: the `postgres` app resource binding (see app.yaml) gives us
+#   PGHOST, PGPORT, PGDATABASE, PGUSER, PGSSLMODE, LAKEBASE_ENDPOINT
+# from the platform. We mint a startup OAuth credential, push the schema,
+# create the HNSW index, and hand off to Next.js standalone.
 
 set -e
 
 # ---------------------------------------------------------------------------
-# Lakebase auto-provisioning
+# Lakebase startup credential (resource-binding mode)
 #
-# When running as a Databricks App the platform injects
-# DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET / DATABRICKS_HOST.
-# If DATABASE_URL is not already set (i.e. no secret binding), we
-# self-provision a Lakebase Autoscale project and generate a short-lived
-# connection URL with an OAuth DB credential.
+# The `postgres` resource is bound in app.yaml -- the platform has already
+# injected PGHOST / PGUSER / PGDATABASE / LAKEBASE_ENDPOINT. We just need
+# to mint a short-lived OAuth credential for the schema-sync / HNSW DDL
+# we run before the server starts.
 # ---------------------------------------------------------------------------
 
 LAKEBASE_STARTUP_URL=""
-LAKEBASE_ENDPOINT_NAME=""
-LAKEBASE_POOLER_HOST=""
-LAKEBASE_STARTUP_USERNAME=""
-LAKEBASE_AUTH_MODE="${LAKEBASE_AUTH_MODE:-native_password}"
-LAKEBASE_NATIVE_USER="${LAKEBASE_NATIVE_USER:-forge_app_runtime}"
-LAKEBASE_NATIVE_PASSWORD="${LAKEBASE_NATIVE_PASSWORD:-}"
-LAKEBASE_REQUIRE_NATIVE_PASSWORD="${LAKEBASE_REQUIRE_NATIVE_PASSWORD:-false}"
-
-echo "[startup] Lakebase runtime auth mode: $LAKEBASE_AUTH_MODE"
-
-if [ "$LAKEBASE_AUTH_MODE" = "native_password" ] && [ -z "$LAKEBASE_NATIVE_PASSWORD" ]; then
-  if [ "$LAKEBASE_REQUIRE_NATIVE_PASSWORD" = "true" ]; then
-    echo "[startup] FATAL: native_password mode requires LAKEBASE_NATIVE_PASSWORD (LAKEBASE_REQUIRE_NATIVE_PASSWORD=true)."
-    exit 1
-  fi
-  # Backward-compatible fallback for direct git deployments without deploy.sh
-  # password injection. Prefer deploy.sh explicit password or rotate flags.
-  LAKEBASE_NATIVE_PASSWORD="$(python3 - <<'PY'
-import secrets
-import string
-alphabet = string.ascii_letters + string.digits + "-_@#%+=."
-print("".join(secrets.choice(alphabet) for _ in range(48)))
-PY
-)"
-  echo "[startup] WARNING: Generated ephemeral native runtime password for this deployment."
-fi
 
 if [ -n "$DATABRICKS_CLIENT_ID" ] && [ -z "$DATABASE_URL" ]; then
-  echo "[startup] Auto-provisioning Lakebase Autoscale..."
-
-  PROVISION_OUTPUT=$(node scripts/provision-lakebase.mjs)
-  LAKEBASE_STARTUP_URL=$(printf "%s\n" "$PROVISION_OUTPUT" | awk 'NR==1 { print; exit }')
-  LAKEBASE_ENDPOINT_NAME=$(printf "%s\n" "$PROVISION_OUTPUT" | awk 'NR==2 { print; exit }')
-  LAKEBASE_POOLER_HOST=$(printf "%s\n" "$PROVISION_OUTPUT" | awk 'NR==3 { print; exit }')
-  LAKEBASE_STARTUP_USERNAME=$(printf "%s\n" "$PROVISION_OUTPUT" | awk 'NR==4 { print; exit }')
-
-  if [ -n "$LAKEBASE_STARTUP_URL" ]; then
-    echo "[startup] Lakebase connection URL generated (credential verified)."
-  else
-    echo "[startup] ERROR: Lakebase provisioning returned empty URL."
+  if [ -z "$PGHOST" ] || [ -z "$PGUSER" ] || [ -z "$LAKEBASE_ENDPOINT" ]; then
+    echo "[startup] FATAL: Lakebase resource binding env vars missing."
+    echo "[startup]  Expected PGHOST, PGUSER, LAKEBASE_ENDPOINT to be injected by the platform."
+    echo "[startup]  Run deploy.sh to bind the 'postgres' resource on this app."
     exit 1
   fi
+
+  echo "[startup] Minting Lakebase OAuth startup credential..."
+  LAKEBASE_STARTUP_URL=$(node scripts/provision-lakebase.mjs)
+
+  if [ -z "$LAKEBASE_STARTUP_URL" ]; then
+    echo "[startup] ERROR: Lakebase credential minting returned empty URL."
+    exit 1
+  fi
+  echo "[startup] Startup credential ready."
 fi
 
 # ---------------------------------------------------------------------------
 # Database schema sync (mandatory)
 #
-# Lakebase Autoscale endpoints may need a few seconds after provisioning
-# before they accept authenticated connections. Retry schema sync with
-# backoff to absorb this cold-start delay. The server MUST NOT start
+# Lakebase Autoscale endpoints may need a few seconds after credential
+# minting before they accept authenticated connections. Retry schema sync
+# with backoff to absorb cold-start delay. The server MUST NOT start
 # until the schema is confirmed in sync.
 # ---------------------------------------------------------------------------
 
@@ -85,8 +59,6 @@ if [ -x "$PRISMA_BIN" ] && [ -n "$SCHEMA_URL" ]; then
   # -- Step A: Enable pgvector extension BEFORE Prisma schema push --------
   # The ForgeEmbedding model uses Unsupported("vector(1024)") so the
   # extension must exist before prisma db push tries to create the table.
-  # The credential is pre-verified by provision-lakebase.mjs, so this
-  # should succeed on the first attempt. Retries are kept as a safety net.
   echo "[startup] Enabling pgvector extension..."
   PGVEC_ATTEMPT=0
   PGVEC_READY=false
@@ -121,7 +93,7 @@ if [ -x "$PRISMA_BIN" ] && [ -n "$SCHEMA_URL" ]; then
   fi
 
   # -- Step B: Validate Databricks OAuth DB prerequisites ------------------
-  if [ "$LAKEBASE_AUTH_MODE" = "oauth" ] && [ -n "$DATABRICKS_CLIENT_ID" ]; then
+  if [ -n "$DATABRICKS_CLIENT_ID" ]; then
     echo "[startup] Validating Databricks OAuth DB prerequisites..."
     if ! DATABASE_URL="$SCHEMA_URL" DATABRICKS_CLIENT_ID="$DATABRICKS_CLIENT_ID" node -e "
       const pg = require('pg');
@@ -249,93 +221,7 @@ if [ -x "$PRISMA_BIN" ] && [ -n "$SCHEMA_URL" ]; then
     fi
   fi
 
-  # -- Step D: Native password runtime role bootstrap -----------------------
-  if [ "$LAKEBASE_AUTH_MODE" = "native_password" ]; then
-    if [ -z "$LAKEBASE_NATIVE_PASSWORD" ]; then
-      echo "[startup] FATAL: LAKEBASE_AUTH_MODE=native_password requires LAKEBASE_NATIVE_PASSWORD."
-      exit 1
-    fi
-
-    echo "[startup] Ensuring native runtime role exists and has grants..."
-    if ! DATABASE_URL="$SCHEMA_URL" LAKEBASE_NATIVE_USER="$LAKEBASE_NATIVE_USER" LAKEBASE_NATIVE_PASSWORD="$LAKEBASE_NATIVE_PASSWORD" node -e "
-      const pg = require('pg');
-      (async () => {
-        const role = String(process.env.LAKEBASE_NATIVE_USER || '').trim();
-        const password = String(process.env.LAKEBASE_NATIVE_PASSWORD || '');
-        if (!role) throw new Error('LAKEBASE_NATIVE_USER is empty');
-        if (!password) throw new Error('LAKEBASE_NATIVE_PASSWORD is empty');
-
-        const safeRole = '\"' + role.replace(/\"/g, '\"\"') + '\"';
-        const safePasswordLiteral = \"'\" + password.replace(/'/g, \"''\") + \"'\";
-
-        const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
-        try {
-          const roleExists = await pool.query(
-            'SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = \$1) AS ok',
-            [role]
-          );
-          if (!roleExists.rows[0]?.ok) {
-            await pool.query('CREATE ROLE ' + safeRole + ' LOGIN');
-            console.log('[startup] Created native Lakebase role:', role);
-          } else {
-            await pool.query('ALTER ROLE ' + safeRole + ' WITH LOGIN');
-            console.log('[startup] Native Lakebase role already exists:', role);
-          }
-
-          await pool.query('ALTER ROLE ' + safeRole + ' PASSWORD ' + safePasswordLiteral);
-          await pool.query('GRANT ' + safeRole + ' TO CURRENT_USER');
-          await pool.query('GRANT CONNECT ON DATABASE databricks_postgres TO ' + safeRole);
-          await pool.query('GRANT USAGE, CREATE ON SCHEMA public TO ' + safeRole);
-          await pool.query('GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public TO ' + safeRole);
-          await pool.query('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ' + safeRole);
-          await pool.query('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO ' + safeRole);
-          await pool.query('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ' + safeRole);
-          console.log('[startup] Native runtime role grants ensured:', role);
-
-          // Transfer ownership of all public-schema tables + sequences to the
-          // native runtime user so it can perform DDL (CREATE INDEX, ALTER TABLE)
-          // at runtime.  Idempotent — only touches objects not already owned by
-          // the target role.  Per-object try/catch keeps active deployments safe.
-          const { rows: ownTables } = await pool.query(
-            \"SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tableowner != \$1\",
-            [role]
-          );
-          let ownershipTransferred = 0;
-          for (const { tablename } of ownTables) {
-            try {
-              const safeT = '\"' + tablename.replace(/\"/g, '\"\"') + '\"';
-              await pool.query('ALTER TABLE public.' + safeT + ' OWNER TO ' + safeRole);
-              ownershipTransferred++;
-            } catch (ownerErr) {
-              console.log('[startup] Could not transfer ownership of table', tablename + ':', ownerErr.message);
-            }
-          }
-          const { rows: ownSeqs } = await pool.query(
-            \"SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'\"
-          );
-          for (const { sequencename } of ownSeqs) {
-            try {
-              const safeS = '\"' + sequencename.replace(/\"/g, '\"\"') + '\"';
-              await pool.query('ALTER SEQUENCE public.' + safeS + ' OWNER TO ' + safeRole);
-            } catch (_) {}
-          }
-          if (ownershipTransferred > 0) {
-            console.log('[startup] Transferred ownership of', ownershipTransferred, 'table(s) to', role);
-          }
-        } finally {
-          await pool.end();
-        }
-      })().catch((err) => {
-        console.error('[startup] FATAL: Native runtime role bootstrap failed:', err.message);
-        process.exit(1);
-      });
-    " 2>&1; then
-      echo "[startup] FATAL: Native runtime role bootstrap step failed."
-      exit 1
-    fi
-  fi
-
-  # -- Step E: Prisma schema push ----------------------------------------
+  # -- Step D: Prisma schema push ----------------------------------------
   echo "[startup] Verifying database connectivity..."
   ATTEMPT=0
   DB_READY=false
@@ -360,7 +246,7 @@ if [ -x "$PRISMA_BIN" ] && [ -n "$SCHEMA_URL" ]; then
     exit 1
   fi
 
-  # -- Step F: Create HNSW index (not managed by Prisma) ------------------
+  # -- Step E: Create HNSW index (not managed by Prisma) ------------------
   if [ -n "$DATABRICKS_EMBEDDING_ENDPOINT" ]; then
     echo "[startup] Embedding endpoint configured ($DATABRICKS_EMBEDDING_ENDPOINT), ensuring HNSW index..."
     HNSW_ATTEMPT=0
@@ -403,7 +289,7 @@ if [ -x "$PRISMA_BIN" ] && [ -n "$SCHEMA_URL" ]; then
     echo "[startup] No embedding endpoint configured (serving-endpoint-embedding not bound), skipping HNSW index."
   fi
 
-  # -- Step G: Optional benchmark seed --------------------------------------
+  # -- Step F: Optional benchmark seed --------------------------------------
   if [ "${FORGE_SEED_BENCHMARKS:-false}" = "true" ]; then
     echo "[startup] Seeding benchmark catalog..."
     if DATABASE_URL="$SCHEMA_URL" \
@@ -418,7 +304,7 @@ if [ -x "$PRISMA_BIN" ] && [ -n "$SCHEMA_URL" ]; then
     echo "[startup] Benchmark seed disabled."
   fi
 
-  # -- Step H: Validate model serving endpoints (non-fatal) ----------------
+  # -- Step G: Validate model serving endpoints (non-fatal) ----------------
   # validate-endpoints.mjs writes diagnostic progress to stderr (shows in
   # logs) and a comma-separated list of available endpoints to stdout.
   echo "[startup] Validating model serving endpoints..."
@@ -439,9 +325,10 @@ fi
 # ---------------------------------------------------------------------------
 # Start the standalone Next.js server
 #
-# Pass runtime Lakebase metadata to the server. In Databricks Apps mode,
-# runtime connections should use short-lived credentials + pooler endpoint,
-# not the startup direct URL used for DDL.
+# Runtime connections will mint their own OAuth credentials via
+# lib/lakebase/provision.ts using the platform-injected PGHOST / PGUSER /
+# LAKEBASE_ENDPOINT. The startup DATABASE_URL is discarded so the runtime
+# does not reuse it.
 #
 # Zero-egress / pre-built mode: server.js is at the project root.
 # Source mode:                   server.js is inside .next/standalone/.
@@ -462,23 +349,6 @@ export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
 echo "[startup] Node heap limit: $NODE_OPTIONS"
 
 if [ -n "$LAKEBASE_STARTUP_URL" ]; then
-  echo "[startup] Passing Lakebase runtime contract to server."
   unset DATABASE_URL
-  export LAKEBASE_AUTH_MODE="$LAKEBASE_AUTH_MODE"
-  if [ -n "$LAKEBASE_ENDPOINT_NAME" ]; then
-    export LAKEBASE_ENDPOINT_NAME="$LAKEBASE_ENDPOINT_NAME"
-  fi
-  if [ -n "$LAKEBASE_POOLER_HOST" ]; then
-    export LAKEBASE_POOLER_HOST="$LAKEBASE_POOLER_HOST"
-  fi
-  if [ -n "$LAKEBASE_STARTUP_USERNAME" ]; then
-    export LAKEBASE_USERNAME="$LAKEBASE_STARTUP_USERNAME"
-  fi
-  if [ "$LAKEBASE_AUTH_MODE" = "native_password" ]; then
-    export LAKEBASE_NATIVE_USER="$LAKEBASE_NATIVE_USER"
-    export LAKEBASE_NATIVE_PASSWORD="$LAKEBASE_NATIVE_PASSWORD"
-  fi
-  exec node server.js
-else
-  exec node server.js
 fi
+exec node server.js

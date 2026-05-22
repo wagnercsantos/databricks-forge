@@ -31,16 +31,7 @@ interface HealthCheck {
   };
   authRuntime?: {
     ready: boolean;
-    authMode: "oauth" | "native_password";
-    poolerFailoverCount: number;
-    poolerConsecutiveSuccesses: number;
-    lastSelectedEndpointKind: "pooler" | "direct" | null;
-    requirePooler: boolean;
-    runtimeMode: string;
-    enablePoolerExperiment: boolean;
-    poolerAttemptEnabled: boolean;
-    poolerReadinessSuccessTarget: number;
-    poolerReadinessGatePassed: boolean;
+    authMode: "oauth";
   };
 }
 
@@ -53,17 +44,24 @@ interface CheckResult {
 const startTime = Date.now();
 
 export async function GET(request: Request) {
-  const checks = await Promise.allSettled([checkDatabase(), checkWarehouse()]);
+  const checks = await Promise.allSettled([
+    checkDatabase(),
+    checkWarehouse(),
+    isDemoModeEnabled(),
+  ]);
 
   const database: CheckResult =
     checks[0].status === "fulfilled"
-      ? checks[0].value
+      ? (checks[0].value as CheckResult)
       : { status: "error", latencyMs: 0, error: String(checks[0].reason) };
 
   const warehouse: CheckResult =
     checks[1].status === "fulfilled"
-      ? checks[1].value
+      ? (checks[1].value as CheckResult)
       : { status: "error", latencyMs: 0, error: String(checks[1].reason) };
+
+  const demoModeEnabled: boolean =
+    checks[2].status === "fulfilled" ? (checks[2].value as boolean) : false;
 
   const overallStatus =
     database.status === "ok" && warehouse.status === "ok"
@@ -84,7 +82,7 @@ export async function GET(request: Request) {
     version: packageJson.version,
     uptime: Math.floor((Date.now() - startTime) / 1000),
     timestamp: new Date().toISOString(),
-    demoModeEnabled: isDemoModeEnabled(),
+    demoModeEnabled,
   };
 
   const httpStatus = overallStatus === "unhealthy" ? 503 : 200;
@@ -119,7 +117,7 @@ export async function GET(request: Request) {
     userEmail,
     host,
     metricViewsEnabled: isMetricViewsEnabled(),
-    demoModeEnabled: isDemoModeEnabled(),
+    demoModeEnabled,
     modelPool: getPoolAvailability(),
     memory: getMemorySnapshot(),
   };

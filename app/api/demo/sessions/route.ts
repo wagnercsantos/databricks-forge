@@ -6,7 +6,7 @@ import { requireUser, ForgeAuthError } from "@/lib/auth/route-user";
 import { listAccessibleIds } from "@/lib/lakebase/acl";
 
 export async function GET(req: NextRequest) {
-  if (!isDemoModeEnabled()) {
+  if (!(await isDemoModeEnabled())) {
     return NextResponse.json({ error: "Demo mode is not enabled" }, { status: 404 });
   }
 

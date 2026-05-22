@@ -11,6 +11,7 @@
 
 import type { ReferenceDataAsset, MasterRepoUseCase } from "@/lib/domain/industry-outcomes/master-repo-types";
 import type { EconomicImpactCategory } from "@/lib/domain/economic-patterns";
+import type { ResolvedSourceSystem } from "./source-systems";
 
 export type IngestionStrategy =
   | "lakeflow_connect"
@@ -54,6 +55,18 @@ export interface AssetCoverage {
    * the UI can offer documentation links for the existing connection.
    */
   recommendations: IngestionRecommendation[];
+  /**
+   * Resolved source system(s) for this asset (Phase 3.3). Multiple entries
+   * mean the asset is sourced from more than one upstream platform (e.g.
+   * Customer Master = Salesforce + SAP). The first entry's
+   * `preferredStrategy` is used by `buildIngestionRecommendations` to
+   * override the generic per-asset ranking when origin is "lineage".
+   *
+   * Always non-empty — when no signal fires the resolver emits a single
+   * `{ name: "Unknown", origin: "unknown" }` row so the UI can render a
+   * stable badge.
+   */
+  resolvedSourceSystems: ResolvedSourceSystem[];
 }
 
 /**
@@ -67,6 +80,26 @@ export interface AssetValueAtRisk {
   blockedUseCases: string[];
   /** Use case names whose VA requirements are not met (soft risk). */
   reducedUseCases: string[];
+  /**
+   * Per-use-case attribution for this missing asset. Each entry surfaces
+   * the use case's contribution to this asset's value-at-risk so the UI
+   * can render "Affects: Customer Churn ($2M MC), Cross-Sell ($450K VA)"
+   * under each missing asset row. `valueMid` is the *attributed* value
+   * (full for MC links, 30% for VA-only links per `VA_PARTIAL_LOSS_RATIO`)
+   * to match the same arithmetic that produces `totalMid`. `useCaseId` is
+   * the discovery-pipeline use case id when the engine could resolve a
+   * Business Value estimate by name; `null` when the use case is in the
+   * master repo but the customer's run did not produce a matching
+   * use case.
+   */
+  impactedUseCases: Array<{
+    useCaseId: string | null;
+    name: string;
+    criticality: "MC" | "VA";
+    valueLow: number;
+    valueMid: number;
+    valueHigh: number;
+  }>;
   /** Aggregate annualized $ value at risk, by impact category. */
   byImpactCategory: Partial<Record<EconomicImpactCategory, { low: number; mid: number; high: number }>>;
   totalLow: number;
@@ -131,7 +164,44 @@ export interface DataGapInput {
     valueMid: number;
     valueHigh: number;
     economicImpactCategory: EconomicImpactCategory | null;
+    /**
+     * Hard FK into the master-repo namespace. When set, the bridge uses
+     * this for an O(1) exact match instead of running the fuzzy ladder
+     * on `name`. Threaded through by the Data Gap route from the
+     * underlying `ForgeUseCase.referenceUseCaseName` column.
+     */
+    referenceUseCaseName?: string | null;
   }>;
+  /**
+   * Optional per-use-case source-system attribution from Phase 3.1.
+   * Each entry pairs a use case `name` with the canonical source-system
+   * names attributed by walking lineage upstream.
+   *
+   * When provided, the Data Gap engine threads these through to the
+   * per-asset Source-System Resolver (Phase 3.3), upgrading the asset's
+   * `resolvedSourceSystems[0].origin` from `"master-repo"` to `"lineage"`
+   * for any asset whose linked master-repo use cases share a name with
+   * one of the entries here.
+   *
+   * The matching is by case-insensitive use-case name (master-repo use
+   * cases have no customer-side id).
+   */
+  useCaseSourceSystems?: Array<{
+    name: string;
+    sourceSystems: string[];
+  }>;
+  /**
+   * Optional pre-resolved master-repo enrichment. When provided, the engine
+   * uses this directly and skips its internal sync registry lookup.
+   * Callers that need to support LLM-generated / custom industries (stored
+   * in `ForgeOutcomeMap` via `getMasterRepoEnrichmentAsync`) should resolve
+   * the enrichment up-front and inject it here. Keeping the engine pure
+   * (no I/O) is the reason for this option.
+   */
+  enrichment?: {
+    useCases: ReadonlyArray<MasterRepoUseCase>;
+    dataAssets: ReadonlyArray<ReferenceDataAsset>;
+  };
 }
 
 /**

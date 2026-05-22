@@ -19,6 +19,7 @@ import {
   buildForeignKeyMarkdown,
 } from "@/lib/queries/metadata";
 import { buildReferenceUseCasesPrompt } from "@/lib/domain/industry-outcomes-server";
+import { getMasterRepoEnrichmentAsync } from "@/lib/domain/industry-outcomes/master-repo-registry";
 import { buildBenchmarkContextPrompt } from "@/lib/domain/benchmark-context";
 import { persistManifest, deriveTags, type EnrichmentTag } from "@/lib/pipeline/context-manifest";
 import {
@@ -98,6 +99,70 @@ interface UseCaseItem {
   sponsor?: string;
   tables_involved?: string[] | string;
   technical_design?: string;
+  /**
+   * Verbatim copy of the closest matching INDUSTRY REFERENCE USE CASE title.
+   * `null` when no master-repo UC plausibly applies. Validated by the parser
+   * against the known master-repo names for the run's industry; unrecognised
+   * strings are normalised to `null` so the persisted column stays clean.
+   */
+  reference_use_case_name?: string | null;
+}
+
+/**
+ * Build a case-insensitive lookup from master-repo UC titles for the given
+ * industry. The map values preserve the canonical (master-repo) casing so
+ * the parser can normalise minor LLM punctuation/case drift back to the
+ * canonical form.
+ *
+ * Returns an empty Map when no industry is configured or the industry has
+ * no master-repo enrichment. In that case the parser keeps whatever string
+ * the LLM emitted (verbatim, trimmed), since there is no allow-list to
+ * validate against.
+ */
+async function buildAllowedReferenceNames(
+  industryId?: string | null,
+): Promise<Map<string, string>> {
+  if (!industryId) return new Map();
+  try {
+    const enrichment = await getMasterRepoEnrichmentAsync(industryId);
+    if (!enrichment) return new Map();
+    return new Map(
+      enrichment.useCases.map((uc) => [uc.name.toLowerCase().trim(), uc.name] as const),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * Normalise an LLM-emitted `reference_use_case_name` against the canonical
+ * master-repo names for this run's industry.
+ *
+ * - Trims whitespace.
+ * - Treats `null`, `""`, `"none"`, `"n/a"` as null.
+ * - Looks up case-insensitively against `allowedReferenceNames`; returns the
+ *   canonical casing on hit.
+ * - When the allow-list is empty (no industry / no enrichment), passes the
+ *   trimmed value through so a future Data Gap backfill or fuzzy matcher
+ *   can still try.
+ * - Returns `null` for anything that doesn't survive validation rather
+ *   than persisting LLM hallucinations.
+ *
+ * Exported for unit testing; production callers go through the parser
+ * inside {@link generateBatch}.
+ */
+export function normalizeReferenceUseCaseName(
+  raw: unknown,
+  allowedReferenceNames: Map<string, string>,
+): string | null {
+  if (raw == null) return null;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  const lower = trimmed.toLowerCase();
+  if (lower === "null" || lower === "none" || lower === "n/a") return null;
+  if (allowedReferenceNames.size === 0) return trimmed;
+  return allowedReferenceNames.get(lower) ?? null;
 }
 
 export async function runUsecaseGeneration(
@@ -149,6 +214,13 @@ export async function runUsecaseGeneration(
   const industryReferenceUseCases = run.config.industry
     ? await buildReferenceUseCasesPrompt(run.config.industry, run.config.businessDomains)
     : "";
+
+  // Pre-compute the set of valid master-repo use case titles for this run's
+  // industry so the parser can validate the LLM's `reference_use_case_name`
+  // output and drop hallucinated values without polluting the column. The
+  // lookup is case-insensitive to absorb minor LLM punctuation drift, but we
+  // always persist the canonical (master-repo) casing on the row.
+  const allowedReferenceNames = await buildAllowedReferenceNames(run.config.industry);
   const benchmarkResult = await buildBenchmarkContextPrompt(
     run.config.industry || undefined,
     run.config.customerMaturity,
@@ -673,6 +745,7 @@ export async function runUsecaseGeneration(
           resolveEndpoint("reasoning"),
           runId,
           enrichmentTags,
+          allowedReferenceNames,
         ),
         generateBatch(
           log,
@@ -687,6 +760,7 @@ export async function runUsecaseGeneration(
           resolveEndpoint("reasoning"),
           runId,
           enrichmentTags,
+          allowedReferenceNames,
         ),
       );
     });
@@ -801,6 +875,7 @@ async function generateBatch(
   aiModel: string,
   logRunId?: string,
   tags?: EnrichmentTag[],
+  allowedReferenceNames: Map<string, string> = new Map(),
 ): Promise<UseCase[]> {
   const result = await executeAIQuery({
     promptKey,
@@ -890,6 +965,14 @@ async function generateBatch(
         feedback: null,
         feedbackAt: null,
         enrichmentTags: tags && tags.length > 0 ? tags : null,
+        sourceSystems: null,
+        sourceSystemsOrigin: null,
+        blastRadius: null,
+        referenceUseCaseName: normalizeReferenceUseCaseName(
+          item.reference_use_case_name,
+          allowedReferenceNames,
+        ),
+        referenceUseCaseResolvedAt: new Date().toISOString(),
       };
     });
 }

@@ -19,9 +19,14 @@ import type { BusinessValuePortfolio } from "@/lib/domain/types";
 import type { PortfolioUseCase } from "@/lib/lakebase/portfolio";
 import { requireUser } from "@/lib/auth/route-user";
 import { listAccessibleIds } from "@/lib/lakebase/acl";
-import { getDegradedSteps, getRunById } from "@/lib/lakebase/runs";
-import { getValueEstimatesForRun } from "@/lib/lakebase/value-estimates";
+import { getDegradedSteps, getRunById, getSynthesisProvenance } from "@/lib/lakebase/runs";
+import {
+  getValueEstimatesForRun,
+  getValueEstimateProvenance,
+} from "@/lib/lakebase/value-estimates";
 import { DegradedFinancialBanner } from "@/components/business-value/degraded-financial-banner";
+import { BvProgressBanner } from "@/components/business-value/bv-progress-banner";
+import { ProvenanceFooter } from "@/components/business-value/provenance-footer";
 import {
   TrendingUp,
   Zap,
@@ -87,6 +92,14 @@ async function PortfolioContent() {
   let financialDegraded = false;
   let degradedRunLabel: string | null = null;
   let degradedMissingCount: number | undefined;
+  let provenance: { generatedByModel: string | null; generatedAt: Date | null } = {
+    generatedByModel: null,
+    generatedAt: null,
+  };
+  let synthesisProvenance: { generatedByModel: string | null; generatedAt: Date | null } = {
+    generatedByModel: null,
+    generatedAt: null,
+  };
   try {
     const user = await requireUser();
     const accessibleRunIds = await listAccessibleIds(user.email, "run");
@@ -97,13 +110,17 @@ async function PortfolioContent() {
 
     // Surface step-level degradation so the user never sees a silent $0.
     if (portfolio.latestRunId) {
-      const [degradedSteps, run, estimates] = await Promise.all([
+      const [degradedSteps, run, estimates, valueProvenance, synProv] = await Promise.all([
         getDegradedSteps(portfolio.latestRunId),
         getRunById(portfolio.latestRunId),
         getValueEstimatesForRun(portfolio.latestRunId),
+        getValueEstimateProvenance(portfolio.latestRunId),
+        getSynthesisProvenance(portfolio.latestRunId),
       ]);
       financialDegraded = degradedSteps.includes("financial-quantification");
       degradedRunLabel = run?.config.businessName ?? null;
+      provenance = valueProvenance;
+      synthesisProvenance = synProv;
       if (financialDegraded) {
         // useCases comes from the latest run; count the ones missing an estimate.
         const withEstimate = new Set(estimates.map((e) => e.useCaseId));
@@ -155,6 +172,7 @@ async function PortfolioContent() {
 
   return (
     <div className="space-y-8">
+      <BvProgressBanner runId={portfolio.latestRunId} />
       {financialDegraded && portfolio.latestRunId && (
         <DegradedFinancialBanner
           runId={portfolio.latestRunId}
@@ -553,6 +571,19 @@ async function PortfolioContent() {
       {useCases.length > 0 && (
         <PortfolioDrillDown useCases={useCases} runId={portfolio.latestRunId ?? undefined} />
       )}
+
+      <div className="space-y-1 pt-2">
+        <ProvenanceFooter
+          generatedByModel={provenance.generatedByModel}
+          generatedAt={provenance.generatedAt}
+          label="Value estimates generated"
+        />
+        <ProvenanceFooter
+          generatedByModel={synthesisProvenance.generatedByModel}
+          generatedAt={synthesisProvenance.generatedAt}
+          label="Executive synthesis generated"
+        />
+      </div>
     </div>
   );
 }

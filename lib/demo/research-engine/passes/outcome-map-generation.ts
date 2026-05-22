@@ -116,7 +116,10 @@ export async function runOutcomeMapGeneration(
 
 /**
  * Generate enrichment only when the outcome map exists but has no
- * Master Repository enrichment. Uses the `generation` tier (faster).
+ * Master Repository enrichment. Pinned to the premium reasoning endpoint
+ * (Opus 4-7) because the enrichment payload feeds Data Gap Analysis and
+ * BV use case → asset mappings -- downgrading this pass to a smaller
+ * model silently degrades critical downstream consumer data.
  */
 export async function runEnrichmentOnlyGeneration(
   industryId: string,
@@ -137,11 +140,13 @@ export async function runEnrichmentOnlyGeneration(
     .replace("{outcome_map_json}", JSON.stringify(existingOutcome, null, 2).slice(0, 15_000))
     .replace("{source_context}", sourceContext.slice(0, 15_000) || "(No source material available)");
 
-  // Enrichment-only is a lighter pass; prefer generation tier even if
-  // the budget specifies reasoning, unless nothing faster is available.
-  const endpoint = resolveResearchEndpoint(modelTier === "reasoning" ? "generation" : modelTier);
+  // Honor the caller's modelTier when explicitly provided, otherwise
+  // resolve to the same tier as the full outcome-map generator. NO
+  // generation-tier downgrade here -- the enrichment payload is critical
+  // consumer data and must run on the premium reasoning endpoint.
+  const endpoint = resolveResearchEndpoint(modelTier);
 
-  log.info("Generating enrichment only", { industryId, industryName });
+  log.info("Generating enrichment only", { industryId, industryName, endpoint });
 
   const response = await llm.chat({
     endpoint,
@@ -155,7 +160,10 @@ export async function runEnrichmentOnlyGeneration(
   const enrichment = parseLLMJson(response.content, "enrichment-only-generation") as MasterRepoEnrichment;
 
   try {
-    await setCustomEnrichment(industryId, enrichment);
+    await setCustomEnrichment(industryId, enrichment, {
+      generatedByModel: response.model || endpoint,
+      generatedAt: new Date(),
+    });
     log.info("Enrichment persisted", {
       industryId,
       dataAssets: enrichment.dataAssets?.length ?? 0,

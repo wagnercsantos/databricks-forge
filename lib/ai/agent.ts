@@ -101,6 +101,12 @@ export interface AIQueryResult {
   tokenUsage: TokenUsage | null;
   /** Model finish reason ("stop", "length", etc.). "length" indicates truncation. */
   finishReason: string | null;
+  /**
+   * The resolved endpoint that actually produced this response. May differ
+   * from the caller's `modelEndpoint` when the agent rotated to a fallback
+   * after 429 / empty-content. Surfaced so callers can record provenance.
+   */
+  endpoint: string;
 }
 
 // Re-export TokenUsage for consumers
@@ -571,6 +577,7 @@ async function executeAIQueryOnce(
     durationMs,
     tokenUsage: response.usage,
     finishReason: response.finishReason,
+    endpoint: response.model || options.modelEndpoint,
   };
 }
 
@@ -707,6 +714,7 @@ export async function executeAIQueryStream(
         durationMs,
         tokenUsage: response.usage,
         finishReason: response.finishReason,
+        endpoint: response.model || options.modelEndpoint,
       };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
@@ -788,6 +796,7 @@ export async function executeAIQueryStream(
             durationMs,
             tokenUsage: response.usage,
             finishReason: response.finishReason,
+            endpoint: response.model || fallback,
           };
         } catch (fbError) {
           lastError = fbError instanceof Error ? fbError : new Error(String(fbError));

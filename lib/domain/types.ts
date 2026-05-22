@@ -269,6 +269,88 @@ export interface UseCase {
   feedback: "accepted" | "rejected" | "dismissed" | null;
   feedbackAt: string | null;
   enrichmentTags: string[] | null;
+  /**
+   * Canonical source-system names attributed to this use case (Phase 3.1).
+   * Populated after use case generation by walking `ForgeTableLineage`
+   * upstream from each `tablesInvolved` FQN to the deepest external root,
+   * then pattern-matching the FQN parts + comments against the canonical
+   * tech-to-system map. Null when never resolved (e.g. legacy runs or
+   * runs without a scan + no opportunistic walk).
+   */
+  sourceSystems: string[] | null;
+  /**
+   * Provenance of the source-systems attribution. Used by the UI to
+   * communicate confidence on derived chips:
+   *   - "lineage"  — at least one entry came from walking system.access.table_lineage
+   *   - "naming"   — derived purely from FQN tokens (catalog/schema/table)
+   *   - "comment"  — derived from table comments
+   *   - "mixed"    — combination of the above
+   * Null when `sourceSystems` is null.
+   */
+  sourceSystemsOrigin: "lineage" | "naming" | "comment" | "mixed" | null;
+  /**
+   * Aggregate downstream blast-radius summary (Phase 3.2). Populated after
+   * scoring by walking `ForgeTableLineage` downstream from each
+   * `tablesInvolved` FQN and counting distinct downstream consumer tables
+   * grouped by `LineageEdge.entityType`. Drives the "blast radius" badge
+   * on use case cards and the BV stakeholder "high visibility" flag.
+   *
+   * Null when never resolved or when the use case touches no tables.
+   */
+  blastRadius: BlastRadiusSummary | null;
+  /**
+   * Verbatim copy of the closest matching master-repository use case title
+   * for this run's industry. Provides a hard FK from the customer's LLM-
+   * generated UC into the master-repo namespace so the Data Gap engine
+   * (and any future surface) can join on equality instead of name-based
+   * fuzzy matching.
+   *
+   * Populated by:
+   *   - Use case generation: the LLM emits this in the same JSON response.
+   *   - Lazy backfill: when Data Gap is opened on a legacy run that has no
+   *     value yet, a one-shot LLM call maps every UC and persists the
+   *     result here.
+   *
+   * Null when the LLM judged no master-repo UC was a meaningful match, or
+   * when neither populator has run yet.
+   */
+  referenceUseCaseName: string | null;
+  /**
+   * Timestamp of the last time `referenceUseCaseName` was written. Used by
+   * the Data Gap cache invalidator to discard caches that pre-date a
+   * backfill so the next compute serves fresh dollars and coverage.
+   */
+  referenceUseCaseResolvedAt: string | null;
+}
+
+/**
+ * Aggregate downstream blast-radius summary for a use case.
+ *
+ * Currently counts distinct downstream *tables* per entity-type. Dashboard
+ * / query-only consumers (where the lineage edge has a non-table target)
+ * are not captured today because the lineage query filters out edges with
+ * `target_table_full_name IS NULL`. The `dashboardCount` slot is reserved
+ * for the future extension that lifts that filter.
+ */
+export interface BlastRadiusSummary {
+  /** Total distinct downstream tables reached from this use case's tables. */
+  downstreamTableCount: number;
+  /** Count of edges grouped by `LineageEdge.entityType`. */
+  byEntityType: {
+    job: number;
+    notebook: number;
+    pipeline: number;
+    dashboard: number;
+    other: number;
+  };
+  /** Sum of `LineageEdge.eventCount` across all downstream edges. */
+  totalEventCount: number;
+  /**
+   * The additive boost applied to `feasibilityScore` (and propagated into
+   * `overallScore` via re-blending). In [0, 0.15]. Stored so the UI can
+   * show "boosted by lineage proof" tooltips without re-computing.
+   */
+  feasibilityBoost: number;
 }
 
 export type UseCaseFeedback = "accepted" | "rejected" | "dismissed";
@@ -781,9 +863,13 @@ export interface StakeholderProfile {
   totalValue: number;
   domains: string[];
   useCaseTypes: Record<string, number>;
+  useCaseIds: string[];
   changeComplexity: "low" | "medium" | "high" | null;
   isChampion: boolean;
   isSponsor: boolean;
+  championRationale: string | null;
+  complexityRationale: string | null;
+  keyRisks: string[];
 }
 
 export interface ExecutiveSynthesis {

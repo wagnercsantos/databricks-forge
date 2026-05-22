@@ -23,9 +23,13 @@ function dbRowToProfile(row: {
   totalValue: number;
   domains: string | null;
   useCaseTypes: string | null;
+  useCaseIds: string | null;
   changeComplexity: string | null;
   isChampion: boolean;
   isSponsor: boolean;
+  championRationale: string | null;
+  complexityRationale: string | null;
+  keyRisks: string | null;
 }): StakeholderProfile {
   return {
     id: row.id,
@@ -36,9 +40,13 @@ function dbRowToProfile(row: {
     totalValue: row.totalValue,
     domains: parseJSON<string[]>(row.domains, []),
     useCaseTypes: parseJSON<Record<string, number>>(row.useCaseTypes, {}),
+    useCaseIds: parseJSON<string[]>(row.useCaseIds, []),
     changeComplexity: row.changeComplexity as StakeholderProfile["changeComplexity"],
     isChampion: row.isChampion,
     isSponsor: row.isSponsor,
+    championRationale: row.championRationale,
+    complexityRationale: row.complexityRationale,
+    keyRisks: parseJSON<string[]>(row.keyRisks, []),
   };
 }
 
@@ -88,11 +96,21 @@ export async function replaceStakeholderProfiles(
     totalValue: number;
     domains: string[];
     useCaseTypes: Record<string, number>;
+    useCaseIds?: string[];
     changeComplexity: "low" | "medium" | "high";
     isChampion: boolean;
     isSponsor: boolean;
+    championRationale?: string | null;
+    complexityRationale?: string | null;
+    keyRisks?: string[] | null;
   }>,
+  provenance?: {
+    generatedByModel?: string | null;
+    generatedAt?: Date;
+  },
 ): Promise<void> {
+  const generatedByModel = provenance?.generatedByModel ?? null;
+  const generatedAt = provenance?.generatedAt ?? new Date();
   await withPrisma(async (prisma) => {
     await prisma.forgeStakeholderProfile.deleteMany({ where: { runId } });
     await prisma.forgeStakeholderProfile.createMany({
@@ -104,9 +122,15 @@ export async function replaceStakeholderProfiles(
         totalValue: p.totalValue,
         domains: JSON.stringify(p.domains),
         useCaseTypes: JSON.stringify(p.useCaseTypes),
+        useCaseIds: p.useCaseIds && p.useCaseIds.length > 0 ? JSON.stringify(p.useCaseIds) : null,
         changeComplexity: p.changeComplexity,
         isChampion: p.isChampion,
         isSponsor: p.isSponsor,
+        championRationale: p.championRationale ?? null,
+        complexityRationale: p.complexityRationale ?? null,
+        keyRisks: p.keyRisks && p.keyRisks.length > 0 ? JSON.stringify(p.keyRisks) : null,
+        generatedByModel,
+        generatedAt,
       })),
     });
   });
@@ -115,5 +139,23 @@ export async function replaceStakeholderProfiles(
 export async function deleteStakeholderProfilesForRun(runId: string): Promise<void> {
   await withPrisma(async (prisma) => {
     await prisma.forgeStakeholderProfile.deleteMany({ where: { runId } });
+  });
+}
+
+/** Most recent provenance recorded against stakeholder profiles for this run. */
+export async function getStakeholderProvenance(
+  runId: string,
+): Promise<{ generatedByModel: string | null; generatedAt: Date | null }> {
+  return withPrisma(async (prisma) => {
+    const row = await prisma.forgeStakeholderProfile.findFirst({
+      where: { runId, generatedAt: { not: null } },
+      orderBy: { generatedAt: "desc" },
+      select: { generatedByModel: true, generatedAt: true },
+    });
+    if (!row) return { generatedByModel: null, generatedAt: null };
+    return {
+      generatedByModel: row.generatedByModel ?? null,
+      generatedAt: row.generatedAt ?? null,
+    };
   });
 }

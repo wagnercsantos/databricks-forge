@@ -25,11 +25,13 @@ import { getUseCasesByRunId } from "@/lib/lakebase/usecases";
 import { getValueEstimatesForRun } from "@/lib/lakebase/value-estimates";
 import {
   getLatestDataGapAnalysisForRun,
+  isDataGapCacheStale,
   saveDataGapAnalysis,
 } from "@/lib/lakebase/data-gap-analyses";
 import { runDataGapAnalysis } from "@/lib/engines/data-gap-analysis/engine";
 import { attributeTablesToAssets } from "@/lib/engines/data-gap-analysis/use-case-attribution";
-import { getMasterRepoEnrichment } from "@/lib/domain/industry-outcomes/master-repo-registry";
+import { backfillReferenceUseCaseNames } from "@/lib/engines/data-gap-analysis/reference-backfill";
+import { getMasterRepoEnrichmentAsync } from "@/lib/domain/industry-outcomes/master-repo-registry";
 import { resolveIndustryId } from "@/lib/domain/industry-outcomes";
 import type { EconomicImpactCategory } from "@/lib/domain/economic-patterns";
 import { isEconomicImpactCategory, LEGACY_VALUE_TYPE_MAP } from "@/lib/domain/economic-patterns";
@@ -49,19 +51,46 @@ async function compute(
   // `dataAssetId` classifications on `ForgeTableDetail` (today the
   // schema-context layer computes them in-memory but never writes them).
   const resolvedId = resolveIndustryId(industryId) ?? industryId;
-  const enrichment = getMasterRepoEnrichment(resolvedId);
+  // Use the async variant so custom (LLM-generated) industries persisted on
+  // ForgeOutcomeMap resolve too -- the sync variant only sees the built-in
+  // 15-industry registry and silently 404s on demo-mode runs. We inject the
+  // resolved enrichment into the pure engine to keep its no-I/O contract.
+  const enrichment = await getMasterRepoEnrichmentAsync(resolvedId);
   if (!enrichment) return null;
+  // Cast required because the registry types its returned arrays as
+  // ReadonlyArray<T> via the async helper while the engine input declares
+  // ReadonlyArray<T>; widening for explicit ReadonlyArray-of-ReadonlyArray
+  // parity. Behaviourally identical.
+  const injected = {
+    useCases: enrichment.useCases,
+    dataAssets: enrichment.dataAssets,
+  };
 
-  const useCases = await getUseCasesByRunId(runId);
+  let useCases = await getUseCasesByRunId(runId);
+  // Lazy LLM backfill of `referenceUseCaseName` for legacy runs generated
+  // before the field shipped. Idempotent on the happy path; the helper
+  // short-circuits when no use case is missing the link.
+  useCases = await backfillReferenceUseCaseNames({
+    runId,
+    useCases,
+    enrichment,
+  });
   const estimates = await getValueEstimatesForRun(runId);
 
+  // `UseCase` is assignable to `UseCaseLike` (it has `name`, `tablesInvolved`,
+  // and `referenceUseCaseName`), so the attribution helper now resolves the
+  // master-repo link by FK first and only falls through to the fuzzy ladder
+  // on rows where the column is null.
   const classifiedTables = attributeTablesToAssets({
     useCases,
     enrichment,
   });
 
-  // Map estimates -> use-case-name + economic impact category.
+  // Map estimates -> use-case-name + economic impact category + persisted
+  // reference link. The reference link is preferred by the Data Gap bridge
+  // over fuzzy-matching the customer-facing `name`.
   const ucNameById = new Map(useCases.map((u) => [u.id, u.name]));
+  const ucRefByUcId = new Map(useCases.map((u) => [u.id, u.referenceUseCaseName]));
   const ucValueEstimates = estimates.map((e) => {
     const cat: EconomicImpactCategory | null = e.economicImpactCategory
       && isEconomicImpactCategory(e.economicImpactCategory)
@@ -74,13 +103,34 @@ async function compute(
       valueMid: e.valueMid,
       valueHigh: e.valueHigh,
       economicImpactCategory: cat,
+      referenceUseCaseName: ucRefByUcId.get(e.useCaseId) ?? null,
     };
   });
+
+  // Thread Phase 3.1 source-system attribution into the Data Gap engine
+  // so per-asset `resolvedSourceSystems[0].origin === "lineage"` whenever
+  // any use case linked to that asset has lineage-confirmed sources.
+  //
+  // The engine joins these entries to master-repo descriptors by use-case
+  // name (case-insensitive). The customer-generated `uc.name` almost
+  // never matches the master-repo title verbatim, so we prefer the
+  // resolved `referenceUseCaseName` when the link-resolver has populated
+  // it; otherwise fall back to `uc.name` so unbacked customer use cases
+  // still contribute their lineage signal where the names happen to line
+  // up.
+  const ucSourceSystems = useCases
+    .filter((uc) => uc.sourceSystems && uc.sourceSystems.length > 0)
+    .map((uc) => ({
+      name: uc.referenceUseCaseName ?? uc.name,
+      sourceSystems: uc.sourceSystems ?? [],
+    }));
 
   return runDataGapAnalysis({
     industryId: resolvedId,
     classifiedTables,
     useCaseValueEstimates: ucValueEstimates.length ? ucValueEstimates : undefined,
+    useCaseSourceSystems: ucSourceSystems.length ? ucSourceSystems : undefined,
+    enrichment: injected,
   });
 }
 
@@ -108,7 +158,16 @@ export async function GET(
     }
 
     const cached = await getLatestDataGapAnalysisForRun(runId, user.email);
-    if (cached) return NextResponse.json({ result: cached, cached: true });
+    if (cached) {
+      const staleness = await isDataGapCacheStale(cached, runId);
+      if (!staleness.stale) {
+        return NextResponse.json({ result: cached.result, cached: true });
+      }
+      logger.info("[data-gap GET] cache stale, recomputing", {
+        runId,
+        reason: staleness.reason,
+      });
+    }
 
     const result = await compute(runId, run.config.industry);
     if (!result) {

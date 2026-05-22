@@ -47,6 +47,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
     fetchPromptLogs,
     genieGenerating,
     dashboardGenerating,
+    bvGenerating,
     promptLogs,
     promptStats,
     logsLoading,
@@ -207,6 +208,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
             logsLoading={logsLoading}
             genieGenerating={genieGenerating}
             dashboardGenerating={dashboardGenerating}
+            bvGenerating={bvGenerating}
             onFetchPromptLogs={fetchPromptLogs}
             onRerun={handleRerun}
             isRerunning={isRerunning}

@@ -25,6 +25,8 @@ import { runBusinessContext } from "./steps/business-context";
 import { runMetadataExtraction } from "./steps/metadata-extraction";
 import { runTableFiltering } from "./steps/table-filtering";
 import { runUsecaseGeneration } from "./steps/usecase-generation";
+import { runSourceSystemAttribution } from "./steps/source-system-attribution";
+import { runBlastRadiusPass } from "./steps/blast-radius";
 import { runDomainClustering } from "./steps/domain-clustering";
 import { runScoring } from "./steps/scoring";
 import { runSqlGeneration } from "./steps/sql-generation";
@@ -52,6 +54,12 @@ import {
   completeDashboardJob,
   failDashboardJob,
 } from "@/lib/dashboard/engine-status";
+import {
+  startBvJob,
+  updateBvJob,
+  completeBvJob,
+  failBvJob,
+} from "@/lib/pipeline/bv-engine-status";
 import { flushPromptLogs } from "@/lib/lakebase/prompt-logs";
 import { logMemoryUsage } from "@/lib/pipeline/memory-monitor";
 import { registerPipelineStarter, notifyScheduler } from "@/lib/pipeline/scheduler";
@@ -135,6 +143,9 @@ export async function persistUseCases(
               overallScore: uc.overallScore,
               sqlCode: uc.sqlCode,
               sqlStatus: uc.sqlStatus,
+              sourceSystems: uc.sourceSystems ? JSON.stringify(uc.sourceSystems) : null,
+              sourceSystemsOrigin: uc.sourceSystemsOrigin,
+              blastRadiusJson: uc.blastRadius ? JSON.stringify(uc.blastRadius) : null,
             })),
           });
         }
@@ -509,6 +520,22 @@ export async function startPipeline(
             undefined,
             `Generated ${ctx.useCases.length} validated use cases${hallucinated > 0 ? ` (${hallucinated} removed — invalid table refs)` : ""}`,
           );
+
+          // Source-system attribution (Phase 3.1): mutates ctx.useCases
+          // in place with sourceSystems + sourceSystemsOrigin so the next
+          // persistUseCases call writes the attribution alongside the
+          // freshly generated rows. Pure deterministic; non-blocking on
+          // lineage availability (falls back to naming + comments).
+          const attribution = runSourceSystemAttribution(ctx);
+          if (attribution.attributedCount > 0) {
+            stepLog.info("Attributed source systems to use cases", {
+              fn: "startPipeline",
+              attributedCount: attribution.attributedCount,
+              totalUseCases: attribution.totalUseCases,
+              systemsSeen: attribution.systemsSeen,
+            });
+          }
+
           await persistUseCases(runId, ctx.useCases, stepLog);
         });
       }
@@ -617,6 +644,23 @@ export async function startPipeline(
             undefined,
             `Scored ${ctx.useCases.length} use cases`,
           );
+
+          // Downstream blast-radius (Phase 3.2): apply feasibility boost
+          // for use cases whose tables already power downstream consumers.
+          // Stores the per-use-case summary on `uc.blastRadius` so the next
+          // persistUseCases checkpoint writes blast_radius_json alongside
+          // the boosted feasibility / overall scores. Non-blocking on
+          // lineage availability — degrades to a no-op zeroed summary.
+          const blastRadius = runBlastRadiusPass(ctx);
+          if (blastRadius.boostedCount > 0) {
+            stepLog.info("Applied blast-radius feasibility boost", {
+              fn: "startPipeline",
+              boostedCount: blastRadius.boostedCount,
+              totalDownstreamTables: blastRadius.totalDownstreamTables,
+              topUseCaseIds: blastRadius.topUseCaseIds,
+            });
+          }
+
           await persistUseCases(runId, ctx.useCases, stepLog);
         });
       }
@@ -655,38 +699,15 @@ export async function startPipeline(
       // Final use case checkpoint after SQL generation (Step 7)
       await persistUseCases(runId, ctx.useCases, log);
 
-      // Step 8: Business Value Analysis (financial quantification, roadmap, synthesis, stakeholders)
-      if (ctx.run.config.businessValueEnabled) {
-        checkCancelled(ctx.signal);
-        const stepLog = log.child({
-          task: "BusinessValueAnalysis",
-          module: "pipeline/steps/business-value-analysis",
-        });
-        ctx.logger = stepLog;
-        await logStep(PipelineStep.BusinessValueAnalysis, stepLog, async () => {
-          await updateRunStatus(
-            runId,
-            "running",
-            PipelineStep.BusinessValueAnalysis,
-            86,
-            undefined,
-            "Analyzing business value and building executive synthesis...",
-          );
-          await runBusinessValueAnalysis(ctx);
-          await updateRunStatus(
-            runId,
-            "running",
-            PipelineStep.BusinessValueAnalysis,
-            90,
-            undefined,
-            "Business value analysis complete",
-          );
-        });
-      } else {
+      // Step 8 (Business Value Analysis) now runs as a background job after
+      // the main pipeline marks the run "completed". See startBackgroundJobs.
+      if (!ctx.run.config.businessValueEnabled) {
         log.info("Business value analysis skipped (not enabled in config)");
       }
 
-      // Generate vector embeddings for use cases + business context (best-effort)
+      // Generate vector embeddings for use cases + business context (best-effort).
+      // BV-output embedding is handled inside the background BV task so it
+      // does not block the main pipeline from reaching "completed".
       try {
         const { embedRunResults } = await import("@/lib/embeddings/embed-pipeline");
         const bcJson = ctx.run.businessContext ? JSON.stringify(ctx.run.businessContext) : null;
@@ -699,44 +720,7 @@ export async function startPipeline(
         });
       }
 
-      // Embed business value outputs for Strategic Advisor RAG (best-effort)
-      try {
-        const { embedBusinessValueResults } = await import("@/lib/embeddings/embed-pipeline");
-        const { getValueEstimatesForRun } = await import("@/lib/lakebase/value-estimates");
-        const { getRoadmapPhasesForRun } = await import("@/lib/lakebase/roadmap-phases");
-        const { getStakeholderProfilesForRun } =
-          await import("@/lib/lakebase/stakeholder-profiles");
-        const [bvEstimates, bvPhases, bvStakeholders] = await Promise.all([
-          getValueEstimatesForRun(runId),
-          getRoadmapPhasesForRun(runId),
-          getStakeholderProfilesForRun(runId),
-        ]);
-        const { withPrisma: prismaHelper } = await import("@/lib/prisma");
-        const bvSynthesisRow = await prismaHelper(async (prisma) => {
-          const row = await prisma.forgeRun.findUnique({
-            where: { runId },
-            select: { synthesisJson: true },
-          });
-          return row?.synthesisJson ?? null;
-        });
-        let bvSynthesis: import("@/lib/domain/types").ExecutiveSynthesis | null = null;
-        if (bvSynthesisRow) {
-          try {
-            bvSynthesis = JSON.parse(bvSynthesisRow);
-          } catch {
-            /* ignore */
-          }
-        }
-        await embedBusinessValueResults(runId, bvEstimates, bvPhases, bvStakeholders, bvSynthesis);
-      } catch (embedErr) {
-        log.warn("Business value embedding failed (non-fatal)", {
-          fn: "startPipeline",
-          errorCategory: "data",
-          error: embedErr instanceof Error ? embedErr.message : String(embedErr),
-        });
-      }
-
-      // Mark as completed -- Genie Engine runs in the background
+      // Mark as completed -- BV / Genie / Dashboard all run in the background.
       const finalDomains = new Set(ctx.useCases.map((uc) => uc.domain)).size;
       await updateRunStatus(
         runId,
@@ -746,14 +730,14 @@ export async function startPipeline(
         undefined,
         `Pipeline complete: ${ctx.useCases.length} use cases across ${finalDomains} domains (${sqlOk} with SQL)`,
       );
-      log.info("Pipeline completed, starting background engines", {
+      log.info("Pipeline completed, starting background jobs", {
         phase: "end",
         useCaseCount: ctx.useCases.length,
         sqlOk,
       });
 
-      // Fire Genie Engine and Dashboard Engine concurrently in the background.
-      startBackgroundEngines(ctx, runId, log);
+      // Fire Business Value, Genie Engine and Dashboard Engine concurrently in the background.
+      startBackgroundJobs(ctx, runId, log, { includeBv: ctx.run.config.businessValueEnabled });
     } catch (error) {
       if (error instanceof PipelineCancelledError) {
         log.info("Pipeline cancelled by user", { phase: "end" });
@@ -1159,6 +1143,18 @@ export async function resumePipeline(
             undefined,
             `Generated ${ctx.useCases.length} validated use cases${hallucinated > 0 ? ` (${hallucinated} removed)` : ""}`,
           );
+
+          // Source-system attribution (Phase 3.1).
+          const attribution = runSourceSystemAttribution(ctx);
+          if (attribution.attributedCount > 0) {
+            stepLog.info("Attributed source systems to use cases", {
+              fn: "resumePipeline",
+              attributedCount: attribution.attributedCount,
+              totalUseCases: attribution.totalUseCases,
+              systemsSeen: attribution.systemsSeen,
+            });
+          }
+
           await persistUseCases(runId, ctx.useCases, stepLog);
         });
       }
@@ -1217,6 +1213,21 @@ export async function resumePipeline(
             undefined,
             `Scored ${ctx.useCases.length} use cases`,
           );
+
+          // Downstream blast-radius (Phase 3.2): see the start-path branch
+          // above for the rationale. Same call, mirrored into the resume
+          // path so re-runs from any step after Scoring still produce a
+          // consistent blast_radius_json column.
+          const blastRadius = runBlastRadiusPass(ctx);
+          if (blastRadius.boostedCount > 0) {
+            stepLog.info("Applied blast-radius feasibility boost", {
+              fn: "resumePipeline",
+              boostedCount: blastRadius.boostedCount,
+              totalDownstreamTables: blastRadius.totalDownstreamTables,
+              topUseCaseIds: blastRadius.topUseCaseIds,
+            });
+          }
+
           await persistUseCases(runId, ctx.useCases, stepLog);
         });
       }
@@ -1257,83 +1268,26 @@ export async function resumePipeline(
         await persistUseCases(runId, ctx.useCases, log);
       }
 
-      // Step 8: Business Value Analysis
-      if (resumeIndex <= 8 && ctx.run.config.businessValueEnabled) {
-        checkCancelled(ctx.signal);
-        const stepLog = log.child({
-          task: "BusinessValueAnalysis",
-          module: "pipeline/steps/business-value-analysis",
-        });
-        ctx.logger = stepLog;
-        await logStep(PipelineStep.BusinessValueAnalysis, stepLog, async () => {
-          await updateRunStatus(
-            runId,
-            "running",
-            PipelineStep.BusinessValueAnalysis,
-            86,
-            undefined,
-            "Analyzing business value and building executive synthesis...",
-          );
-          await runBusinessValueAnalysis(ctx);
-          await updateRunStatus(
-            runId,
-            "running",
-            PipelineStep.BusinessValueAnalysis,
-            90,
-            undefined,
-            "Business value analysis complete",
-          );
-        });
-      }
+      // Step 8 (Business Value Analysis) now runs as a background job after
+      // the main pipeline marks the run "completed". See startBackgroundJobs.
+      // We still respect the resumeIndex check: if BV had already completed
+      // in a prior attempt (resumeIndex > 8), we don't re-queue it.
+      const includeBv =
+        resumeIndex <= 8 && ctx.run.config.businessValueEnabled;
 
       // Step 9: Genie Recommendations (handled by the background engine below)
       if (resumeIndex <= 9) {
         // no-op — Genie Engine runs in background after completion
       }
 
-      // Generate vector embeddings for use cases + business context (best-effort)
+      // Generate vector embeddings for use cases + business context (best-effort).
+      // BV-output embedding is handled inside the background BV task.
       try {
         const { embedRunResults } = await import("@/lib/embeddings/embed-pipeline");
         const bcJson = ctx.run.businessContext ? JSON.stringify(ctx.run.businessContext) : null;
         await embedRunResults(runId, ctx.useCases, bcJson, ctx.run.config.businessName);
       } catch (embedErr) {
         log.warn("Use case embedding failed (non-fatal)", {
-          errorCategory: "data",
-          error: embedErr instanceof Error ? embedErr.message : String(embedErr),
-        });
-      }
-
-      // Embed business value outputs for Strategic Advisor RAG (best-effort)
-      try {
-        const { embedBusinessValueResults } = await import("@/lib/embeddings/embed-pipeline");
-        const { getValueEstimatesForRun } = await import("@/lib/lakebase/value-estimates");
-        const { getRoadmapPhasesForRun } = await import("@/lib/lakebase/roadmap-phases");
-        const { getStakeholderProfilesForRun } =
-          await import("@/lib/lakebase/stakeholder-profiles");
-        const { withPrisma: wp } = await import("@/lib/prisma");
-        const [bvEstimates, bvPhases, bvStakeholders] = await Promise.all([
-          getValueEstimatesForRun(runId),
-          getRoadmapPhasesForRun(runId),
-          getStakeholderProfilesForRun(runId),
-        ]);
-        const bvSynthesisRow = await wp(async (prisma) => {
-          const row = await prisma.forgeRun.findUnique({
-            where: { runId },
-            select: { synthesisJson: true },
-          });
-          return row?.synthesisJson ?? null;
-        });
-        let bvSynthesis: import("@/lib/domain/types").ExecutiveSynthesis | null = null;
-        if (bvSynthesisRow) {
-          try {
-            bvSynthesis = JSON.parse(bvSynthesisRow);
-          } catch {
-            /* ignore */
-          }
-        }
-        await embedBusinessValueResults(runId, bvEstimates, bvPhases, bvStakeholders, bvSynthesis);
-      } catch (embedErr) {
-        log.warn("Business value embedding failed (non-fatal)", {
           errorCategory: "data",
           error: embedErr instanceof Error ? embedErr.message : String(embedErr),
         });
@@ -1354,7 +1308,7 @@ export async function resumePipeline(
         sqlOk,
       });
 
-      startBackgroundEngines(ctx, runId, log);
+      startBackgroundJobs(ctx, runId, log, { includeBv });
     } catch (error) {
       if (error instanceof PipelineCancelledError) {
         log.info("Pipeline cancelled by user", { phase: "end" });
@@ -1409,20 +1363,115 @@ export async function resumePipeline(
 }
 
 // ---------------------------------------------------------------------------
-// Background Engines (concurrent: Genie + Dashboard)
+// Background Jobs (concurrent: Business Value + Genie + Dashboard)
 // ---------------------------------------------------------------------------
 
 /**
- * Fire-and-forget background engines. Genie and Dashboard run concurrently
- * since the Dashboard Engine gracefully handles missing Genie data (it
- * fetches whatever recommendations exist in Lakebase at the time it runs).
- * Each engine's progress is tracked independently via its own status module.
+ * Fire-and-forget background jobs. Business Value, Genie, and Dashboard all
+ * run concurrently after the main pipeline marks the run "completed".
+ *
+ * - Business Value: 4 LLM passes (financial / roadmap / synthesis / stakeholders)
+ *   pinned to a premium reasoning model, plus a downstream embedding step.
+ * - Genie: per-domain Genie Space generation.
+ * - Dashboard: AI/BI dashboard recommendations. Gracefully handles missing
+ *   Genie data; it fetches whatever recommendations exist in Lakebase at the
+ *   time it runs.
+ *
+ * Each job's progress is tracked independently via its own status module
+ * (`bv-engine-status`, `genie/engine-status`, `dashboard/engine-status`).
+ *
+ * The BV task writes directly to the four BV Lakebase tables incrementally
+ * as each pass completes, so any UI page that polls Lakebase will see
+ * partial data appear while later passes are still running.
  */
-function startBackgroundEngines(
+function startBackgroundJobs(
   ctx: PipelineContext,
   runId: string,
   parentLog: ScopedLogger,
+  opts: { includeBv: boolean },
 ): void {
+  const bvLog = parentLog.child({
+    task: "BusinessValueAnalysis",
+    module: "pipeline/steps/business-value-analysis",
+  });
+  const bvTask = async () => {
+    await startBvJob(runId);
+    try {
+      ctx.logger = bvLog;
+      await runBusinessValueAnalysis(ctx);
+
+      // Eagerly invalidate any cached Data Gap analysis for this run so the
+      // next GET on /api/runs/<runId>/data-gap recomputes with the freshly
+      // generated value estimates. Without this, the card may serve a row
+      // written before BV completed (which carries `valueAtRiskMid=0` and
+      // pre-P3.3 schema). The GET handler also runs a defensive staleness
+      // check, but invalidating here means the very first read after BV
+      // finishes is correct.
+      try {
+        const { deleteDataGapAnalysesForRun } = await import(
+          "@/lib/lakebase/data-gap-analyses"
+        );
+        await deleteDataGapAnalysesForRun(runId);
+      } catch (cacheErr) {
+        bvLog.warn("Data gap cache invalidation failed (non-fatal)", {
+          errorCategory: "data",
+          error: cacheErr instanceof Error ? cacheErr.message : String(cacheErr),
+        });
+      }
+
+      // BV-output embedding (best-effort, runs inside the background task)
+      updateBvJob(runId, "Embedding business value outputs for Strategic Advisor...", 95);
+      try {
+        const { embedBusinessValueResults } = await import("@/lib/embeddings/embed-pipeline");
+        const { getValueEstimatesForRun } = await import("@/lib/lakebase/value-estimates");
+        const { getRoadmapPhasesForRun } = await import("@/lib/lakebase/roadmap-phases");
+        const { getStakeholderProfilesForRun } = await import(
+          "@/lib/lakebase/stakeholder-profiles"
+        );
+        const { withPrisma } = await import("@/lib/prisma");
+        const [bvEstimates, bvPhases, bvStakeholders] = await Promise.all([
+          getValueEstimatesForRun(runId),
+          getRoadmapPhasesForRun(runId),
+          getStakeholderProfilesForRun(runId),
+        ]);
+        const bvSynthesisRow = await withPrisma(async (prisma) => {
+          const row = await prisma.forgeRun.findUnique({
+            where: { runId },
+            select: { synthesisJson: true },
+          });
+          return row?.synthesisJson ?? null;
+        });
+        let bvSynthesis: import("@/lib/domain/types").ExecutiveSynthesis | null = null;
+        if (bvSynthesisRow) {
+          try {
+            bvSynthesis = JSON.parse(bvSynthesisRow);
+          } catch {
+            /* ignore */
+          }
+        }
+        await embedBusinessValueResults(
+          runId,
+          bvEstimates,
+          bvPhases,
+          bvStakeholders,
+          bvSynthesis,
+        );
+      } catch (embedErr) {
+        bvLog.warn("Business value embedding failed (non-fatal)", {
+          errorCategory: "data",
+          error: embedErr instanceof Error ? embedErr.message : String(embedErr),
+        });
+      }
+
+      await completeBvJob(runId);
+      bvLog.info("Background Business Value Analysis completed", { phase: "end" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await failBvJob(runId, msg);
+      bvLog.error("Background Business Value Analysis failed", { phase: "error", error: msg });
+    }
+  };
+
   const genieLog = parentLog.child({
     task: "GenieRecommendations",
     module: "pipeline/steps/genie-recommendations",
@@ -1475,7 +1524,11 @@ function startBackgroundEngines(
     }
   };
 
-  Promise.allSettled([genieTask(), dashboardTask()]);
+  const tasks = [genieTask(), dashboardTask()];
+  if (opts.includeBv) {
+    tasks.push(bvTask());
+  }
+  Promise.allSettled(tasks);
 }
 
 /**

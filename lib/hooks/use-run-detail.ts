@@ -26,6 +26,8 @@ export function useRunDetail(runId: string) {
   const geniePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [dashboardGenerating, setDashboardGenerating] = useState(false);
   const dashboardPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [bvGenerating, setBvGenerating] = useState(false);
+  const bvPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [promptLogs, setPromptLogs] = useState<PromptLogEntry[]>([]);
   const [promptStats, setPromptStats] = useState<PromptLogStats | null>(null);
@@ -338,6 +340,58 @@ export function useRunDetail(runId: string) {
     };
   }, [run?.status, runId, useCases.length]);
 
+  // Business Value background-job indicator. Mirrors the Genie / Dashboard
+  // effects above: hits the BV status endpoint once the run completes, then
+  // self-reschedules with exponential backoff until the status leaves
+  // `generating`. Drives the pulsing dot on the Business Value tab strip.
+  // Independent of the in-tab `BvProgressBanner` polling -- both share the
+  // endpoint, neither relies on shared state, and both stop on completion.
+  useEffect(() => {
+    if (run?.status !== "completed" || useCases.length === 0) return;
+    let cancelled = false;
+    async function checkBvStatus() {
+      try {
+        const res = await fetch(`/api/runs/${runId}/business-value/status`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (data.status === "generating") {
+          setBvGenerating(true);
+          if (!bvPollRef.current) {
+            let bvDelay = 2000;
+            const bvPoll = async () => {
+              try {
+                const r = await fetch(`/api/runs/${runId}/business-value/status`);
+                if (r.ok) {
+                  const d = await r.json();
+                  if (d.status !== "generating") {
+                    setBvGenerating(false);
+                    bvPollRef.current = null;
+                    return;
+                  }
+                }
+              } catch {
+                /* ignore */
+              }
+              bvDelay = Math.min(bvDelay * 1.3, 10000);
+              bvPollRef.current = setTimeout(bvPoll, bvDelay);
+            };
+            bvPollRef.current = setTimeout(bvPoll, bvDelay);
+          }
+        } else setBvGenerating(false);
+      } catch {
+        /* ignore */
+      }
+    }
+    checkBvStatus();
+    return () => {
+      cancelled = true;
+      if (bvPollRef.current) {
+        clearTimeout(bvPollRef.current);
+        bvPollRef.current = null;
+      }
+    };
+  }, [run?.status, runId, useCases.length]);
+
   return {
     run,
     useCases,
@@ -350,6 +404,7 @@ export function useRunDetail(runId: string) {
     fetchPromptLogs,
     genieGenerating,
     dashboardGenerating,
+    bvGenerating,
     promptLogs,
     promptStats,
     logsLoading,

@@ -112,3 +112,59 @@ export function getFallbacksForTier(tier: TaskTier, currentEndpoint: string): st
     .map((ep) => ep.name)
     .filter((n) => n !== currentEndpoint);
 }
+
+// ---------------------------------------------------------------------------
+// Premium reasoning endpoint (Business Value + Outcome Map synthesis)
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical premium reasoning endpoint. Business Value Analysis, Outcome Map
+ * enrichment, and Data-Gap-grounded prompts are all pinned to this model.
+ * Critical customer-facing data — we trade throughput for consistency and
+ * judgment quality.
+ */
+const PREMIUM_REASONING = "databricks-claude-opus-4-7";
+
+/**
+ * Ordered Opus / GPT fallbacks if the canonical premium model is not in
+ * the pool or has been marked unavailable. Falls through to the regular
+ * reasoning-tier resolver if none of these are present.
+ */
+const PREMIUM_FALLBACKS = [
+  "databricks-claude-opus-4-6",
+  "databricks-claude-opus-4-5",
+  "databricks-gpt-5-4",
+] as const;
+
+/**
+ * Resolve the premium reasoning endpoint, with deterministic Opus-family
+ * fallbacks. Unlike `resolveEndpoint("reasoning")`, this never returns a
+ * generation-tier or classification-tier model — if every Opus / GPT-5
+ * candidate is unavailable, it falls back to the standard reasoning
+ * resolver as a last resort (better than returning nothing).
+ *
+ * Use this for any LLM call whose output is presented to a customer as
+ * authoritative business insight (financial estimates, executive synthesis,
+ * stakeholder recommendations, outcome map enrichment).
+ */
+export function resolvePremiumReasoningEndpoint(): string {
+  const pool = getModelPool();
+  const available = new Set(pool.filter((ep) => ep.available).map((ep) => ep.name));
+
+  if (available.has(PREMIUM_REASONING)) {
+    logger.debug("Premium endpoint resolved", { endpoint: PREMIUM_REASONING, source: "primary" });
+    return PREMIUM_REASONING;
+  }
+  for (const name of PREMIUM_FALLBACKS) {
+    if (available.has(name)) {
+      logger.debug("Premium endpoint resolved", { endpoint: name, source: "premium-fallback" });
+      return name;
+    }
+  }
+
+  const fallback = resolveEndpoint("reasoning");
+  logger.warn("Premium endpoint resolution fell back to standard reasoning tier", {
+    endpoint: fallback,
+  });
+  return fallback;
+}

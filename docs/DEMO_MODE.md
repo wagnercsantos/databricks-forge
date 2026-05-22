@@ -32,28 +32,41 @@ Sessions** sidebar entry or from **Settings**.
 
 ## Enabling Demo Mode
 
-Demo Mode is **disabled by default**. It must be explicitly enabled.
+Demo Mode is **disabled by default** and is now a workspace-shared runtime
+toggle persisted to Lakebase (`ForgeAppConfig` singleton). Any authenticated
+user can flip it from the Settings page; **no redeploy is needed**.
 
-### Local Development
+### From the UI (preferred)
 
-Add to `.env.local`:
+1. Open **Settings** in the sidebar.
+2. Find the **Feature Flags** card (between "About" and "Data Management").
+3. Toggle **Demo Mode** on.
+4. The page reloads and the **Demo** section appears in the sidebar.
+
+The toggle is workspace-shared, so the change becomes visible to every user
+on their next page load. Toggle events are recorded to the activity log
+(`app_config_updated`) for audit.
+
+### Seeding via env var (optional)
+
+`FORGE_DEMO_MODE_ENABLED=true` only **seeds the initial value** on first
+read of the singleton row. After that the Settings UI is the source of
+truth. Use this when you want a deployment to come up with Demo Mode
+already on:
+
+Local dev — add to `.env.local`:
 
 ```
 FORGE_DEMO_MODE_ENABLED=true
 ```
 
-Restart the dev server (`npm run dev`).
-
-### Databricks Apps Deployment
-
-Pass the flag to the deploy script:
+Databricks Apps deployment:
 
 ```bash
 ./deploy.sh --enable-demo-mode
 ```
 
-This sets `FORGE_DEMO_MODE_ENABLED=true` in the app's environment. Combine
-with other flags as normal:
+Combine with other flags as normal:
 
 ```bash
 ./deploy.sh \
@@ -65,15 +78,27 @@ with other flags as normal:
 
 ### Verification
 
-Once enabled:
+Once enabled (via UI or env var seed):
 - A **Demo** section appears in the sidebar with a "Demo Sessions" link.
 - The **Settings** page shows a Demo Mode card with a quick link.
 - Navigate to `/demo` to see the full sessions listing.
 
 If the section does not appear:
-- Confirm `FORGE_DEMO_MODE_ENABLED=true` is set (check `/api/health` --
-  response includes `"demoModeEnabled": true` in all cases).
+- Confirm the singleton row's `demoModeEnabled` is `true` — check
+  `/api/health` (response includes `"demoModeEnabled": true`) or
+  `/api/settings/feature-flags`.
 - Hard-refresh the browser to clear cached settings state.
+- The flag is cached in process memory for 30s; in multi-pod setups the
+  toggle takes up to 30s to fully propagate (acceptable because Demo Mode
+  is a feature-visibility gate, not a security boundary).
+
+### Disabling
+
+Flip the **Demo Mode** toggle off in Settings. The env var is ignored
+once the singleton row exists. To force the env var to re-seed (e.g. after
+testing), use the Settings page's **Data Management → Delete all data**
+action, which drops `ForgeAppConfig` and lets the env var seed it again
+on next read.
 
 ---
 
@@ -491,7 +516,7 @@ Both engines use in-memory `Map` for fast polling (2s intervals) with
 | DELETE | `/api/demo/sessions/:id` | Cleanup: DROP tables + delete session |
 | GET | `/api/demo/sessions/:id/export?format=pptx\|pdf` | Export research as PPTX or PDF |
 
-All routes return 404 when `FORGE_DEMO_MODE_ENABLED` is not `true`.
+All routes return 404 when Demo Mode is disabled (toggle in **Settings → Feature Flags**, or seed via `FORGE_DEMO_MODE_ENABLED=true` on first boot). The toggle itself lives at `/api/settings/feature-flags` (GET + PATCH, owned by all authenticated users).
 
 ---
 
@@ -499,8 +524,10 @@ All routes return 404 when `FORGE_DEMO_MODE_ENABLED` is not `true`.
 
 ### "Demo mode is not enabled"
 
-All API routes return this when the feature gate is off. Set
-`FORGE_DEMO_MODE_ENABLED=true` and restart.
+All API routes return this when the feature gate is off. Open **Settings
+→ Feature Flags** and toggle Demo Mode on; the page reloads and the demo
+APIs become available. (No restart required — the env var only seeds the
+initial value on first boot.)
 
 ### Research takes too long
 
@@ -549,7 +576,7 @@ it, the engine has less context for nomenclature and realistic values.
 
 | File | Purpose |
 |---|---|
-| `lib/demo/config.ts` | `isDemoModeEnabled()` feature gate |
+| `lib/demo/config.ts` | Async `isDemoModeEnabled()` feature gate backed by the `ForgeAppConfig` singleton (30s in-memory cache); `setDemoModeEnabled()` + `invalidateDemoModeCache()` for the UI toggle. `FORGE_DEMO_MODE_ENABLED` env var seeds the row on first read. |
 | `lib/demo/types.ts` | All shared types (ResearchPreset, DemoScope, TableDesign, etc.) |
 | `lib/demo/scope.ts` | Department → asset family resolution, schema name builder |
 | `lib/demo/cleanup.ts` | UC object cleanup (DROP TABLE/SCHEMA) |

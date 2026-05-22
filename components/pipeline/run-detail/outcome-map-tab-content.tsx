@@ -5,8 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   Target,
   TrendingUp,
@@ -15,8 +13,6 @@ import {
   Database,
   Server,
   AlertTriangle,
-  Download,
-  Info,
   CheckCircle2,
   Lightbulb,
   Layers,
@@ -25,8 +21,6 @@ import type { UseCase } from "@/lib/domain/types";
 import {
   computeIndustryCoverage,
   type PriorityCoverage,
-  type CoverageResult,
-  type GapRefUseCase,
 } from "@/lib/domain/industry-coverage";
 import { useIndustryOutcomes } from "@/lib/hooks/use-industry-outcomes";
 import type { IndustryObjective } from "@/lib/domain/industry-outcomes";
@@ -51,8 +45,6 @@ export function OutcomeMapTabContent({
 
   const coverage = computeIndustryCoverage(industry, useCases);
   const pct = Math.round(coverage.overallCoverage * 100);
-  const hasGaps =
-    coverage.missingDataEntities.length > 0 || coverage.missingSourceSystems.length > 0;
 
   const colorClass =
     pct >= 75
@@ -104,17 +96,6 @@ export function OutcomeMapTabContent({
                   )}
                 </div>
               </div>
-            </div>
-            <div className="flex shrink-0 flex-col gap-2 md:items-end">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => window.open(`/api/runs/${runId}/gap-report`, "_blank")}
-              >
-                <Download className="h-3.5 w-3.5" />
-                Download Gap Report
-              </Button>
             </div>
           </div>
         </CardContent>
@@ -190,9 +171,6 @@ export function OutcomeMapTabContent({
           />
         ))}
       </div>
-
-      {/* Data Gap Summary */}
-      {hasGaps && <DataGapSummary coverage={coverage} runId={runId} />}
 
       {/* Master Repository v2 -- Reference Data Asset coverage + value at risk */}
       <DataGapCard runId={runId} />
@@ -436,141 +414,5 @@ function PriorityRow({ pc }: { pc: PriorityCoverage }) {
         </div>
       </CollapsibleContent>
     </Collapsible>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Gap Ref Popover
-// ---------------------------------------------------------------------------
-
-function GapRefPopover({
-  label,
-  refUseCases,
-  badge,
-}: {
-  label: string;
-  refUseCases: GapRefUseCase[];
-  badge: React.ReactNode;
-}) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex w-full items-center justify-between rounded-md border bg-background/60 px-2.5 py-1 text-left transition-colors hover:bg-muted/40"
-        >
-          <span className="flex items-center gap-1.5 truncate text-xs">
-            {label}
-            <Info className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-          </span>
-          {badge}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 p-0">
-        <div className="border-b px-3 py-2">
-          <p className="text-xs font-semibold">Use cases unlocked by &ldquo;{label}&rdquo;</p>
-        </div>
-        <ul className="max-h-60 overflow-y-auto px-3 py-2 space-y-1.5">
-          {refUseCases.map((ref) => (
-            <li key={ref.name} className="text-xs">
-              <span className="font-medium">{ref.name}</span>
-              {ref.businessValue && (
-                <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground italic">
-                  {ref.businessValue}
-                </p>
-              )}
-            </li>
-          ))}
-        </ul>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Data Gap Summary
-// ---------------------------------------------------------------------------
-
-function DataGapSummary({ coverage, runId }: { coverage: CoverageResult; runId: string }) {
-  const topEntities = coverage.missingDataEntities.slice(0, 10);
-  const topSystems = coverage.missingSourceSystems.slice(0, 8);
-
-  return (
-    <Card className="border-amber-200 dark:border-amber-800">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-sm font-medium">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-            Data Gap Analysis
-          </CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => window.open(`/api/runs/${runId}/gap-report`, "_blank")}
-          >
-            <Download className="h-3.5 w-3.5" />
-            Gap Report
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Prioritised data entities and source systems to onboard for uncovered use cases
-        </p>
-      </CardHeader>
-      <CardContent>
-        <div className="grid gap-4 md:grid-cols-2">
-          {topEntities.length > 0 && (
-            <div>
-              <div className="mb-2 flex items-center gap-1.5">
-                <Database className="h-3.5 w-3.5 text-blue-500" />
-                <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">
-                  Top Data to Onboard
-                </p>
-              </div>
-              <div className="space-y-1">
-                {topEntities.map(({ entity, useCaseCount, refUseCases }) => (
-                  <GapRefPopover
-                    key={entity}
-                    label={entity}
-                    refUseCases={refUseCases}
-                    badge={
-                      <Badge variant="secondary" className="ml-2 shrink-0 text-[10px]">
-                        unlocks {useCaseCount} UC
-                        {useCaseCount !== 1 ? "s" : ""}
-                      </Badge>
-                    }
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {topSystems.length > 0 && (
-            <div>
-              <div className="mb-2 flex items-center gap-1.5">
-                <Server className="h-3.5 w-3.5 text-violet-500" />
-                <p className="text-xs font-semibold text-violet-700 dark:text-violet-300">
-                  Common Source Systems
-                </p>
-              </div>
-              <div className="space-y-1">
-                {topSystems.map(({ system, useCaseCount, refUseCases }) => (
-                  <GapRefPopover
-                    key={system}
-                    label={system}
-                    refUseCases={refUseCases}
-                    badge={
-                      <Badge variant="secondary" className="ml-2 shrink-0 text-[10px]">
-                        {useCaseCount} UC{useCaseCount !== 1 ? "s" : ""}
-                      </Badge>
-                    }
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
   );
 }

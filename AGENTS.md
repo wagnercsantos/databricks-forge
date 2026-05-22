@@ -38,7 +38,7 @@ This app runs as a **Databricks App**. Authentication is automatic:
 - `DATABRICKS_ALLOWED_MODELS` restricts the pool to customer-approved models only.
 - Model availability failover: `deploy.sh` probes endpoints and selects the best available per role; `scripts/validate-endpoints.mjs` re-validates at startup; runtime 404s trigger automatic endpoint rotation. Use `--skip-probe` to bypass deploy-time probing.
 - Lakebase scale-to-zero is enforced at every startup (default: 300s timeout). Override with `LAKEBASE_SCALE_TO_ZERO_TIMEOUT` or `--lakebase-no-scale-to-zero`.
-- `FORGE_DEMO_MODE_ENABLED` activates Demo Mode for Field Engineering/Sales (deploy with `--enable-demo-mode`).
+- Demo Mode is a runtime toggle in Settings, persisted to Lakebase (`ForgeAppConfig` singleton). `FORGE_DEMO_MODE_ENABLED` (or `--enable-demo-mode`) only **seeds** the initial value on first boot; thereafter the UI is the source of truth. No redeploy needed to flip the gate.
 - **Local dev** uses `.deploy_local.sh` which provisions Lakebase via `databricks postgres` CLI commands and writes `.env.local`. Auth uses the Databricks CLI OAuth U2M session (`databricks auth login`) -- no PAT or credentials stored on disk. The auth chain in `lib/dbx/client.ts` `getBearerToken()` checks: OBO header → `DATABRICKS_TOKEN` → CLI OAuth U2M (`databricks auth token`, cached 5min) → SP OAuth M2M. `getCurrentUserEmail()` falls back to `FORGE_LOCAL_USER_EMAIL` env var when OBO proxy headers are absent. Lakebase uses `getStaticPrisma()` with a `DATABASE_URL` pointing to a native password role (`forge_local_dev`).
 
 ## Folder Contract
@@ -105,6 +105,7 @@ These are the core TypeScript types used throughout the app:
 | `WafControlResult` | Per-run, per-control evaluation row (score %, threshold met flag) |
 | `WafQualitativeResponse` | Workspace-shared answer to a qualitative control (yes/partial/no/n-a) |
 | `WafIgnoredResource` | Workspace-shared exclusion of a control or resource from scoring |
+| `ForgeAppConfig` | Workspace-shared runtime feature flags (singleton row, currently holds `demoModeEnabled`) |
 | `Locale` | Supported UI locale: `"en" \| "pt-BR" \| "es"` (`i18n/config.ts`) |
 | `CommentOutputLanguage` | Natural language for AI-generated comments + use cases (independent of UI locale) |
 
@@ -492,7 +493,7 @@ Activity log: `demo_genie_space_deployed`.
 
 ### Shared Demo Modules
 
-- `lib/demo/config.ts` -- `isDemoModeEnabled()` feature gate (`FORGE_DEMO_MODE_ENABLED`)
+- `lib/demo/config.ts` -- async `isDemoModeEnabled()` feature gate reading the `ForgeAppConfig` singleton (cached 30s); `setDemoModeEnabled()` + `invalidateDemoModeCache()` for the UI toggle. `FORGE_DEMO_MODE_ENABLED` env var seeds the row on first read.
 - `lib/demo/types.ts` -- shared types (`ResearchPreset`, `DemoScope`, `TableDesign`, etc.)
 - `lib/demo/scope.ts` -- department-to-asset-family resolution, schema name builder
 - `lib/demo/cleanup.ts` -- `cleanupDemoSession()` (DROP TABLE/SCHEMA + Lakebase delete)

@@ -41,10 +41,16 @@ import type {
  * Subset of `UseCase` consumed by attribution. Kept narrow so callers can
  * pass either persisted Lakebase rows or pure in-memory objects without
  * dragging the full domain type along.
+ *
+ * `referenceUseCaseName`, when present, is a hard FK into the master-repo
+ * namespace (verbatim copy of a `MasterRepoUseCase.name`). The attribution
+ * routine prefers it over the fuzzy ladder in {@link findReferenceMatch}
+ * so production runs are deterministic and immune to LLM phrasing drift.
  */
 export interface UseCaseLike {
   name: string;
   tablesInvolved?: string[] | null;
+  referenceUseCaseName?: string | null;
 }
 
 const JACCARD_THRESHOLD = 0.5;
@@ -95,7 +101,15 @@ function jaccard(a: Set<string>, b: Set<string>): number {
  * use cases. Returns the best reference, or `null` if no tier matches.
  *
  * Exposed for direct unit testing; production code should prefer
- * {@link attributeTablesToAssets}.
+ * {@link attributeTablesToAssets}, which additionally consults the
+ * persisted `referenceUseCaseName` column before falling through to this
+ * fuzzy ladder.
+ *
+ * The fuzzy ladder is retained as a backstop for:
+ *   - Legacy runs generated before the `reference_use_case_name` field was
+ *     introduced (until the Data Gap backfill populates the column).
+ *   - Rows where the LLM emitted `null` for `reference_use_case_name` but
+ *     the customer-facing `name` still resembles a master-repo title.
  */
 export function findReferenceMatch(
   generatedName: string,
@@ -141,7 +155,20 @@ export function findReferenceMatch(
 /**
  * Build the `classifiedTables` input for `runDataGapAnalysis()` from a list
  * of generated use cases plus the master-repo enrichment for the run's
- * industry. See module doc for the matching algorithm.
+ * industry.
+ *
+ * Resolution order for each use case:
+ *   1. **Persisted reference link** — when `uc.referenceUseCaseName` is set
+ *      and resolves to a master-repo UC by exact case-insensitive name, use
+ *      that. This is the deterministic happy path for runs generated after
+ *      the field shipped.
+ *   2. **Fuzzy ladder** — fall through to {@link findReferenceMatch} against
+ *      `uc.name` for legacy rows where the link is null or refers to an
+ *      unknown title.
+ *
+ * When a match succeeds, every Mission-Critical asset id linked to the
+ * matched reference is attributed to every `tablesInvolved` FQN of the
+ * generated use case. Pairs are de-duplicated.
  */
 export function attributeTablesToAssets(input: {
   useCases: readonly UseCaseLike[];
@@ -151,8 +178,18 @@ export function attributeTablesToAssets(input: {
   const seen = new Set<string>();
   const out: Array<{ fqn: string; dataAssetId: string }> = [];
 
+  // Pre-build a case-insensitive lookup of master-repo UCs so the persisted
+  // link can be resolved in O(1) without iterating the full list per UC.
+  const refByLowerName = new Map<string, MasterRepoUseCase>();
+  for (const r of enrichment.useCases) {
+    refByLowerName.set(r.name.toLowerCase(), r);
+  }
+
   for (const uc of useCases) {
-    const refUc = findReferenceMatch(uc.name, enrichment.useCases);
+    const persistedKey = uc.referenceUseCaseName?.trim().toLowerCase();
+    const refUc =
+      (persistedKey ? refByLowerName.get(persistedKey) : undefined) ??
+      findReferenceMatch(uc.name, enrichment.useCases);
     if (!refUc) continue;
     const mcAssetIds = (refUc.dataAssetIds ?? []).filter(
       (id) => refUc.dataAssetCriticality?.[id] === "MC",

@@ -127,6 +127,7 @@ Return a JSON array of objects with these fields:
 - **sponsor**: Executive sponsor (C-level or VP title) (string)
 - **tables_involved**: Array of FULLY-QUALIFIED table names (catalog.schema.table). MUST exist in the schema (string[])
 - **technical_design**: SQL approach overview (2-3 sentences). First CTE MUST use SELECT DISTINCT or GROUP BY. Describe the AI function usage and data flow (string)
+- **reference_use_case_name**: VERBATIM EXACT COPY of the most semantically-aligned title from the INDUSTRY REFERENCE USE CASES section. This is REQUIRED -- downstream tooling joins on this string. Pick the SINGLE best match even if imperfect. Return \`null\` ONLY if the use case has NO plausible reference (rare). Do NOT invent new strings, do NOT paraphrase, do NOT change capitalization or punctuation. Copy the title character-for-character from the reference list above. (string | null)
 
 Return ONLY the JSON array. Do NOT include any text outside the JSON.
 `;
@@ -250,6 +251,7 @@ Return a JSON array of objects with these fields:
 - **sponsor**: Executive sponsor (C-level or VP title) (string)
 - **tables_involved**: Array of FULLY-QUALIFIED table names (catalog.schema.table). MUST exist in the schema (string[])
 - **technical_design**: SQL approach overview (2-3 sentences). First CTE MUST use SELECT DISTINCT or GROUP BY. Name 3-5 specific statistical functions that will be used (string)
+- **reference_use_case_name**: VERBATIM EXACT COPY of the most semantically-aligned title from the INDUSTRY REFERENCE USE CASES section. This is REQUIRED -- downstream tooling joins on this string. Pick the SINGLE best match even if imperfect. Return \`null\` ONLY if the use case has NO plausible reference (rare). Do NOT invent new strings, do NOT paraphrase, do NOT change capitalization or punctuation. Copy the title character-for-character from the reference list above. (string | null)
 
 Return ONLY the JSON array. Do NOT include any text outside the JSON.
 `;

@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       estateScanEnabled: body.estateScanEnabled ?? false,
       assetDiscoveryEnabled: body.assetDiscoveryEnabled ?? false,
       fabricScanId: body.fabricScanId ?? null,
-      businessValueEnabled: body.businessValueEnabled ?? false,
+      businessValueEnabled: body.businessValueEnabled ?? true,
       outputLanguage: body.outputLanguage ?? "en",
     };
 

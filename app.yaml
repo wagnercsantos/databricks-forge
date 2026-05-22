@@ -2,11 +2,19 @@
 # Resources and scopes are bound automatically by deploy.sh.
 #
 # Resource bindings (set by deploy.sh via Apps API):
-#   sql-warehouse             → DATABRICKS_WAREHOUSE_ID
-#   serving-endpoint          → DATABRICKS_SERVING_ENDPOINT
-#   serving-endpoint-fast     → DATABRICKS_SERVING_ENDPOINT_FAST
+#   sql-warehouse              → DATABRICKS_WAREHOUSE_ID
+#   serving-endpoint           → DATABRICKS_SERVING_ENDPOINT
+#   serving-endpoint-fast      → DATABRICKS_SERVING_ENDPOINT_FAST
 #   serving-endpoint-embedding → DATABRICKS_EMBEDDING_ENDPOINT
-#   serving-endpoint-review   → DATABRICKS_REVIEW_ENDPOINT
+#   serving-endpoint-review    → DATABRICKS_REVIEW_ENDPOINT
+#   postgres                   → PGHOST / PGPORT / PGDATABASE / PGUSER / PGSSLMODE
+#                                 (Lakebase Postgres database bound as an app
+#                                  resource — branch + database resource names
+#                                  are passed by deploy.sh.)
+#   LAKEBASE_ENDPOINT          → static `value` injected by deploy.sh
+#                                 (the platform does NOT inject the endpoint
+#                                  resource path; deploy.sh discovers it via
+#                                  `databricks postgres list-endpoints`)
 #
 # User authorization scopes (set by deploy.sh via Apps API):
 #   sql, catalog.tables:read, catalog.schemas:read,
@@ -18,14 +26,13 @@
 #   - Model Serving, Workspace API run as the app service principal
 #   - Background pipeline tasks fall back to service principal
 #
-# Lakebase Autoscale is self-provisioned at startup using the platform-
-# injected service principal credentials (DATABRICKS_CLIENT_ID/SECRET/HOST).
-# No secret scope or DATABASE_URL binding needed.
-#
-# Runtime DB auth mode is injected by deploy.sh at deploy-time:
-#   LAKEBASE_AUTH_MODE=native_password (default) OR oauth
-# In native_password mode, deploy.sh also injects:
-#   LAKEBASE_NATIVE_USER, LAKEBASE_NATIVE_PASSWORD
+# Lakebase auth model:
+#   - The `postgres` resource binding gives the app SP CAN_CONNECT_AND_CREATE on
+#     the bound database. The platform injects PGHOST/PGPORT/PGDATABASE/PGUSER/
+#     PGSSLMODE; we declare LAKEBASE_ENDPOINT below so the runtime can mint
+#     short-lived OAuth Postgres tokens via POST /api/2.0/postgres/credentials.
+#   - No `forge_app_runtime` native role, no static password — everything is
+#     OAuth and rotates every ~hour.
 #
 # Optional cost-governance env vars (injected by deploy.sh when set):
 #   FORGE_BUDGET_POLICY_ID -- serverless budget policy attached to the
@@ -56,8 +63,6 @@ env:
     value: "forge-demo"
   - name: LAKEBASE_BOOTSTRAP_USER
     value: "al.thrussell@databricks.com"
-  - name: LAKEBASE_ENABLE_POOLER_EXPERIMENT
-    value: "false"
   - name: FORGE_SEED_BENCHMARKS
     value: "false"
   - name: FORGE_SEED_BENCHMARKS_ALL_INDUSTRIES

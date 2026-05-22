@@ -116,6 +116,19 @@ export async function deleteAllData(): Promise<void> {
       // Isolation/accounting tables
       prisma.forgeResourceAcl.deleteMany(),
       prisma.forgeUsage.deleteMany(),
+      // Workspace-shared runtime feature flags (singleton row). Next read
+      // re-seeds from FORGE_DEMO_MODE_ENABLED so the env var stays the
+      // initial default after a factory reset.
+      prisma.forgeAppConfig.deleteMany(),
     ]);
   });
+
+  // Drop the in-memory demo mode cache so the next read re-seeds the row
+  // from the env var instead of returning a stale `true` from before reset.
+  try {
+    const { invalidateDemoModeCache } = await import("@/lib/demo/config");
+    invalidateDemoModeCache();
+  } catch {
+    // demo config module unavailable in tests / partial builds — non-fatal
+  }
 }

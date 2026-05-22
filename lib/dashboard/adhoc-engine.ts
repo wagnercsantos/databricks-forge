@@ -106,6 +106,11 @@ function synthesiseUseCases(
     feedback: null,
     feedbackAt: null,
     enrichmentTags: null,
+    sourceSystems: null,
+    sourceSystemsOrigin: null,
+    blastRadius: null,
+    referenceUseCaseName: null,
+    referenceUseCaseResolvedAt: null,
   };
 
   if (widgetDescriptions.length > 0) {

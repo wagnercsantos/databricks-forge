@@ -6,6 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 interface DomainBreakdownChartProps {
   data: { domain: string; count: number }[];
   title?: string;
+  /**
+   * Optional click handler fired with the clicked slice's domain label.
+   * When provided, the slice cursor switches to a pointer and clicking
+   * navigates the caller (e.g. into the run-detail use-cases tab filtered
+   * by that domain).
+   */
+  onSliceClick?: (domain: string) => void;
 }
 
 const CHART_COLORS = [
@@ -22,8 +29,27 @@ const CHART_COLORS = [
 export function DomainBreakdownChart({
   data,
   title = "Use Cases by Domain",
+  onSliceClick,
 }: DomainBreakdownChartProps) {
   if (data.length === 0) return null;
+
+  const interactive = typeof onSliceClick === "function";
+
+  const handleSliceClick = (
+    entry: unknown,
+    _index: number,
+    event?: { stopPropagation?: () => void; preventDefault?: () => void },
+  ) => {
+    if (!interactive) return;
+    const domain = (entry as { domain?: string } | null)?.domain;
+    if (typeof domain === "string" && domain.length > 0) {
+      // Stop the event from bubbling up to a wrapping <Link>, which would
+      // otherwise override the per-slice navigation with the card-level href.
+      event?.stopPropagation?.();
+      event?.preventDefault?.();
+      onSliceClick!(domain);
+    }
+  };
 
   return (
     <Card>
@@ -46,6 +72,8 @@ export function DomainBreakdownChart({
               label={({ name, value }) => (data.length <= 6 ? `${name} (${value})` : `${value}`)}
               labelLine={false}
               fontSize={10}
+              onClick={interactive ? handleSliceClick : undefined}
+              style={interactive ? { cursor: "pointer" } : undefined}
             >
               {data.map((_, index) => (
                 <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />

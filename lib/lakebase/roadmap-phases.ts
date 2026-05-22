@@ -61,7 +61,13 @@ export async function upsertRoadmapPhases(
     enablers?: string[];
     rationale?: string;
   }>,
+  provenance?: {
+    generatedByModel?: string | null;
+    generatedAt?: Date;
+  },
 ): Promise<void> {
+  const generatedByModel = provenance?.generatedByModel ?? null;
+  const generatedAt = provenance?.generatedAt ?? new Date();
   await withPrisma(async (prisma) => {
     await prisma.$transaction(
       phases.map((p, idx) =>
@@ -76,6 +82,8 @@ export async function upsertRoadmapPhases(
             dependencies: p.dependencies ? JSON.stringify(p.dependencies) : null,
             enablers: p.enablers ? JSON.stringify(p.enablers) : null,
             rationale: p.rationale ?? null,
+            generatedByModel,
+            generatedAt,
           },
           update: {
             phase: p.phase,
@@ -84,10 +92,30 @@ export async function upsertRoadmapPhases(
             dependencies: p.dependencies ? JSON.stringify(p.dependencies) : null,
             enablers: p.enablers ? JSON.stringify(p.enablers) : null,
             rationale: p.rationale ?? null,
+            generatedByModel,
+            generatedAt,
           },
         }),
       ),
     );
+  });
+}
+
+/** Most recent provenance recorded against roadmap phases for this run. */
+export async function getRoadmapPhasesProvenance(
+  runId: string,
+): Promise<{ generatedByModel: string | null; generatedAt: Date | null }> {
+  return withPrisma(async (prisma) => {
+    const row = await prisma.forgeRoadmapPhase.findFirst({
+      where: { runId, generatedAt: { not: null } },
+      orderBy: { generatedAt: "desc" },
+      select: { generatedByModel: true, generatedAt: true },
+    });
+    if (!row) return { generatedByModel: null, generatedAt: null };
+    return {
+      generatedByModel: row.generatedByModel ?? null,
+      generatedAt: row.generatedAt ?? null,
+    };
   });
 }
 

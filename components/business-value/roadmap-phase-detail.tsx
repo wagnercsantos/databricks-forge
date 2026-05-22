@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,7 +12,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatCurrency } from "@/lib/utils";
-import { ChevronDown, Zap, Wrench, Rocket } from "lucide-react";
+import { ChevronDown, ChevronRight, Zap, Wrench, Rocket } from "lucide-react";
+import {
+  UseCaseRationale,
+  hasUseCaseRationale,
+} from "@/components/business-value/portfolio-drill-down";
 import type { PortfolioUseCase } from "@/lib/lakebase/portfolio";
 import type { RoadmapPhase } from "@/lib/domain/types";
 
@@ -51,6 +55,13 @@ export function RoadmapPhaseDetail({
   const [expanded, setExpanded] = useState<RoadmapPhase | null>(
     phases.find((p) => p.useCases.length > 0)?.phase ?? null,
   );
+  const [expandedUseCase, setExpandedUseCase] = useState<string | null>(null);
+
+  const useCaseNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of phases) for (const uc of p.useCases) m.set(uc.id, uc.name);
+    return m;
+  }, [phases]);
 
   return (
     <div className="space-y-3">
@@ -107,6 +118,7 @@ export function RoadmapPhaseDetail({
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-6" />
                       <TableHead>Use Case</TableHead>
                       <TableHead>Domain</TableHead>
                       <TableHead>Type</TableHead>
@@ -117,40 +129,67 @@ export function RoadmapPhaseDetail({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {p.useCases.map((uc) => (
-                      <TableRow key={uc.id}>
-                        <TableCell>
-                          <div>
-                            <p className="text-sm font-medium">{uc.name}</p>
-                            <p className="max-w-[350px] truncate text-xs text-muted-foreground">
-                              {uc.businessValue}
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-xs">{uc.domain}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="text-[10px]">
-                            {uc.type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {(uc.overallScore * 100).toFixed(0)}%
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {(uc.feasibilityScore * 100).toFixed(0)}%
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-xs">
-                            {uc.effortEstimate
-                              ? (effortLabels[uc.effortEstimate] ?? uc.effortEstimate)
-                              : "—"}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right font-medium tabular-nums">
-                          {formatCurrency(uc.valueMid)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {p.useCases.map((uc) => {
+                      const expandable = hasUseCaseRationale(uc);
+                      const isUcOpen = expandedUseCase === uc.id;
+                      return (
+                        <Fragment key={uc.id}>
+                          <TableRow
+                            className={expandable ? "cursor-pointer hover:bg-muted/30" : ""}
+                            onClick={() => {
+                              if (!expandable) return;
+                              setExpandedUseCase(isUcOpen ? null : uc.id);
+                            }}
+                          >
+                            <TableCell className="w-6">
+                              {expandable ? (
+                                <ChevronRight
+                                  className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isUcOpen ? "rotate-90" : ""}`}
+                                />
+                              ) : null}
+                            </TableCell>
+                            <TableCell>
+                              <div>
+                                <p className="text-sm font-medium">{uc.name}</p>
+                                <p className="max-w-[350px] truncate text-xs text-muted-foreground">
+                                  {uc.businessValue}
+                                </p>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs">{uc.domain}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-[10px]">
+                                {uc.type}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {(uc.overallScore * 100).toFixed(0)}%
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {(uc.feasibilityScore * 100).toFixed(0)}%
+                            </TableCell>
+                            <TableCell>
+                              <span className="text-xs">
+                                {uc.effortEstimate
+                                  ? (effortLabels[uc.effortEstimate] ?? uc.effortEstimate)
+                                  : "—"}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right font-medium tabular-nums">
+                              {formatCurrency(uc.valueMid)}
+                            </TableCell>
+                          </TableRow>
+                          {expandable && isUcOpen && (
+                            <TableRow className="bg-muted/20 hover:bg-muted/20">
+                              <TableCell />
+                              <TableCell colSpan={7} className="py-3">
+                                <UseCaseRationale uc={uc} useCaseNameById={useCaseNameById} />
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>

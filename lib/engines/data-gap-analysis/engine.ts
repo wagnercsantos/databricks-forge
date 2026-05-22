@@ -21,7 +21,12 @@ import { resolveIndustryId } from "@/lib/domain/industry-outcomes";
 import { getMasterRepoEnrichment } from "@/lib/domain/industry-outcomes/master-repo-registry";
 import { getIndustryOutcome } from "@/lib/domain/industry-outcomes";
 import { buildIngestionRecommendations } from "./recommendations";
-import { computeSummaryValueAtRisk, computeValueAtRisk } from "./economic-value";
+import {
+  bridgeEstimatesToMasterRepo,
+  computeSummaryValueAtRisk,
+  computeValueAtRisk,
+} from "./economic-value";
+import { resolveAssetSourceSystems } from "./source-systems";
 import type {
   AssetCoverage,
   AssetDescriptor,
@@ -32,7 +37,10 @@ import type {
 
 export function runDataGapAnalysis(input: DataGapInput): DataGapResult | null {
   const resolvedId = resolveIndustryId(input.industryId) ?? input.industryId;
-  const enrichment = getMasterRepoEnrichment(resolvedId);
+  // Prefer caller-supplied enrichment (supports LLM-generated custom
+  // industries that the sync built-in registry does not know about).
+  // Falls back to the sync registry for the canonical 15 industries.
+  const enrichment = input.enrichment ?? getMasterRepoEnrichment(resolvedId);
   if (!enrichment) return null;
   const outcome = getIndustryOutcome(resolvedId);
   const industryName = outcome?.name ?? resolvedId;
@@ -66,6 +74,17 @@ export function runDataGapAnalysis(input: DataGapInput): DataGapResult | null {
   const presentAssetIds = new Set<string>();
   const missingAssetIds = new Set<string>();
 
+  // Build a lookup of per-use-case source systems (Phase 3.1 output) so
+  // the per-asset resolver below can upgrade master-repo guesses with
+  // lineage-confirmed signals. Master-repo use cases carry no customer-
+  // side id, so matching is by case-insensitive name only.
+  const useCaseSourceSystems = input.useCaseSourceSystems ?? [];
+  const sourceSystemsByName = new Map<string, string[]>();
+  for (const entry of useCaseSourceSystems) {
+    const nameKey = entry.name?.trim().toLowerCase();
+    if (nameKey) sourceSystemsByName.set(nameKey, entry.sourceSystems);
+  }
+
   const coverage: AssetCoverage[] = descriptors.map((d) => {
     const matched = tablesByAsset.get(d.asset.id) ?? [];
     const present = matched.length > 0;
@@ -74,6 +93,24 @@ export function runDataGapAnalysis(input: DataGapInput): DataGapResult | null {
 
     const mcLinks = d.useCases.filter((l) => l.criticality === "MC");
     const vaLinks = d.useCases.filter((l) => l.criticality === "VA");
+
+    // Union of lineage-attributed source systems across every use case
+    // linked to this asset (MC + VA). Master-repo use cases may not have
+    // an id on the customer side, so we match by case-insensitive name.
+    const ucNameHits = new Set<string>();
+    for (const link of d.useCases) {
+      const nameKey = link.uc.name?.trim().toLowerCase();
+      const lineageHits = (nameKey && sourceSystemsByName.get(nameKey)) ?? [];
+      for (const s of lineageHits) ucNameHits.add(s);
+    }
+
+    // Resolve concrete source systems first — they are then fed into the
+    // ingestion-recommendations builder so the top strategy reflects the
+    // resolved source (Phase 3.4 source-system override).
+    const resolvedSourceSystems = resolveAssetSourceSystems({
+      asset: d.asset,
+      useCaseSourceSystems: [...ucNameHits],
+    });
 
     return {
       assetId: d.asset.id,
@@ -86,7 +123,8 @@ export function runDataGapAnalysis(input: DataGapInput): DataGapResult | null {
       mcUseCaseCount: mcLinks.length,
       vaUseCaseCount: vaLinks.length,
       mcUseCaseNames: mcLinks.slice(0, 10).map((l) => l.uc.name),
-      recommendations: buildIngestionRecommendations(d.asset),
+      recommendations: buildIngestionRecommendations(d.asset, resolvedSourceSystems),
+      resolvedSourceSystems,
     };
   });
 
@@ -117,7 +155,17 @@ export function runDataGapAnalysis(input: DataGapInput): DataGapResult | null {
   }
 
   // Value-at-risk
-  const estimates = input.useCaseValueEstimates ?? [];
+  //
+  // Bridge customer estimate names onto the master-repo namespace BEFORE the
+  // aggregators run. The aggregators look up by master-repo name (`link.uc.
+  // name`), but customer estimates carry the LLM-generated UC name. Without
+  // this bridge, every estimate hits the $0 passthrough branch and the
+  // Annual Value column is uniformly $0. See `bridgeEstimatesToMasterRepo`
+  // for the matching / aggregation semantics.
+  const estimates = bridgeEstimatesToMasterRepo(
+    input.useCaseValueEstimates ?? [],
+    enrichment.useCases,
+  );
   const valueAtRisk = estimates.length
     ? computeValueAtRisk(descriptors, missingAssetIds, presentAssetIds, estimates)
     : [];

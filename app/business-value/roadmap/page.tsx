@@ -12,6 +12,9 @@ import type { RoadmapPhase } from "@/lib/domain/types";
 import type { PortfolioUseCase } from "@/lib/lakebase/portfolio";
 import { ArrowRight, Clock } from "lucide-react";
 import { RoadmapPhaseDetail } from "@/components/business-value/roadmap-phase-detail";
+import { BvProgressBanner } from "@/components/business-value/bv-progress-banner";
+import { ProvenanceFooter } from "@/components/business-value/provenance-footer";
+import { getRoadmapPhasesProvenance } from "@/lib/lakebase/roadmap-phases";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +66,10 @@ const EFFORT_LABELS: Record<string, string> = {
 async function RoadmapContent() {
   let portfolio;
   let useCases: PortfolioUseCase[];
+  let provenance: { generatedByModel: string | null; generatedAt: Date | null } = {
+    generatedByModel: null,
+    generatedAt: null,
+  };
   try {
     const user = await requireUser();
     const accessibleRunIds = await listAccessibleIds(user.email, "run");
@@ -70,6 +77,9 @@ async function RoadmapContent() {
       getPortfolioData(user.email, accessibleRunIds),
       getPortfolioUseCases(user.email, accessibleRunIds),
     ]);
+    if (portfolio.latestRunId) {
+      provenance = await getRoadmapPhasesProvenance(portfolio.latestRunId);
+    }
   } catch {
     return (
       <Card>
@@ -113,6 +123,7 @@ async function RoadmapContent() {
 
   return (
     <div className="space-y-8">
+      <BvProgressBanner runId={portfolio.latestRunId} />
       {/* Timeline Overview */}
       <Card>
         <CardContent className="pt-5 pb-5">
@@ -175,6 +186,12 @@ async function RoadmapContent() {
           totalValue: (phaseUseCases.get(phase) ?? []).reduce((s, u) => s + u.valueMid, 0),
         }))}
         effortLabels={EFFORT_LABELS}
+      />
+
+      <ProvenanceFooter
+        generatedByModel={provenance.generatedByModel}
+        generatedAt={provenance.generatedAt}
+        label="Roadmap phases generated"
       />
     </div>
   );

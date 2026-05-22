@@ -23,6 +23,7 @@ import {
   GenieDefaultsSettings,
   ExportSettings,
   AboutSettings,
+  FeatureFlagsSettings,
   DataManagementSettings,
 } from "@/components/settings";
 import { useSettingsState } from "@/components/settings/use-settings-state";
@@ -269,6 +270,8 @@ export default function SettingsPage() {
       />
 
       <AboutSettings profile={profile} />
+
+      <FeatureFlagsSettings />
 
       {demoModeEnabled && <DemoModeSettings />}
 

@@ -15,7 +15,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ sessionId: string }> },
 ) {
-  if (!isDemoModeEnabled()) {
+  if (!(await isDemoModeEnabled())) {
     return NextResponse.json({ error: "Demo mode is not enabled" }, { status: 404 });
   }
 
@@ -51,7 +51,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ sessionId: string }> },
 ) {
-  if (!isDemoModeEnabled()) {
+  if (!(await isDemoModeEnabled())) {
     return NextResponse.json({ error: "Demo mode is not enabled" }, { status: 404 });
   }
 

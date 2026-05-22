@@ -62,6 +62,7 @@ const navSections: NavSection[] = [
       { href: "/business-value", labelKey: "portfolio", icon: PortfolioIcon },
       { href: "/business-value/roadmap", labelKey: "roadmap", icon: RoadmapIcon },
       { href: "/business-value/stakeholders", labelKey: "stakeholders", icon: StakeholdersIcon },
+      { href: "/business-value/data-gap", labelKey: "data_gap", icon: DataGapIcon },
       { href: "/business-value/tracking", labelKey: "value_tracking", icon: TrackingIcon },
       { href: "/business-value/strategy", labelKey: "strategy", icon: StrategyIcon },
       { href: "/outcomes", labelKey: "outcome_maps", icon: OutcomeMapIcon },
@@ -703,6 +704,26 @@ function StakeholdersIcon({ className }: { className?: string }) {
       <circle cx="9" cy="7" r="4" />
       <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+function DataGapIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M3 5v6c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
+      <path d="M3 11v6c0 1.66 4.03 3 9 3" />
+      <path d="m16 19 2 2 4-4" />
     </svg>
   );
 }

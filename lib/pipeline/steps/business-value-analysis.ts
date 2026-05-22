@@ -20,7 +20,10 @@ import type {
   ExecutiveSynthesis,
 } from "@/lib/domain/types";
 import { executeAIQuery } from "@/lib/ai/agent";
-import { resolveEndpoint } from "@/lib/dbx/client";
+import {
+  resolvePremiumReasoningEndpoint,
+  getFallbacksForTier,
+} from "@/lib/dbx/client";
 import { logger as fallbackLogger } from "@/lib/logger";
 import { upsertValueEstimates, getValueEstimatesForRun } from "@/lib/lakebase/value-estimates";
 import {
@@ -42,6 +45,11 @@ import {
 import { logActivity } from "@/lib/lakebase/activity-log";
 import { withPrisma } from "@/lib/prisma";
 import { buildStrategyAlignmentPrompt } from "@/lib/domain/strategy-alignment";
+import {
+  updateBvJob,
+  markBvPassComplete,
+  markBvPassDegraded,
+} from "@/lib/pipeline/bv-engine-status";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -64,6 +72,23 @@ function summariseCasesForLLM(useCases: UseCase[]): string {
       feasibility_score: uc.feasibilityScore,
       impact_score: uc.impactScore,
       overall_score: uc.overallScore,
+      // Phase 3.5 lineage signals — let the financial / roadmap / synthesis
+      // prompts ground their reasoning in the customer's actual data plant.
+      // `source_systems` reflects upstream lineage attribution (P3.1);
+      // `blast_radius` reflects downstream consumption (P3.2). Both are
+      // omitted (undefined → JSON drops them) when not yet resolved so we
+      // don't burn prompt tokens on null fields.
+      source_systems: uc.sourceSystems && uc.sourceSystems.length > 0
+        ? uc.sourceSystems
+        : undefined,
+      source_systems_origin: uc.sourceSystemsOrigin ?? undefined,
+      blast_radius: uc.blastRadius
+        ? {
+            downstream_table_count: uc.blastRadius.downstreamTableCount,
+            total_event_count: uc.blastRadius.totalEventCount,
+            by_entity_type: uc.blastRadius.byEntityType,
+          }
+        : undefined,
     })),
     null,
     2,
@@ -81,6 +106,45 @@ function safeParse<T>(raw: string | null | undefined, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+/**
+ * BV prompts ask for a top-level JSON array (`[{...}]`) but our LLM calls run
+ * with `responseFormat: "json_object"`, which lets the model legitimately wrap
+ * the array in an object (e.g. `{"stakeholders": [...]}`). Without this helper,
+ * `safeParse<T[]>` returns an object cast as an array, `.length` is undefined,
+ * and the entire pass silently flags as degraded. Accept either shape.
+ *
+ * Exported for unit testing only.
+ */
+export function safeParseArray<T>(raw: string | null | undefined): T[] {
+  const parsed = safeParse<unknown>(raw, null);
+  if (parsed === null || parsed === undefined) return [];
+  if (Array.isArray(parsed)) return parsed as T[];
+  if (typeof parsed !== "object") return [];
+
+  const obj = parsed as Record<string, unknown>;
+  const preferredKeys = [
+    "stakeholders",
+    "profiles",
+    "estimates",
+    "phases",
+    "roadmap",
+    "results",
+    "result",
+    "items",
+    "data",
+    "rows",
+    "list",
+  ];
+  for (const key of preferredKeys) {
+    const v = obj[key];
+    if (Array.isArray(v)) return v as T[];
+  }
+  for (const v of Object.values(obj)) {
+    if (Array.isArray(v)) return v as T[];
+  }
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -239,23 +303,27 @@ async function quantifyBatchOnce(
   ctx: PipelineContext,
   batch: UseCase[],
   baseVariables: Omit<Record<string, string>, "use_cases_json">,
-): Promise<RawFinancialEstimate[]> {
+): Promise<{ estimates: RawFinancialEstimate[]; endpoint: string }> {
   const variables: Record<string, string> = {
     ...baseVariables,
     use_cases_json: summariseCasesForLLM(batch),
   };
+  const endpoint = resolvePremiumReasoningEndpoint();
   const result = await executeAIQuery({
     runId: ctx.run.runId,
     promptKey: "FINANCIAL_QUANTIFICATION_PROMPT",
     variables,
-    modelEndpoint: resolveEndpoint("reasoning"),
+    modelEndpoint: endpoint,
     responseFormat: "json_object",
     // The agent already retries internally and rotates to a fallback endpoint
     // on 429 / empty-content. Keep retries low here so the halve-batch loop
     // (below) gets to act sooner on persistently empty batches.
     retries: 1,
   });
-  return safeParse<RawFinancialEstimate[]>(result.rawResponse, []);
+  return {
+    estimates: safeParseArray<RawFinancialEstimate>(result.rawResponse),
+    endpoint: result.endpoint ?? endpoint,
+  };
 }
 
 /**
@@ -332,10 +400,19 @@ async function quantifyWithHalveBatchFallback(
   baseVariables: Omit<Record<string, string>, "use_cases_json">,
   log: typeof fallbackLogger,
   maxHalvings = 2,
-): Promise<{ estimates: RawFinancialEstimate[]; missingUseCaseIds: string[] }> {
+): Promise<{
+  estimates: RawFinancialEstimate[];
+  missingUseCaseIds: string[];
+  lastEndpoint: string | null;
+}> {
+  let lastEndpoint: string | null = null;
   const { estimates, missingItemIds } = await halveBatchRetry<UseCase, RawFinancialEstimate>(
     initialBatch,
-    (sub) => quantifyBatchOnce(ctx, sub, baseVariables),
+    async (sub) => {
+      const { estimates, endpoint } = await quantifyBatchOnce(ctx, sub, baseVariables);
+      lastEndpoint = endpoint;
+      return estimates;
+    },
     {
       maxHalvings,
       onHalving: (info) => {
@@ -360,7 +437,7 @@ async function quantifyWithHalveBatchFallback(
       },
     },
   );
-  return { estimates, missingUseCaseIds: missingItemIds };
+  return { estimates, missingUseCaseIds: missingItemIds, lastEndpoint };
 }
 
 /**
@@ -419,6 +496,7 @@ async function runFinancialQuantification(
 
   const allMissingIds: string[] = [];
   const allEstimates: RawFinancialEstimate[] = [];
+  let resolvedEndpoint: string | null = null;
 
   for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
     const batch = batches[batchIdx];
@@ -430,7 +508,7 @@ async function runFinancialQuantification(
     }
 
     try {
-      const { estimates, missingUseCaseIds } = await quantifyWithHalveBatchFallback(
+      const { estimates, missingUseCaseIds, lastEndpoint } = await quantifyWithHalveBatchFallback(
         ctx,
         batch,
         baseVariables,
@@ -438,6 +516,7 @@ async function runFinancialQuantification(
       );
       allEstimates.push(...estimates);
       allMissingIds.push(...missingUseCaseIds);
+      if (lastEndpoint) resolvedEndpoint = lastEndpoint;
     } catch (err) {
       log.warn("Financial quantification batch fully failed", {
         fn: "runFinancialQuantification",
@@ -479,6 +558,10 @@ async function runFinancialQuantification(
           economicFormulaVars: e.economic_formula_vars ?? null,
         };
       }),
+      {
+        generatedByModel: resolvedEndpoint,
+        generatedAt: new Date(),
+      },
     );
   }
 
@@ -513,11 +596,12 @@ async function runRoadmapPhasing(ctx: PipelineContext, useCases: UseCase[]): Pro
   };
 
   try {
+    const endpoint = resolvePremiumReasoningEndpoint();
     const result = await executeAIQuery({
       runId: run.runId,
       promptKey: "ROADMAP_PHASING_PROMPT",
       variables,
-      modelEndpoint: resolveEndpoint("classification"),
+      modelEndpoint: endpoint,
       responseFormat: "json_object",
     });
 
@@ -530,7 +614,7 @@ async function runRoadmapPhasing(ctx: PipelineContext, useCases: UseCase[]): Pro
       enablers?: string[];
       rationale?: string;
     };
-    const phases = safeParse<RawPhase[]>(result.rawResponse, []);
+    const phases = safeParseArray<RawPhase>(result.rawResponse);
 
     if (phases.length > 0) {
       await upsertRoadmapPhases(
@@ -544,6 +628,10 @@ async function runRoadmapPhasing(ctx: PipelineContext, useCases: UseCase[]): Pro
           enablers: p.enablers,
           rationale: p.rationale,
         })),
+        {
+          generatedByModel: result.endpoint ?? endpoint,
+          generatedAt: new Date(),
+        },
       );
     }
   } catch (err) {
@@ -595,11 +683,12 @@ async function runExecutiveSynthesis(ctx: PipelineContext, useCases: UseCase[]):
   };
 
   try {
+    const endpoint = resolvePremiumReasoningEndpoint();
     const result = await executeAIQuery({
       runId: run.runId,
       promptKey: "EXECUTIVE_SYNTHESIS_PROMPT",
       variables,
-      modelEndpoint: resolveEndpoint("reasoning"),
+      modelEndpoint: endpoint,
       responseFormat: "json_object",
     });
 
@@ -650,7 +739,11 @@ async function runExecutiveSynthesis(ctx: PipelineContext, useCases: UseCase[]):
       await withPrisma(async (prisma) => {
         await prisma.forgeRun.update({
           where: { runId: run.runId },
-          data: { synthesisJson: JSON.stringify(synthesis) },
+          data: {
+            synthesisJson: JSON.stringify(synthesis),
+            synthesisGeneratedByModel: result.endpoint ?? endpoint,
+            synthesisGeneratedAt: new Date(),
+          },
         });
       });
     }
@@ -667,11 +760,62 @@ async function runExecutiveSynthesis(ctx: PipelineContext, useCases: UseCase[]):
 // Pass 4: Stakeholder Analysis
 // ---------------------------------------------------------------------------
 
-async function runStakeholderAnalysis(ctx: PipelineContext, useCases: UseCase[]): Promise<void> {
+/**
+ * Result of the stakeholder-analysis pass. `degraded` is true when no
+ * profile was persisted (LLM returned empty / threw across both primary
+ * and fallback endpoint). The caller flips the run-level degraded flag
+ * so the UI can render a Rerun CTA instead of a silent empty state.
+ */
+interface StakeholderAnalysisResult {
+  degraded: boolean;
+  reason?: "empty" | "error";
+  endpointsTried: string[];
+  errorMessage?: string;
+  profileCount: number;
+}
+
+type RawProfile = {
+  role: string;
+  department: string;
+  use_case_ids?: string[];
+  use_case_count: number;
+  domains: string[];
+  use_case_types: Record<string, number>;
+  change_complexity: "low" | "medium" | "high";
+  is_champion: boolean;
+  is_sponsor: boolean;
+  champion_rationale?: string;
+  complexity_rationale?: string;
+  key_risks?: string[];
+};
+
+async function attemptStakeholderPass(
+  ctx: PipelineContext,
+  variables: Record<string, string>,
+  endpoint: string,
+): Promise<{ profiles: RawProfile[]; resolvedEndpoint: string; rawShape: string }> {
+  const result = await executeAIQuery({
+    runId: ctx.run.runId,
+    promptKey: "STAKEHOLDER_ANALYSIS_PROMPT",
+    variables,
+    modelEndpoint: endpoint,
+    responseFormat: "json_object",
+  });
+  const profiles = safeParseArray<RawProfile>(result.rawResponse);
+  const rawShape = describeRawShape(result.rawResponse);
+  return { profiles, resolvedEndpoint: result.endpoint ?? endpoint, rawShape };
+}
+
+async function runStakeholderAnalysis(
+  ctx: PipelineContext,
+  useCases: UseCase[],
+): Promise<StakeholderAnalysisResult> {
   const log = ctx.logger ?? fallbackLogger;
   const { run } = ctx;
   const bc = run.businessContext;
-  if (!bc || useCases.length === 0) return;
+  if (!bc || useCases.length === 0) {
+    return { degraded: false, endpointsTried: [], profileCount: 0 };
+  }
 
   const stakeholderData = useCases.map((uc) => ({
     use_case_id: uc.id,
@@ -681,6 +825,12 @@ async function runStakeholderAnalysis(ctx: PipelineContext, useCases: UseCase[])
     beneficiary: uc.beneficiary,
     sponsor: uc.sponsor,
     overall_score: uc.overallScore,
+    // Phase 3.5: surface the source systems each use case touches so the
+    // change-management LLM can identify the *true* organisational owners
+    // (e.g. "Salesforce" → CRO / Sales Ops, "SAP" → CFO / Supply Chain).
+    source_systems: uc.sourceSystems && uc.sourceSystems.length > 0
+      ? uc.sourceSystems
+      : undefined,
   }));
 
   const variables: Record<string, string> = {
@@ -689,58 +839,127 @@ async function runStakeholderAnalysis(ctx: PipelineContext, useCases: UseCase[])
     stakeholder_json: JSON.stringify(stakeholderData, null, 2),
   };
 
-  try {
-    const result = await executeAIQuery({
-      runId: run.runId,
-      promptKey: "STAKEHOLDER_ANALYSIS_PROMPT",
-      variables,
-      modelEndpoint: resolveEndpoint("classification"),
-      responseFormat: "json_object",
-    });
+  const primary = resolvePremiumReasoningEndpoint();
+  const fallbacks = getFallbacksForTier("reasoning", primary);
+  // One-shot fallback retry: try primary, then the first fallback endpoint
+  // if the primary returns empty or throws. Beyond that we give up and flag
+  // the step as degraded.
+  const endpointSequence = [primary, ...fallbacks.slice(0, 1)];
+  const endpointsTried: string[] = [];
 
-    type RawProfile = {
-      role: string;
-      department: string;
-      use_case_ids?: string[];
-      use_case_count: number;
-      domains: string[];
-      use_case_types: Record<string, number>;
-      change_complexity: "low" | "medium" | "high";
-      is_champion: boolean;
-      is_sponsor: boolean;
-    };
-    const profiles = safeParse<RawProfile[]>(result.rawResponse, []);
+  let profiles: RawProfile[] = [];
+  let resolvedEndpoint: string | null = null;
+  let lastError: string | undefined;
 
-    if (profiles.length > 0) {
-      const estimates = await getValueEstimatesForRun(run.runId);
-      const valueByUseCase = new Map(estimates.map((e) => [e.useCaseId, e.valueMid]));
-
-      await replaceStakeholderProfiles(
-        run.runId,
-        profiles.map((p) => {
-          const ucIds = p.use_case_ids ?? [];
-          const totalValue = ucIds.reduce((sum, id) => sum + (valueByUseCase.get(id) ?? 0), 0);
-          return {
-            role: p.role || "Unknown",
-            department: p.department || "Unknown",
-            useCaseCount: p.use_case_count ?? 0,
-            totalValue,
-            domains: p.domains ?? [],
-            useCaseTypes: p.use_case_types ?? {},
-            changeComplexity: p.change_complexity || "medium",
-            isChampion: p.is_champion ?? false,
-            isSponsor: p.is_sponsor ?? false,
-          };
-        }),
-      );
+  for (const endpoint of endpointSequence) {
+    endpointsTried.push(endpoint);
+    try {
+      const r = await attemptStakeholderPass(ctx, variables, endpoint);
+      if (r.profiles.length > 0) {
+        profiles = r.profiles;
+        resolvedEndpoint = r.resolvedEndpoint;
+        break;
+      }
+      log.warn("Stakeholder analysis returned empty result, attempting fallback", {
+        fn: "runStakeholderAnalysis",
+        errorCategory: "llm_empty",
+        endpoint,
+        rawShape: r.rawShape,
+      });
+    } catch (err) {
+      lastError = String(err);
+      log.warn("Stakeholder analysis pass threw, attempting fallback", {
+        fn: "runStakeholderAnalysis",
+        errorCategory: "llm_error",
+        endpoint,
+        error: lastError,
+      });
     }
-  } catch (err) {
-    log.warn("Stakeholder analysis failed", {
-      fn: "runBusinessValueAnalysis",
-      errorCategory: "llm_error",
-      error: String(err),
-    });
   }
+
+  if (profiles.length === 0) {
+    log.warn("Stakeholder analysis degraded after all endpoint attempts", {
+      fn: "runStakeholderAnalysis",
+      endpointsTried,
+      lastError,
+    });
+    return {
+      degraded: true,
+      reason: lastError ? "error" : "empty",
+      endpointsTried,
+      errorMessage: lastError,
+      profileCount: 0,
+    };
+  }
+
+  const estimates = await getValueEstimatesForRun(run.runId);
+  const valueByUseCase = new Map(estimates.map((e) => [e.useCaseId, e.valueMid]));
+
+  await replaceStakeholderProfiles(
+    run.runId,
+    profiles.map((p) => {
+      const ucIds = p.use_case_ids ?? [];
+      const totalValue = ucIds.reduce((sum, id) => sum + (valueByUseCase.get(id) ?? 0), 0);
+      return {
+        role: p.role || "Unknown",
+        department: p.department || "Unknown",
+        useCaseCount: p.use_case_count ?? ucIds.length ?? 0,
+        totalValue,
+        domains: p.domains ?? [],
+        useCaseTypes: p.use_case_types ?? {},
+        useCaseIds: ucIds,
+        changeComplexity: p.change_complexity || "medium",
+        isChampion: p.is_champion ?? false,
+        isSponsor: p.is_sponsor ?? false,
+        championRationale: p.champion_rationale ?? null,
+        complexityRationale: p.complexity_rationale ?? null,
+        keyRisks: p.key_risks ?? null,
+      };
+    }),
+    {
+      generatedByModel: resolvedEndpoint,
+      generatedAt: new Date(),
+    },
+  );
+
+  return {
+    degraded: false,
+    endpointsTried,
+    profileCount: profiles.length,
+  };
+}
+
+/**
+ * Best-effort description of the LLM raw response's top-level JSON shape, used
+ * only when an array pass returned 0 items. Keeps logs concise (no full body)
+ * while making diagnoses possible -- e.g. "object{keys=stakeholders,notes;
+ * arrayKey=stakeholders[12]}" vs. "array[0]" vs. "object{empty}".
+ */
+function describeRawShape(raw: string | null | undefined): string {
+  if (!raw) return "empty-string";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      raw
+        .replace(/```json\s*/g, "")
+        .replace(/```\s*/g, "")
+        .trim(),
+    );
+  } catch (err) {
+    return `parse-error:${(err as Error).message.slice(0, 80)}`;
+  }
+  if (Array.isArray(parsed)) return `array[${parsed.length}]`;
+  if (parsed === null || typeof parsed !== "object") {
+    return `primitive:${typeof parsed}`;
+  }
+  const obj = parsed as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  const arrayKey = keys.find((k) => Array.isArray(obj[k]));
+  if (arrayKey) {
+    const arr = obj[arrayKey] as unknown[];
+    return `object{keys=${keys.join(",")};arrayKey=${arrayKey}[${arr.length}]}`;
+  }
+  return `object{keys=${keys.join(",")}}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -768,30 +987,46 @@ export async function runBusinessValueAnalysis(ctx: PipelineContext): Promise<vo
 
   const runId = ctx.run.runId;
 
-  // Financial quantification + executive synthesis use the reasoning tier
-  // (opus / gpt-5) for calibrated estimates and board-ready synthesis. Roadmap
-  // and stakeholder passes stay on the classification tier -- their reasoning
-  // load is light and the prompt log shows they finish reliably on flash-lite.
-  await updateRunMessage(
-    runId,
-    "Quantifying financial value with reasoning model (slower, calibrated)...",
-    86,
-  );
+  // All four BV passes are pinned to the premium reasoning endpoint
+  // (databricks-claude-opus-4-7 with Opus / GPT-5 fallbacks). Stakeholder
+  // analysis previously ran on flash-lite, which silently degraded under
+  // load and left consumers staring at empty pages. The Opus pin is the
+  // single source-of-truth fix; resolvePremiumReasoningEndpoint() picks
+  // the best available endpoint per call.
+  // Mirror per-pass progress to the BV background-job tracker so the
+  // /api/runs/[runId]/business-value/status polling endpoint surfaces
+  // real-time progress in the UI (otherwise we sit at 0/4 the whole time).
+  const FIN_MSG = "Quantifying financial value with premium reasoning model (Opus 4-7)...";
+  const ROADMAP_MSG = "Building implementation roadmap phases (Opus 4-7)...";
+  const SYNTH_MSG = "Generating executive synthesis (Opus 4-7)...";
+  const STAKE_MSG = "Analyzing stakeholder profiles (Opus 4-7)...";
+
+  await updateRunMessage(runId, FIN_MSG, 86);
+  updateBvJob(runId, FIN_MSG, 25);
   const finResult = await runFinancialQuantification(ctx, useCases);
+  markBvPassComplete(runId, "financial-quantification");
 
-  await updateRunMessage(runId, "Building implementation roadmap phases...", 87);
+  await updateRunMessage(runId, ROADMAP_MSG, 87);
+  updateBvJob(runId, ROADMAP_MSG, 50);
   await runRoadmapPhasing(ctx, useCases);
+  markBvPassComplete(runId, "roadmap-phasing");
 
-  await updateRunMessage(runId, "Generating executive synthesis (reasoning model)...", 88);
+  await updateRunMessage(runId, SYNTH_MSG, 88);
+  updateBvJob(runId, SYNTH_MSG, 70);
   await runExecutiveSynthesis(ctx, useCases);
+  markBvPassComplete(runId, "executive-synthesis");
 
-  await updateRunMessage(runId, "Analyzing stakeholder profiles...", 89);
-  await runStakeholderAnalysis(ctx, useCases);
+  await updateRunMessage(runId, STAKE_MSG, 89);
+  updateBvJob(runId, STAKE_MSG, 88);
+  const stakeholderResult = await runStakeholderAnalysis(ctx, useCases);
+  markBvPassComplete(runId, "stakeholder-analysis");
+  updateBvJob(runId, "Business value passes complete", 92);
 
   // Surface degradation: when financial-quantification could not produce
   // estimates for one or more use cases, flag the run so the UI shows an
   // amber "Recompute" CTA instead of a silent $0.
   if (finResult.degraded) {
+    markBvPassDegraded(runId, "financial-quantification");
     await markRunStepDegraded(runId, "financial-quantification");
     // Fire-and-forget activity log so the failure is visible in the
     // activity stream and can be alerted on.
@@ -809,8 +1044,31 @@ export async function runBusinessValueAnalysis(ctx: PipelineContext): Promise<vo
     await clearRunStepDegraded(runId, "financial-quantification");
   }
 
+  // Mirror the same degradation signal for stakeholder analysis. Today
+  // the Stakeholder page renders an empty state when no profiles exist
+  // for two very different reasons -- BV was disabled vs. the LLM pass
+  // failed silently. The flag lets the UI tell the difference.
+  if (stakeholderResult.degraded) {
+    markBvPassDegraded(runId, "stakeholder-analysis");
+    await markRunStepDegraded(runId, "stakeholder-analysis");
+    logActivity("bv_step_degraded", {
+      userId: ctx.ownerEmail ?? null,
+      resourceId: runId,
+      metadata: {
+        step: "stakeholder-analysis",
+        reason: stakeholderResult.reason ?? "empty",
+        endpointsTried: stakeholderResult.endpointsTried,
+        errorMessage: stakeholderResult.errorMessage,
+      },
+    });
+  } else {
+    await clearRunStepDegraded(runId, "stakeholder-analysis");
+  }
+
   log.info("Business value analysis complete", {
     financialQuantificationDegraded: finResult.degraded,
     missingEstimateCount: finResult.missingUseCaseIds.length,
+    stakeholderDegraded: stakeholderResult.degraded,
+    stakeholderProfiles: stakeholderResult.profileCount,
   });
 }

@@ -33,6 +33,11 @@ function makeUseCase(overrides?: Partial<UseCase>): UseCase {
     feedback: null,
     feedbackAt: null,
     enrichmentTags: null,
+    sourceSystems: null,
+    sourceSystemsOrigin: null,
+    blastRadius: null,
+    referenceUseCaseName: null,
+    referenceUseCaseResolvedAt: null,
     ...overrides,
   };
 }

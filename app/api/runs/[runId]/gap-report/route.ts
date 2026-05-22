@@ -1,79 +1,20 @@
 /**
- * API: /api/runs/[runId]/gap-report
+ * API: /api/runs/[runId]/gap-report  (legacy)
  *
- * GET -- Download an Excel gap report for the industry coverage analysis.
+ * The v1 industry-coverage Excel report has been superseded by the v2 Data
+ * Gap export, which combines onboarding plan, asset coverage, value-at-risk,
+ * use-case mapping and summary in a single workbook grounded in the Master
+ * Repository v2 + lineage-derived source systems.
  *
- * Only works when the run has a configured industry outcome map.
+ * We keep this path live for any bookmarks / outbound links and return a
+ * 301 to the new endpoint so the client downloads the v2 workbook instead.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { loadRunOrRespond } from "@/lib/auth/route-guards";
-import { isValidUUID } from "@/lib/validation";
-import { logger } from "@/lib/logger";
-import { getUseCasesByRunId } from "@/lib/lakebase/usecases";
-import { ensureMigrated } from "@/lib/lakebase/schema";
-import { generateGapReportExcel } from "@/lib/export/gap-report-excel";
-import { computeIndustryCoverage } from "@/lib/domain/industry-coverage";
-import { getAllIndustryOutcomes } from "@/lib/domain/industry-outcomes-server";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ runId: string }> },
-) {
-  try {
-    await ensureMigrated();
-    const { runId } = await params;
-    if (!isValidUUID(runId)) {
-      return NextResponse.json({ error: "Invalid run ID" }, { status: 400 });
-    }
-
-    const guard = await loadRunOrRespond(request, runId, "read");
-    if (!guard.ok) return guard.response;
-    const run = guard.value.run;
-
-    if (run.status !== "completed") {
-      return NextResponse.json({ error: "Run not completed" }, { status: 400 });
-    }
-
-    if (!run.config.industry) {
-      return NextResponse.json(
-        { error: "No industry outcome map configured for this run" },
-        { status: 400 },
-      );
-    }
-
-    const outcomes = await getAllIndustryOutcomes();
-    const industry = outcomes.find((o: { id: string }) => o.id === run.config.industry);
-    if (!industry) {
-      return NextResponse.json({ error: "Industry outcome map not found" }, { status: 404 });
-    }
-
-    const useCases = await getUseCasesByRunId(runId);
-    const coverage = computeIndustryCoverage(industry, useCases);
-
-    if (coverage.gapCount === 0) {
-      return NextResponse.json(
-        { error: "No gaps identified -- full coverage achieved" },
-        { status: 400 },
-      );
-    }
-
-    const buffer = await generateGapReportExcel(coverage, industry.name, run.config.businessName);
-
-    const safeBusinessName = run.config.businessName
-      .replace(/[^a-zA-Z0-9-_ ]/g, "")
-      .replace(/\s+/g, "_");
-
-    return new NextResponse(new Uint8Array(buffer), {
-      headers: {
-        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="${safeBusinessName}_gap_report.xlsx"`,
-      },
-    });
-  } catch (err) {
-    logger.error("[api/runs/runId/gap-report] Failed to generate gap report", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return NextResponse.json({ error: "Failed to generate gap report" }, { status: 500 });
-  }
+export function GET(request: NextRequest, { params }: { params: Promise<{ runId: string }> }) {
+  return params.then(({ runId }) => {
+    const target = new URL(`/api/runs/${runId}/data-gap/export`, request.url);
+    return NextResponse.redirect(target, 301);
+  });
 }

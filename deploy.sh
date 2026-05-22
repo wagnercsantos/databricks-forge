@@ -15,19 +15,17 @@
 #   ./deploy.sh --endpoint "model" --fast-endpoint "fast-model" --review-endpoint "review-model"
 #   ./deploy.sh --reasoning-endpoint-2 "model" --generation-endpoint "model" --sql-endpoint "model"
 #   ./deploy.sh --allowed-models "model1,model2"
+# Required: Lakebase resource binding (postgres app resource)
+#   ./deploy.sh --lakebase-branch   "projects/<PROJECT_ID>/branches/<BRANCH_ID>"
+#               --lakebase-database "projects/<PROJECT_ID>/branches/<BRANCH_ID>/databases/<DB_ID>"
+#
+# Discover via:
+#   databricks postgres list-projects
+#   databricks postgres list-branches projects/<PROJECT_ID>
+#   databricks postgres list-databases projects/<PROJECT_ID>/branches/<BRANCH_ID>
+#
 # Optional Lakebase bootstrap grants:
 #   ./deploy.sh --lakebase-bootstrap-user "user@company.com"
-# Optional Lakebase runtime auth mode:
-#   ./deploy.sh --lakebase-auth-mode "oauth|native_password"
-#               --lakebase-native-user "forge_app_runtime"
-#               --lakebase-native-password "..."
-#               --rotate-lakebase-native-password
-# Optional Lakebase OAuth runtime behavior:
-#   ./deploy.sh --lakebase-runtime-mode "oauth_direct_only|pooler_preferred"
-#               --lakebase-enable-pooler-experiment
-# Optional Lakebase scale-to-zero (enabled by default, 300s timeout):
-#   ./deploy.sh --lakebase-scale-to-zero-timeout 600
-#               --lakebase-no-scale-to-zero
 # Optional benchmark seeding behavior:
 #   ./deploy.sh --seed-benchmarks --seed-benchmarks-all-industries
 #               --seed-benchmark-industries "banking,hls,rcg"
@@ -85,15 +83,8 @@ ARG_SQL_ENDPOINT=""
 ARG_LIGHTWEIGHT_ENDPOINT=""
 ARG_ALLOWED_MODELS=""
 ARG_LAKEBASE_BOOTSTRAP_USER=""
-ARG_LAKEBASE_AUTH_MODE=""
-ARG_LAKEBASE_NATIVE_USER=""
-ARG_LAKEBASE_NATIVE_PASSWORD=""
-ARG_ROTATE_LAKEBASE_NATIVE_PASSWORD=false
-ARG_PRINT_GENERATED_NATIVE_PASSWORD=false
-ARG_LAKEBASE_RUNTIME_MODE=""
-ARG_LAKEBASE_ENABLE_POOLER_EXPERIMENT=false
-ARG_LAKEBASE_SCALE_TO_ZERO_TIMEOUT=""
-ARG_LAKEBASE_NO_SCALE_TO_ZERO=false
+ARG_LAKEBASE_BRANCH=""
+ARG_LAKEBASE_DATABASE=""
 ARG_SEED_BENCHMARKS=false
 ARG_SEED_BENCHMARKS_ALL_INDUSTRIES=false
 ARG_SEED_BENCHMARK_INDUSTRIES=""
@@ -141,27 +132,14 @@ Options:
   --lakebase-bootstrap-user EMAIL
                              Optional Databricks user email to bootstrap
                              Lakebase OAuth role/grants during startup
-  --lakebase-auth-mode MODE
-                             Optional auth mode override:
-                             native_password or oauth
-  --lakebase-native-user USER
-                             Optional native runtime DB user override
-  --lakebase-native-password PASSWORD
-                             Optional native runtime DB password override
-  --rotate-lakebase-native-password
-                             Generate and rotate native DB password at deploy time
-  --print-generated-native-password
-                             Print generated native password (use with caution)
-  --lakebase-runtime-mode MODE
-                             Lakebase runtime mode:
-                             oauth_direct_only (default), pooler_preferred
-  --lakebase-enable-pooler-experiment
-                             Enables pooler attempts for future testing
-  --lakebase-scale-to-zero-timeout SECONDS
-                             Scale-to-zero inactivity timeout in seconds
-                             (default: 300, minimum: 60)
-  --lakebase-no-scale-to-zero
-                             Explicitly disable scale-to-zero (always-on compute)
+  --lakebase-branch NAME     Lakebase branch resource name to bind as the
+                             `postgres` app resource.
+                             Format: projects/<PROJECT_ID>/branches/<BRANCH_ID>
+                             Required when binding postgres on a new app.
+  --lakebase-database NAME   Lakebase database resource name to bind as the
+                             `postgres` app resource.
+                             Format: projects/<PROJECT_ID>/branches/<BRANCH_ID>/databases/<DB_ID>
+                             Required when binding postgres on a new app.
   --seed-benchmarks          Seed benchmark catalog during app startup
   --seed-benchmarks-all-industries
                              Include generated baseline records for every
@@ -242,15 +220,8 @@ while [[ $# -gt 0 ]]; do
     --lightweight-endpoint) ARG_LIGHTWEIGHT_ENDPOINT="$2"; shift 2 ;;
     --allowed-models)      ARG_ALLOWED_MODELS="$2"; shift 2 ;;
     --lakebase-bootstrap-user) ARG_LAKEBASE_BOOTSTRAP_USER="$2"; shift 2 ;;
-    --lakebase-auth-mode) ARG_LAKEBASE_AUTH_MODE="$2"; shift 2 ;;
-    --lakebase-native-user) ARG_LAKEBASE_NATIVE_USER="$2"; shift 2 ;;
-    --lakebase-native-password) ARG_LAKEBASE_NATIVE_PASSWORD="$2"; shift 2 ;;
-    --rotate-lakebase-native-password) ARG_ROTATE_LAKEBASE_NATIVE_PASSWORD=true; shift ;;
-    --print-generated-native-password) ARG_PRINT_GENERATED_NATIVE_PASSWORD=true; shift ;;
-    --lakebase-runtime-mode) ARG_LAKEBASE_RUNTIME_MODE="$2"; shift 2 ;;
-    --lakebase-enable-pooler-experiment) ARG_LAKEBASE_ENABLE_POOLER_EXPERIMENT=true; shift ;;
-    --lakebase-scale-to-zero-timeout) ARG_LAKEBASE_SCALE_TO_ZERO_TIMEOUT="$2"; shift 2 ;;
-    --lakebase-no-scale-to-zero) ARG_LAKEBASE_NO_SCALE_TO_ZERO=true; shift ;;
+    --lakebase-branch) ARG_LAKEBASE_BRANCH="$2"; shift 2 ;;
+    --lakebase-database) ARG_LAKEBASE_DATABASE="$2"; shift 2 ;;
     --seed-benchmarks) ARG_SEED_BENCHMARKS=true; shift ;;
     --seed-benchmarks-all-industries) ARG_SEED_BENCHMARKS_ALL_INDUSTRIES=true; shift ;;
     --seed-benchmark-industries) ARG_SEED_BENCHMARK_INDUSTRIES="$2"; shift 2 ;;
@@ -292,16 +263,8 @@ SQL_ENDPOINT="${ARG_SQL_ENDPOINT:-$DEFAULT_SQL_ENDPOINT}"
 LIGHTWEIGHT_ENDPOINT="${ARG_LIGHTWEIGHT_ENDPOINT:-$DEFAULT_LIGHTWEIGHT_ENDPOINT}"
 ALLOWED_MODELS="${ARG_ALLOWED_MODELS:-}"
 LAKEBASE_BOOTSTRAP_USER="${ARG_LAKEBASE_BOOTSTRAP_USER:-}"
-LAKEBASE_AUTH_MODE="${ARG_LAKEBASE_AUTH_MODE:-}"
-LAKEBASE_NATIVE_USER="${ARG_LAKEBASE_NATIVE_USER:-}"
-LAKEBASE_NATIVE_PASSWORD="${ARG_LAKEBASE_NATIVE_PASSWORD:-}"
-ROTATE_LAKEBASE_NATIVE_PASSWORD="${ARG_ROTATE_LAKEBASE_NATIVE_PASSWORD}"
-PRINT_GENERATED_NATIVE_PASSWORD="${ARG_PRINT_GENERATED_NATIVE_PASSWORD}"
-GENERATED_NATIVE_PASSWORD=false
-LAKEBASE_RUNTIME_MODE="${ARG_LAKEBASE_RUNTIME_MODE:-}"
-LAKEBASE_ENABLE_POOLER_EXPERIMENT="${ARG_LAKEBASE_ENABLE_POOLER_EXPERIMENT}"
-LAKEBASE_SCALE_TO_ZERO_TIMEOUT="${ARG_LAKEBASE_SCALE_TO_ZERO_TIMEOUT:-}"
-LAKEBASE_NO_SCALE_TO_ZERO="${ARG_LAKEBASE_NO_SCALE_TO_ZERO}"
+LAKEBASE_BRANCH="${ARG_LAKEBASE_BRANCH:-}"
+LAKEBASE_DATABASE="${ARG_LAKEBASE_DATABASE:-}"
 SEED_BENCHMARKS="${ARG_SEED_BENCHMARKS}"
 SEED_BENCHMARKS_ALL_INDUSTRIES="${ARG_SEED_BENCHMARKS_ALL_INDUSTRIES}"
 SEED_BENCHMARK_INDUSTRIES="${ARG_SEED_BENCHMARK_INDUSTRIES:-}"
@@ -365,43 +328,25 @@ if [[ -n "$SEED_BENCHMARK_INDUSTRIES" && "$SEED_BENCHMARKS" != "true" ]]; then
   SEED_BENCHMARKS=true
 fi
 
-if [[ -n "$LAKEBASE_AUTH_MODE" && "$LAKEBASE_AUTH_MODE" != "oauth" && "$LAKEBASE_AUTH_MODE" != "native_password" ]]; then
-  die "Invalid --lakebase-auth-mode '$LAKEBASE_AUTH_MODE'. Expected oauth or native_password."
+if [[ -n "$LAKEBASE_BRANCH" && -z "$LAKEBASE_DATABASE" ]] || \
+   [[ -z "$LAKEBASE_BRANCH" && -n "$LAKEBASE_DATABASE" ]]; then
+  die "--lakebase-branch and --lakebase-database must be provided together."
 fi
-if [[ "$ROTATE_LAKEBASE_NATIVE_PASSWORD" = "true" && -z "$LAKEBASE_AUTH_MODE" ]]; then
-  LAKEBASE_AUTH_MODE="native_password"
+if [[ -n "$LAKEBASE_BRANCH" ]]; then
+  case "$LAKEBASE_BRANCH" in
+    projects/*/branches/*) ;;
+    *)
+      die "Invalid --lakebase-branch '$LAKEBASE_BRANCH'. Expected: projects/<id>/branches/<id>"
+      ;;
+  esac
 fi
-if [[ -n "$LAKEBASE_NATIVE_USER" || -n "$LAKEBASE_NATIVE_PASSWORD" ]]; then
-  if [[ "$LAKEBASE_AUTH_MODE" != "native_password" ]]; then
-    die "--lakebase-native-user/--lakebase-native-password require --lakebase-auth-mode native_password."
-  fi
-fi
-if [[ "$ROTATE_LAKEBASE_NATIVE_PASSWORD" = "true" && "$LAKEBASE_AUTH_MODE" != "native_password" ]]; then
-  die "--rotate-lakebase-native-password requires --lakebase-auth-mode native_password (or leave auth mode unset)."
-fi
-if [[ "$ROTATE_LAKEBASE_NATIVE_PASSWORD" = "true" && -n "$LAKEBASE_NATIVE_PASSWORD" ]]; then
-  die "Cannot combine --rotate-lakebase-native-password with --lakebase-native-password."
-fi
-if [[ "$PRINT_GENERATED_NATIVE_PASSWORD" = "true" && "$ROTATE_LAKEBASE_NATIVE_PASSWORD" != "true" ]]; then
-  die "--print-generated-native-password is only valid with --rotate-lakebase-native-password."
-fi
-if [[ "$ROTATE_LAKEBASE_NATIVE_PASSWORD" = "true" ]]; then
-  LAKEBASE_NATIVE_PASSWORD="$(python3 - <<'PY'
-import secrets
-import string
-alphabet = string.ascii_letters + string.digits + "-_@#%+=."
-print("".join(secrets.choice(alphabet) for _ in range(48)))
-PY
-)"
-  GENERATED_NATIVE_PASSWORD=true
-fi
-
-if [[ -n "$LAKEBASE_RUNTIME_MODE" && "$LAKEBASE_RUNTIME_MODE" != "oauth_direct_only" && "$LAKEBASE_RUNTIME_MODE" != "pooler_preferred" ]]; then
-  die "Invalid --lakebase-runtime-mode '$LAKEBASE_RUNTIME_MODE'. Expected oauth_direct_only or pooler_preferred."
-fi
-
-if [[ "$LAKEBASE_NO_SCALE_TO_ZERO" = "true" && -n "$LAKEBASE_SCALE_TO_ZERO_TIMEOUT" ]]; then
-  die "Cannot combine --lakebase-no-scale-to-zero with --lakebase-scale-to-zero-timeout."
+if [[ -n "$LAKEBASE_DATABASE" ]]; then
+  case "$LAKEBASE_DATABASE" in
+    projects/*/branches/*/databases/*) ;;
+    *)
+      die "Invalid --lakebase-database '$LAKEBASE_DATABASE'. Expected: projects/<id>/branches/<id>/databases/<id>"
+      ;;
+  esac
 fi
 
 # -------------------------------------------------------------------------
@@ -616,23 +561,61 @@ PY
 
 prepare_app_yaml() {
   # Back up and patch app.yaml with instance-specific env vars for syncing.
-  # Reads from the ORIGINAL repo file (git version) to avoid contamination
-  # from previous deploys that may have left managed vars in the file.
+  # The Python matcher below strips known managed entries before re-appending
+  # them, so we patch directly on top of the working tree (including any
+  # uncommitted local edits). This lets operators run deploy.sh against an
+  # in-progress branch without losing their refactor work to a `git checkout`.
   APP_YAML_BACKUP="$(mktemp)"
   cp "app.yaml" "$APP_YAML_BACKUP"
 
-  # Restore the clean git version first, then patch from that baseline
-  git checkout -- app.yaml 2>/dev/null || true
+  # Discover the Lakebase endpoint resource path so we can inject
+  # LAKEBASE_ENDPOINT as a static env var. The Apps platform auto-injects
+  # PGHOST/PGUSER/PGDATABASE/PGPORT/PGSSLMODE from the `postgres` resource
+  # binding, but NOT the endpoint resource path — that has to come from
+  # `databricks postgres list-endpoints` against the bound branch.
+  LAKEBASE_ENDPOINT_NAME=""
+  if [ -n "$LAKEBASE_BRANCH" ]; then
+    info "Discovering Lakebase endpoint on $LAKEBASE_BRANCH..."
+    local endpoints_json
+    if endpoints_json=$(databricks postgres list-endpoints "$LAKEBASE_BRANCH" -o json 2>&1); then
+      LAKEBASE_ENDPOINT_NAME=$(LAKEBASE_ENDPOINTS_JSON="$endpoints_json" python3 <<'PY'
+import json, os, sys
+raw = os.environ.get("LAKEBASE_ENDPOINTS_JSON", "")
+try:
+    data = json.loads(raw)
+except Exception:
+    sys.exit(0)
+if not isinstance(data, list) or not data:
+    sys.exit(0)
+# Prefer an ACTIVE READ_WRITE endpoint; fall back to the first entry.
+best = None
+for ep in data:
+    status = ep.get("status", {}) or {}
+    if status.get("current_state") == "ACTIVE" and status.get("endpoint_type") == "ENDPOINT_TYPE_READ_WRITE":
+        best = ep
+        break
+if best is None:
+    best = data[0]
+name = best.get("name", "")
+if name:
+    print(name)
+PY
+)
+      if [ -n "$LAKEBASE_ENDPOINT_NAME" ]; then
+        ok "$LAKEBASE_ENDPOINT_NAME"
+      else
+        printf "FAILED\n"
+        die "Could not parse a Lakebase endpoint from list-endpoints output. Confirm an endpoint exists on $LAKEBASE_BRANCH.\n  $endpoints_json"
+      fi
+    else
+      printf "FAILED\n"
+      die "Failed to list Lakebase endpoints on $LAKEBASE_BRANCH.\n  $endpoints_json"
+    fi
+  fi
 
   export APP_NAME
   export LAKEBASE_BOOTSTRAP_USER
-  export LAKEBASE_AUTH_MODE
-  export LAKEBASE_NATIVE_USER
-  export LAKEBASE_NATIVE_PASSWORD
-  export LAKEBASE_RUNTIME_MODE
-  export LAKEBASE_ENABLE_POOLER_EXPERIMENT
-  export LAKEBASE_SCALE_TO_ZERO_TIMEOUT
-  export LAKEBASE_NO_SCALE_TO_ZERO
+  export LAKEBASE_ENDPOINT_NAME
   export SEED_BENCHMARKS
   export SEED_BENCHMARKS_ALL_INDUSTRIES
   export SEED_BENCHMARK_INDUSTRIES
@@ -658,13 +641,7 @@ from pathlib import Path
 
 app_name = os.environ.get("APP_NAME", "databricks-forge").strip()
 bootstrap_user = os.environ.get("LAKEBASE_BOOTSTRAP_USER", "").strip()
-auth_mode = os.environ.get("LAKEBASE_AUTH_MODE", "").strip()
-native_user = os.environ.get("LAKEBASE_NATIVE_USER", "").strip()
-native_password = os.environ.get("LAKEBASE_NATIVE_PASSWORD", "")
-runtime_mode = os.environ.get("LAKEBASE_RUNTIME_MODE", "").strip()
-pooler_experiment = os.environ.get("LAKEBASE_ENABLE_POOLER_EXPERIMENT", "").strip().lower() == "true"
-scale_to_zero_timeout = os.environ.get("LAKEBASE_SCALE_TO_ZERO_TIMEOUT", "").strip()
-no_scale_to_zero = os.environ.get("LAKEBASE_NO_SCALE_TO_ZERO", "").strip().lower() == "true"
+lakebase_endpoint_name = os.environ.get("LAKEBASE_ENDPOINT_NAME", "").strip()
 seed_benchmarks = os.environ.get("SEED_BENCHMARKS", "").strip().lower() == "true"
 seed_benchmarks_all = os.environ.get("SEED_BENCHMARKS_ALL_INDUSTRIES", "").strip().lower() == "true"
 seed_benchmark_industries = os.environ.get("SEED_BENCHMARK_INDUSTRIES", "").strip()
@@ -697,6 +674,11 @@ def is_managed_name_line(s: str) -> bool:
     return (
         "FORGE_APP_NAME" in t
         or "LAKEBASE_BOOTSTRAP_USER" in t
+        or "LAKEBASE_ENDPOINT" in t
+        # Legacy env vars retired by the OAuth-only refactor.
+        # Listed here so any stale entry in a pre-refactor app.yaml gets
+        # stripped on the transition deploy and does not leak into the
+        # app's environment.
         or "LAKEBASE_AUTH_MODE" in t
         or "LAKEBASE_NATIVE_USER" in t
         or "LAKEBASE_NATIVE_PASSWORD" in t
@@ -743,26 +725,9 @@ if app_name != "databricks-forge":
 if bootstrap_user:
     out.append("  - name: LAKEBASE_BOOTSTRAP_USER")
     out.append(f'    value: "{bootstrap_user}"')
-if auth_mode:
-    out.append("  - name: LAKEBASE_AUTH_MODE")
-    out.append(f'    value: "{auth_mode}"')
-if auth_mode == "native_password" and native_user:
-    out.append("  - name: LAKEBASE_NATIVE_USER")
-    out.append(f'    value: "{native_user}"')
-if auth_mode == "native_password" and native_password:
-    out.append("  - name: LAKEBASE_NATIVE_PASSWORD")
-    out.append(f'    value: "{native_password}"')
-if runtime_mode:
-    out.append("  - name: LAKEBASE_RUNTIME_MODE")
-    out.append(f'    value: "{runtime_mode}"')
-out.append("  - name: LAKEBASE_ENABLE_POOLER_EXPERIMENT")
-out.append(f'    value: "{"true" if pooler_experiment else "false"}"')
-if no_scale_to_zero:
-    out.append("  - name: LAKEBASE_SCALE_TO_ZERO_TIMEOUT")
-    out.append('    value: "disabled"')
-elif scale_to_zero_timeout:
-    out.append("  - name: LAKEBASE_SCALE_TO_ZERO_TIMEOUT")
-    out.append(f'    value: "{scale_to_zero_timeout}"')
+if lakebase_endpoint_name:
+    out.append("  - name: LAKEBASE_ENDPOINT")
+    out.append(f'    value: "{lakebase_endpoint_name}"')
 out.append("  - name: FORGE_SEED_BENCHMARKS")
 out.append(f'    value: "{"true" if seed_benchmarks else "false"}"')
 out.append("  - name: FORGE_SEED_BENCHMARKS_ALL_INDUSTRIES")
@@ -1344,6 +1309,7 @@ configure_app() {
     REASONING_ENDPOINT_2="$REASONING_ENDPOINT_2" GENERATION_ENDPOINT="$GENERATION_ENDPOINT" \
     SQL_ENDPOINT="$SQL_ENDPOINT" LIGHTWEIGHT_ENDPOINT="$LIGHTWEIGHT_ENDPOINT" \
     BUDGET_POLICY_ID="$BUDGET_POLICY_ID" \
+    LAKEBASE_BRANCH="$LAKEBASE_BRANCH" LAKEBASE_DATABASE="$LAKEBASE_DATABASE" \
     python3 -c "
 import json, os
 resources = [
@@ -1361,6 +1327,17 @@ if os.environ.get('SQL_ENDPOINT', ''):
     resources.append({'name': 'serving-endpoint-sql', 'serving_endpoint': {'name': os.environ['SQL_ENDPOINT'], 'permission': 'CAN_QUERY'}})
 if os.environ.get('LIGHTWEIGHT_ENDPOINT', ''):
     resources.append({'name': 'serving-endpoint-lightweight', 'serving_endpoint': {'name': os.environ['LIGHTWEIGHT_ENDPOINT'], 'permission': 'CAN_QUERY'}})
+branch = os.environ.get('LAKEBASE_BRANCH', '').strip()
+database = os.environ.get('LAKEBASE_DATABASE', '').strip()
+if branch and database:
+    resources.append({
+        'name': 'postgres',
+        'postgres': {
+            'branch': branch,
+            'database': database,
+            'permission': 'CAN_CONNECT_AND_CREATE',
+        },
+    })
 body = {'resources': resources, 'user_api_scopes': ['sql','catalog.tables:read','catalog.schemas:read','catalog.catalogs:read','files.files','dashboards.genie']}
 budget_policy_id = os.environ.get('BUDGET_POLICY_ID', '').strip()
 if budget_policy_id:
@@ -1578,15 +1555,15 @@ print_success() {
   if [ -n "$LAKEBASE_BOOTSTRAP_USER" ]; then
     printf "      Bootstrap user:   %s\n" "$LAKEBASE_BOOTSTRAP_USER"
   fi
-  printf "      Auth mode:        %s\n" "${LAKEBASE_AUTH_MODE:-repo default (start.sh)}"
-  if [ "$LAKEBASE_AUTH_MODE" = "native_password" ] && [ -n "$LAKEBASE_NATIVE_USER" ]; then
-    printf "      Native db user:   %s\n" "$LAKEBASE_NATIVE_USER"
+  if [ -n "$LAKEBASE_BRANCH" ] && [ -n "$LAKEBASE_DATABASE" ]; then
+    printf "      Postgres branch:  %s\n" "$LAKEBASE_BRANCH"
+    printf "      Postgres database:%s\n" " $LAKEBASE_DATABASE"
+    if [ -n "$LAKEBASE_ENDPOINT_NAME" ]; then
+      printf "      Postgres endpoint:%s\n" " $LAKEBASE_ENDPOINT_NAME"
+    fi
+  else
+    printf "      Postgres binding: (not set - app must already have postgres resource)\n"
   fi
-  if [ "$ROTATE_LAKEBASE_NATIVE_PASSWORD" = "true" ]; then
-    printf "      Native password:  rotated\n"
-  fi
-  printf "      Runtime mode:     %s\n" "${LAKEBASE_RUNTIME_MODE:-oauth_direct_only (default)}"
-  printf "      Pooler experiment:%s\n" "$( [ "$LAKEBASE_ENABLE_POOLER_EXPERIMENT" = "true" ] && echo " enabled" || echo " disabled" )"
   printf "      Seed benchmarks:  %s\n" "$( [ "$SEED_BENCHMARKS" = "true" ] && echo "enabled" || echo "disabled" )"
   printf "      Seed all industries: %s\n" "$( [ "$SEED_BENCHMARKS_ALL_INDUSTRIES" = "true" ] && echo "enabled" || echo "disabled" )"
   printf "      Seed industry filter: %s\n" "${SEED_BENCHMARK_INDUSTRIES:-none}"
@@ -1599,9 +1576,6 @@ print_success() {
     printf "      Custom tags:      %s\n" "$CUSTOM_TAGS_JSON"
   else
     printf "      Custom tags:      none\n"
-  fi
-  if [ "$GENERATED_NATIVE_PASSWORD" = "true" ] && [ "$PRINT_GENERATED_NATIVE_PASSWORD" = "true" ]; then
-    printf "      Generated native password: %s\n" "$LAKEBASE_NATIVE_PASSWORD"
   fi
   printf "\n"
   printf "    User scopes:\n"

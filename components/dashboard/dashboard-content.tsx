@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { resilientFetch } from "@/lib/resilient-fetch";
 import { InfoTip } from "@/components/ui/info-tip";
@@ -9,6 +10,13 @@ import { DASHBOARD } from "@/lib/help-text";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   ScoreDistributionChart,
   DomainBreakdownChart,
@@ -27,6 +35,7 @@ import {
   ArrowRight,
   Sparkles,
   DollarSign,
+  Loader2,
 } from "lucide-react";
 
 export interface DashboardStats {
@@ -58,7 +67,22 @@ export interface DashboardStats {
     benchmarkFreshnessRate: number | null;
     benchmarkIndustryCoverage: number | null;
   };
+  // Run-scoped extras (populated only when the dashboard is narrowed to a
+  // single run via the dropdown).
+  scopedRunId?: string | null;
+  runStatus?: string | null;
+  runProgressPct?: number | null;
+  businessValueMid?: number | null;
 }
+
+export interface DashboardRunOption {
+  runId: string;
+  businessName: string;
+  status: string;
+  createdAt: string;
+}
+
+const RUN_SELECTION_KEY = "forge:dashboard:run";
 
 function timeAgo(dateStr: string): string {
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
@@ -109,32 +133,106 @@ function BusinessValueSummary() {
 
 const STATUS_STYLES: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+  queued: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
   running: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
   completed: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
   failed: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+  cancelled: "bg-zinc-100 text-zinc-700 dark:bg-zinc-900/30 dark:text-zinc-400",
 };
+
+function statusSentiment(status: string | null | undefined): Sentiment {
+  switch (status) {
+    case "completed":
+      return "positive";
+    case "running":
+    case "pending":
+    case "queued":
+      return "neutral";
+    case "failed":
+    case "cancelled":
+      return "warning";
+    default:
+      return "neutral";
+  }
+}
 
 export function DashboardContent({
   initialStats,
   initialError,
+  runs,
+  initialRunId,
 }: {
   initialStats: DashboardStats | null;
   initialError: string | null;
+  runs: DashboardRunOption[];
+  initialRunId: string | null;
 }) {
   const [stats, setStats] = useState<DashboardStats | null>(initialStats);
   const [error, setError] = useState<string | null>(initialError);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId);
+  const [refreshing, setRefreshing] = useState(false);
+  const router = useRouter();
 
-  const refetch = useCallback(async () => {
+  const fetchStats = useCallback(async (runId: string | null) => {
+    setRefreshing(true);
     try {
-      const res = await resilientFetch("/api/stats");
+      const url = runId
+        ? `/api/stats?runId=${encodeURIComponent(runId)}`
+        : "/api/stats";
+      const res = await resilientFetch(url);
       if (!res.ok) throw new Error("Failed to fetch stats");
-      const data = await res.json();
+      const data = (await res.json()) as DashboardStats;
       setStats(data);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load stats");
+    } finally {
+      setRefreshing(false);
     }
   }, []);
+
+  // On mount, hydrate selection from localStorage if it points at a still-valid run.
+  // Runs only once; if the saved run isn't in the dropdown anymore we leave the
+  // SSR-resolved `initialRunId` in place.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(RUN_SELECTION_KEY);
+    if (!saved) return;
+    if (runs.some((r) => r.runId === saved) && saved !== selectedRunId) {
+      setSelectedRunId(saved);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Refetch whenever the user picks a different run. Skip the very first render —
+  // SSR already gave us scoped stats for `initialRunId`.
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (typeof window !== "undefined" && selectedRunId) {
+      window.localStorage.setItem(RUN_SELECTION_KEY, selectedRunId);
+    }
+    fetchStats(selectedRunId);
+  }, [selectedRunId, fetchStats]);
+
+  const refetch = useCallback(() => {
+    void fetchStats(selectedRunId);
+  }, [fetchStats, selectedRunId]);
+
+  const selectedRun = useMemo(
+    () => runs.find((r) => r.runId === selectedRunId) ?? null,
+    [runs, selectedRunId],
+  );
+
+  const navigateToRun = useCallback(
+    (path: string) => {
+      router.push(path);
+    },
+    [router],
+  );
 
   if (error) {
     return (
@@ -153,8 +251,23 @@ export function DashboardContent({
     return <EmptyDashboard />;
   }
 
+  const scopedRunId = selectedRunId;
   const successRate =
     stats.totalRuns > 0 ? Math.round((stats.completedRuns / stats.totalRuns) * 100) : 0;
+
+  // KPI tile click-throughs are scoped to the selected run when available.
+  const usecasesHref = scopedRunId
+    ? `/runs/${scopedRunId}?tab=usecases`
+    : "/runs";
+  const overviewHref = scopedRunId ? `/runs/${scopedRunId}?tab=overview` : "/runs";
+  const runHomeHref = scopedRunId ? `/runs/${scopedRunId}` : "/runs";
+  const businessValueHref = scopedRunId
+    ? `/runs/${scopedRunId}?tab=business-value`
+    : "/business-value";
+
+  const businessValueMid = stats.businessValueMid ?? null;
+  const showBusinessValueTile =
+    scopedRunId != null && businessValueMid != null && businessValueMid > 0;
 
   return (
     <motion.div
@@ -163,6 +276,19 @@ export function DashboardContent({
       animate="visible"
       className="space-y-6"
     >
+      {/* ── Run selector ── */}
+      {runs.length > 0 && (
+        <motion.div variants={staggerItem}>
+          <RunSelector
+            runs={runs}
+            value={selectedRunId}
+            onChange={setSelectedRunId}
+            refreshing={refreshing}
+            scopedRunId={stats.scopedRunId ?? null}
+          />
+        </motion.div>
+      )}
+
       {/* ── KPI tiles ── */}
       <motion.div
         variants={staggerItem}
@@ -173,18 +299,10 @@ export function DashboardContent({
           label="Use Cases"
           tip={DASHBOARD.useCases}
           value={stats.totalUseCases.toLocaleString()}
-          detail={`${stats.aiCount} AI · ${stats.statisticalCount} Statistical${stats.geospatialCount > 0 ? ` · ${stats.geospatialCount} Geo` : ""}`}
-        />
-        <KPITile
-          icon={<Activity className="h-4 w-4 text-chart-2" />}
-          label="Total Runs"
-          tip={DASHBOARD.totalRuns}
-          value={stats.totalRuns}
-          detail={
-            stats.runningRuns > 0
-              ? `${stats.runningRuns} active`
-              : `${stats.completedRuns} completed`
-          }
+          detail={`${stats.aiCount} AI · ${stats.statisticalCount} Statistical${
+            stats.geospatialCount > 0 ? ` · ${stats.geospatialCount} Geo` : ""
+          }`}
+          href={usecasesHref}
         />
         <KPITile
           icon={<Trophy className="h-4 w-4 text-chart-4" />}
@@ -195,6 +313,7 @@ export function DashboardContent({
           sentiment={
             stats.avgScore >= 70 ? "positive" : stats.avgScore >= 40 ? "neutral" : "warning"
           }
+          href={overviewHref}
         />
         <KPITile
           icon={<Layers className="h-4 w-4 text-chart-3" />}
@@ -202,15 +321,60 @@ export function DashboardContent({
           tip={DASHBOARD.domains}
           value={stats.totalDomains}
           detail="Business domains identified"
+          href={overviewHref}
         />
-        <KPITile
-          icon={<TrendingUp className="h-4 w-4 text-chart-3" />}
-          label="Success Rate"
-          tip={DASHBOARD.successRate}
-          value={successRate > 0 ? `${successRate}%` : "N/A"}
-          detail={stats.failedRuns > 0 ? `${stats.failedRuns} failed` : "All runs successful"}
-          sentiment={successRate === 100 ? "positive" : successRate >= 80 ? "neutral" : "warning"}
-        />
+        {scopedRunId ? (
+          <KPITile
+            icon={<Activity className="h-4 w-4 text-chart-2" />}
+            label="Run Status"
+            tip="Status of the currently selected run"
+            value={(stats.runStatus ?? "—").toString()}
+            detail={
+              stats.runProgressPct != null && stats.runProgressPct < 100
+                ? `${stats.runProgressPct}% complete`
+                : selectedRun
+                  ? timeAgo(selectedRun.createdAt)
+                  : undefined
+            }
+            sentiment={statusSentiment(stats.runStatus)}
+            href={runHomeHref}
+            valueClassName="capitalize"
+          />
+        ) : (
+          <KPITile
+            icon={<Activity className="h-4 w-4 text-chart-2" />}
+            label="Total Runs"
+            tip={DASHBOARD.totalRuns}
+            value={stats.totalRuns}
+            detail={
+              stats.runningRuns > 0
+                ? `${stats.runningRuns} active`
+                : `${stats.completedRuns} completed`
+            }
+            href="/runs"
+          />
+        )}
+        {showBusinessValueTile ? (
+          <KPITile
+            icon={<DollarSign className="h-4 w-4 text-emerald-500" />}
+            label="Business Value"
+            tip="Estimated mid-case business value for this run"
+            value={formatCurrency(businessValueMid!)}
+            detail="Tap to view financial detail"
+            sentiment="positive"
+            href={businessValueHref}
+          />
+        ) : (
+          <KPITile
+            icon={<TrendingUp className="h-4 w-4 text-chart-3" />}
+            label="Success Rate"
+            tip={DASHBOARD.successRate}
+            value={successRate > 0 ? `${successRate}%` : "N/A"}
+            detail={stats.failedRuns > 0 ? `${stats.failedRuns} failed` : "All runs successful"}
+            sentiment={successRate === 100 ? "positive" : successRate >= 80 ? "neutral" : "warning"}
+            href="/runs"
+          />
+        )}
       </motion.div>
 
       {/* ── Quick actions + Business value ── */}
@@ -251,13 +415,32 @@ export function DashboardContent({
       {/* ── Charts ── */}
       {stats.totalUseCases > 0 && (
         <motion.div variants={staggerItem} className="grid gap-6 md:grid-cols-3">
-          <ScoreDistributionChart scores={stats.scores} />
-          <DomainBreakdownChart data={stats.domainBreakdown} />
-          <TypeSplitChart
-            aiCount={stats.aiCount}
-            statisticalCount={stats.statisticalCount}
-            geospatialCount={stats.geospatialCount}
-          />
+          <ChartLink
+            href={usecasesHref}
+            ariaLabel="View use cases sorted by score"
+          >
+            <ScoreDistributionChart scores={stats.scores} />
+          </ChartLink>
+          <ChartLink href={usecasesHref} ariaLabel="View use cases by domain">
+            <DomainBreakdownChart
+              data={stats.domainBreakdown}
+              onSliceClick={
+                scopedRunId
+                  ? (domain) =>
+                      navigateToRun(
+                        `/runs/${scopedRunId}?tab=usecases&domain=${encodeURIComponent(domain)}`,
+                      )
+                  : undefined
+              }
+            />
+          </ChartLink>
+          <ChartLink href={usecasesHref} ariaLabel="View use cases by type">
+            <TypeSplitChart
+              aiCount={stats.aiCount}
+              statisticalCount={stats.statisticalCount}
+              geospatialCount={stats.geospatialCount}
+            />
+          </ChartLink>
         </motion.div>
       )}
 
@@ -332,6 +515,87 @@ export function DashboardContent({
   );
 }
 
+// ── Run Selector ──────────────────────────────────────────────────────
+
+function RunSelector({
+  runs,
+  value,
+  onChange,
+  refreshing,
+  scopedRunId,
+}: {
+  runs: DashboardRunOption[];
+  value: string | null;
+  onChange: (runId: string) => void;
+  refreshing: boolean;
+  scopedRunId: string | null;
+}) {
+  const selected = runs.find((r) => r.runId === value);
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+            <Activity className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Showing widgets for
+            </p>
+            <p className="text-sm font-semibold">
+              {selected
+                ? selected.businessName
+                : "Select a run to scope the dashboard"}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {refreshing && (
+            <Loader2
+              className="h-4 w-4 animate-spin text-muted-foreground"
+              aria-label="Refreshing"
+            />
+          )}
+          <Select
+            value={value ?? undefined}
+            onValueChange={onChange}
+          >
+            <SelectTrigger className="w-full sm:w-[320px]" aria-label="Select run">
+              <SelectValue placeholder="Pick a run" />
+            </SelectTrigger>
+            <SelectContent>
+              {runs.map((r) => (
+                <SelectItem key={r.runId} value={r.runId}>
+                  <span className="flex items-center gap-2">
+                    <span className="truncate font-medium">{r.businessName}</span>
+                    <span className="text-xs text-muted-foreground">
+                      · {timeAgo(r.createdAt)}
+                    </span>
+                    <Badge
+                      variant="secondary"
+                      className={cn("text-[10px]", STATUS_STYLES[r.status])}
+                    >
+                      {r.status}
+                    </Badge>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {scopedRunId && (
+            <Button variant="ghost" size="sm" asChild className="hidden sm:inline-flex">
+              <Link href={`/runs/${scopedRunId}`}>
+                Open run
+                <ArrowRight className="ml-1 h-3 w-3" />
+              </Link>
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── KPI Tile ──────────────────────────────────────────────────────────
 
 type Sentiment = "positive" | "neutral" | "warning";
@@ -349,6 +613,8 @@ function KPITile({
   value,
   detail,
   sentiment = "neutral",
+  href,
+  valueClassName,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -356,9 +622,17 @@ function KPITile({
   value: string | number;
   detail?: string;
   sentiment?: Sentiment;
+  href?: string;
+  valueClassName?: string;
 }) {
-  return (
-    <Card className={cn("border-l-[3px]", SENTIMENT_BORDER[sentiment])}>
+  const card = (
+    <Card
+      className={cn(
+        "border-l-[3px]",
+        SENTIMENT_BORDER[sentiment],
+        href && "cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md",
+      )}
+    >
       <CardContent className="pt-6">
         <div className="flex items-center gap-2">
           {icon}
@@ -369,10 +643,44 @@ function KPITile({
             {tip && <InfoTip tip={tip} />}
           </div>
         </div>
-        <p className="mt-2 text-2xl font-bold tracking-tight">{value}</p>
+        <p className={cn("mt-2 text-2xl font-bold tracking-tight", valueClassName)}>
+          {value}
+        </p>
         {detail && <p className="mt-0.5 text-xs text-muted-foreground">{detail}</p>}
       </CardContent>
     </Card>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl">
+        {card}
+      </Link>
+    );
+  }
+
+  return card;
+}
+
+// ── Chart Link wrapper ─────────────────────────────────────────────────
+
+function ChartLink({
+  href,
+  ariaLabel,
+  children,
+}: {
+  href: string;
+  ariaLabel: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-label={ariaLabel}
+      className="block rounded-xl transition-all hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {children}
+    </Link>
   );
 }
 
