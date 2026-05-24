@@ -54,8 +54,11 @@ import {
   ChevronRight,
   Globe,
 } from "lucide-react";
+import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { ScoreRadarChart } from "@/components/charts/lazy";
 import { ScoreInsights } from "@/components/pipeline/score-insights";
+import { SqlStatusBadge } from "@/components/pipeline/sql-status-badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { computeOverallScore, effectiveScores } from "@/lib/domain/scoring";
 import type { UseCase } from "@/lib/domain/types";
 
@@ -69,6 +72,8 @@ interface UseCaseTableProps {
   onUpdate?: (updated: UseCase) => Promise<UpdateResult> | void;
   lineageDiscoveredFqns?: string[];
   highlightUseCaseId?: string;
+  /** Run id. Required for the SQL retry action to call the regenerate endpoint. */
+  runId?: string;
 }
 
 export function UseCaseTable({
@@ -76,7 +81,9 @@ export function UseCaseTable({
   onUpdate,
   lineageDiscoveredFqns = [],
   highlightUseCaseId,
+  runId,
 }: UseCaseTableProps) {
+  const [regeneratingSql, setRegeneratingSql] = useState(false);
   const [search, setSearch] = useState("");
   const [domainFilter, setDomainFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -226,6 +233,29 @@ export function UseCaseTable({
     uc.userImpactScore != null ||
     uc.userOverallScore != null;
 
+  const handleRegenerateSql = useCallback(async () => {
+    if (!runId || regeneratingSql) return;
+    setRegeneratingSql(true);
+    try {
+      const res = await fetch(`/api/runs/${runId}/sql-engine/generate`, {
+        method: "POST",
+      });
+      if (res.status === 409) {
+        toast.info("SQL generation already running");
+        return;
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Failed to start SQL regeneration");
+      }
+      toast.success("SQL regeneration started — the page will refresh as it lands");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to regenerate SQL");
+    } finally {
+      setRegeneratingSql(false);
+    }
+  }, [runId, regeneratingSql]);
+
   return (
     <>
       <div className="space-y-4">
@@ -328,6 +358,13 @@ export function UseCaseTable({
                                 <p className="line-clamp-1 text-xs text-muted-foreground">
                                   {uc.statement}
                                 </p>
+                              )}
+                              {(uc.sqlStatus === "pending" ||
+                                uc.sqlStatus === "generating" ||
+                                uc.sqlStatus === "failed") && (
+                                <div className="mt-1">
+                                  <SqlStatusBadge status={uc.sqlStatus} />
+                                </div>
                               )}
                             </div>
                             {hasAnyUserScore(uc) && (
@@ -805,7 +842,12 @@ export function UseCaseTable({
                   title="Technical Details"
                   count={
                     (selectedUseCase.tablesInvolved.length > 0 ? 1 : 0) +
-                    (selectedUseCase.sqlCode ? 1 : 0) +
+                    (selectedUseCase.sqlCode ||
+                    selectedUseCase.sqlStatus === "pending" ||
+                    selectedUseCase.sqlStatus === "generating" ||
+                    selectedUseCase.sqlStatus === "failed"
+                      ? 1
+                      : 0) +
                     (selectedUseCase.enrichmentTags?.length ? 1 : 0) +
                     (relatedUseCases.length > 0 ? 1 : 0) +
                     1
@@ -922,30 +964,89 @@ export function UseCaseTable({
                       </DetailSection>
                     )}
 
-                    {/* SQL Code (collapsed by default) */}
-                    {selectedUseCase.sqlCode && (
+                    {/* SQL Code — status-aware: skeleton while pending/generating,
+                        retry CTA on failure, code block when ready. */}
+                    {(selectedUseCase.sqlCode ||
+                      selectedUseCase.sqlStatus === "pending" ||
+                      selectedUseCase.sqlStatus === "generating" ||
+                      selectedUseCase.sqlStatus === "failed") && (
                       <DisclosureSection
                         title="SQL Code"
                         icon={<Code2 className="h-4 w-4 text-pink-500" />}
                         action={
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 gap-1 text-xs"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigator.clipboard.writeText(selectedUseCase.sqlCode!);
-                              toast.success("SQL copied to clipboard");
-                            }}
-                          >
-                            <Copy className="h-3 w-3" />
-                            Copy
-                          </Button>
+                          selectedUseCase.sqlStatus === "generated" &&
+                          selectedUseCase.sqlCode ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 gap-1 text-xs"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(selectedUseCase.sqlCode!);
+                                toast.success("SQL copied to clipboard");
+                              }}
+                            >
+                              <Copy className="h-3 w-3" />
+                              Copy
+                            </Button>
+                          ) : null
                         }
                       >
-                        <pre className="overflow-x-auto rounded-md border bg-muted/50 p-3 font-mono text-xs leading-relaxed">
-                          {selectedUseCase.sqlCode}
-                        </pre>
+                        {selectedUseCase.sqlStatus === "pending" && (
+                          <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Queued — will start when the SQL engine picks it up.
+                            </div>
+                            <Skeleton className="h-3 w-full" />
+                            <Skeleton className="h-3 w-5/6" />
+                            <Skeleton className="h-3 w-2/3" />
+                          </div>
+                        )}
+                        {selectedUseCase.sqlStatus === "generating" && (
+                          <div className="space-y-2 rounded-md border border-blue-500/30 bg-blue-500/5 p-3">
+                            <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Generating SQL…
+                            </div>
+                            <Skeleton className="h-3 w-full" />
+                            <Skeleton className="h-3 w-5/6" />
+                            <Skeleton className="h-3 w-3/4" />
+                          </div>
+                        )}
+                        {selectedUseCase.sqlStatus === "failed" && (
+                          <div className="space-y-2 rounded-md border border-red-500/40 bg-red-500/5 p-3">
+                            <div className="flex items-center gap-2 text-sm text-red-700 dark:text-red-300">
+                              <AlertCircle className="h-4 w-4" />
+                              SQL generation failed for this use case.
+                            </div>
+                            <p className="text-xs text-red-600/80 dark:text-red-300/80">
+                              You can retry SQL generation for the whole run below. Other use cases
+                              that already have SQL will not be re-generated.
+                            </p>
+                            {runId && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={regeneratingSql}
+                                onClick={handleRegenerateSql}
+                                className="h-7 gap-1 border-red-500/40 text-xs text-red-700 hover:bg-red-100 hover:text-red-900 dark:text-red-300 dark:hover:bg-red-950"
+                              >
+                                <RefreshCw
+                                  className={`h-3 w-3 ${regeneratingSql ? "animate-spin" : ""}`}
+                                />
+                                {regeneratingSql ? "Starting…" : "Retry SQL generation"}
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                        {(selectedUseCase.sqlStatus === "generated" ||
+                          (selectedUseCase.sqlStatus == null && selectedUseCase.sqlCode)) &&
+                          selectedUseCase.sqlCode && (
+                            <pre className="overflow-x-auto rounded-md border bg-muted/50 p-3 font-mono text-xs leading-relaxed">
+                              {selectedUseCase.sqlCode}
+                            </pre>
+                          )}
                       </DisclosureSection>
                     )}
 

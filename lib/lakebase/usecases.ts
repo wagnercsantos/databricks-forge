@@ -309,6 +309,85 @@ export async function getNewestReferenceUseCaseResolvedAt(
 }
 
 /**
+ * Update a single use case's SQL fields. Used by the background SQL
+ * generation job to stream results in as each use case completes.
+ *
+ * The wider `sqlStatus` enum convention is:
+ *   - null         → not in scope yet (legacy or pre-SQL-job rows)
+ *   - "pending"    → queued for background SQL generation
+ *   - "generating" → currently being generated
+ *   - "generated"  → success
+ *   - "failed"     → terminal failure
+ */
+export async function updateUseCaseSql(
+  useCaseId: string,
+  sqlCode: string | null,
+  sqlStatus: "pending" | "generating" | "generated" | "failed",
+): Promise<void> {
+  await withPrisma(async (prisma) => {
+    await prisma.forgeUseCase.update({
+      where: { id: useCaseId },
+      data: { sqlCode, sqlStatus },
+    });
+  });
+}
+
+/**
+ * Bulk-update every use case for a run to `sqlStatus = "pending"`. Called
+ * at the start of a background SQL job so the UI can show a "pending"
+ * badge on each row before the per-use-case `updateUseCaseSql` writes
+ * begin to land.
+ */
+export async function markUseCasesSqlPending(runId: string): Promise<void> {
+  await withPrisma(async (prisma) => {
+    await prisma.forgeUseCase.updateMany({
+      where: { runId },
+      data: { sqlStatus: "pending", sqlCode: null },
+    });
+  });
+}
+
+/**
+ * Aggregate per-use-case `sqlStatus` counts for a run. Drives the SQL
+ * background-job status endpoint's progress summary.
+ */
+export async function getSqlStatusCounts(runId: string): Promise<{
+  pending: number;
+  generating: number;
+  generated: number;
+  failed: number;
+  total: number;
+}> {
+  return withPrisma(async (prisma) => {
+    const rows = await prisma.forgeUseCase.groupBy({
+      by: ["sqlStatus"],
+      where: { runId },
+      _count: { _all: true },
+    });
+    const counts = { pending: 0, generating: 0, generated: 0, failed: 0, total: 0 };
+    for (const row of rows) {
+      const n = row._count._all;
+      counts.total += n;
+      switch (row.sqlStatus) {
+        case "pending":
+          counts.pending = n;
+          break;
+        case "generating":
+          counts.generating = n;
+          break;
+        case "generated":
+          counts.generated = n;
+          break;
+        case "failed":
+          counts.failed = n;
+          break;
+      }
+    }
+    return counts;
+  });
+}
+
+/**
  * Delete all use cases for a run (used when re-running).
  * Also clears associated vector embeddings for the use cases.
  */

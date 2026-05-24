@@ -60,6 +60,17 @@ import {
   completeBvJob,
   failBvJob,
 } from "@/lib/pipeline/bv-engine-status";
+import {
+  startSqlJob,
+  updateSqlJob,
+  setSqlJobTotal,
+  completeSqlJob,
+  failSqlJob,
+  cancelSqlJob,
+  getSqlJobController,
+} from "@/lib/pipeline/sql-engine-status";
+import { markUseCasesSqlPending } from "@/lib/lakebase/usecases";
+import { logActivity } from "@/lib/lakebase/activity-log";
 import { flushPromptLogs } from "@/lib/lakebase/prompt-logs";
 import { logMemoryUsage } from "@/lib/pipeline/memory-monitor";
 import { registerPipelineStarter, notifyScheduler } from "@/lib/pipeline/scheduler";
@@ -86,6 +97,12 @@ function checkCancelled(signal?: AbortSignal): void {
   }
 }
 
+// NOTE: SqlGeneration is intentionally absent from this array. As of the
+// Async SQL Generation refactor, SQL generation runs as a background job
+// after the pipeline marks the run "completed" — it is no longer a
+// blocking, synchronous step. The PipelineStep.SqlGeneration enum member
+// is preserved for backwards compatibility with old `forge_run.step_log`
+// rows but never appears here.
 const STEPS: StepDef[] = [
   { step: PipelineStep.BusinessContext, progressPct: 10, label: "Generating business context" },
   { step: PipelineStep.MetadataExtraction, progressPct: 18, label: "Extracting metadata" },
@@ -94,7 +111,6 @@ const STEPS: StepDef[] = [
   { step: PipelineStep.UsecaseGeneration, progressPct: 45, label: "Generating use cases" },
   { step: PipelineStep.DomainClustering, progressPct: 55, label: "Clustering domains" },
   { step: PipelineStep.Scoring, progressPct: 65, label: "Scoring use cases" },
-  { step: PipelineStep.SqlGeneration, progressPct: 80, label: "Generating SQL" },
   { step: PipelineStep.BusinessValueAnalysis, progressPct: 90, label: "Analyzing business value" },
   { step: PipelineStep.GenieRecommendations, progressPct: 100, label: "Building Genie Spaces" },
 ];
@@ -665,41 +681,23 @@ export async function startPipeline(
         });
       }
 
-      // Step 7: SQL Generation
-      checkCancelled(ctx.signal);
-      let sqlOk = 0;
-      {
-        const stepLog = log.child({
-          task: "SqlGeneration",
-          module: "pipeline/steps/sql-generation",
-        });
-        ctx.logger = stepLog;
-        await logStep(PipelineStep.SqlGeneration, stepLog, async () => {
-          await updateRunStatus(
-            runId,
-            "running",
-            PipelineStep.SqlGeneration,
-            67,
-            undefined,
-            `Generating SQL for ${ctx.useCases.length} use cases...`,
-          );
-          ctx.useCases = await runSqlGeneration(ctx, runId);
-          sqlOk = ctx.useCases.filter((uc) => uc.sqlStatus === "generated").length;
-          await updateRunStatus(
-            runId,
-            "running",
-            PipelineStep.SqlGeneration,
-            85,
-            undefined,
-            `Generated SQL for ${sqlOk}/${ctx.useCases.length} use cases`,
-          );
+      // SQL generation now runs as a background job (see startBackgroundJobs).
+      // Mark every persisted use case as "pending" so the UI immediately
+      // shows the SQL queue depth when the run transitions to completed.
+      try {
+        await markUseCasesSqlPending(runId);
+      } catch (err) {
+        log.warn("Failed to mark use cases as SQL pending (non-fatal)", {
+          fn: "startPipeline",
+          error: err instanceof Error ? err.message : String(err),
         });
       }
+      for (const uc of ctx.useCases) {
+        uc.sqlStatus = "pending";
+        uc.sqlCode = null;
+      }
 
-      // Final use case checkpoint after SQL generation (Step 7)
-      await persistUseCases(runId, ctx.useCases, log);
-
-      // Step 8 (Business Value Analysis) now runs as a background job after
+      // Step 8 (Business Value Analysis) also runs as a background job after
       // the main pipeline marks the run "completed". See startBackgroundJobs.
       if (!ctx.run.config.businessValueEnabled) {
         log.info("Business value analysis skipped (not enabled in config)");
@@ -720,23 +718,30 @@ export async function startPipeline(
         });
       }
 
-      // Mark as completed -- BV / Genie / Dashboard all run in the background.
+      // Mark as completed at 95% — SQL / BV / Genie / Dashboard all run in
+      // the background. The 5% headroom is intentional: it gives the UI a
+      // visual hint that background jobs are still running. Setting status
+      // to "completed" here is what unlocks the API gate that lets users
+      // explore use cases immediately (previously blocked behind ~12-16%
+      // of pipeline runtime spent on synchronous SQL generation).
       const finalDomains = new Set(ctx.useCases.map((uc) => uc.domain)).size;
       await updateRunStatus(
         runId,
         "completed",
         null,
-        100,
+        95,
         undefined,
-        `Pipeline complete: ${ctx.useCases.length} use cases across ${finalDomains} domains (${sqlOk} with SQL)`,
+        `Pipeline complete: ${ctx.useCases.length} use cases across ${finalDomains} domains (SQL generating in background)`,
       );
       log.info("Pipeline completed, starting background jobs", {
         phase: "end",
         useCaseCount: ctx.useCases.length,
-        sqlOk,
       });
 
-      // Fire Business Value, Genie Engine and Dashboard Engine concurrently in the background.
+      // Fire SQL, Business Value, Genie Engine and Dashboard Engine in the
+      // background. SQL runs first; Genie + Dashboard fire only after SQL
+      // resolves (they depend on uc.sqlCode for grounding). BV runs in
+      // parallel with SQL (no SQL dependency).
       startBackgroundJobs(ctx, runId, log, { includeBv: ctx.run.config.businessValueEnabled });
     } catch (error) {
       if (error instanceof PipelineCancelledError) {
@@ -1232,40 +1237,21 @@ export async function resumePipeline(
         });
       }
 
-      // Step 7: SQL Generation
-      let sqlOk = 0;
-      if (resumeIndex <= 7) {
-        checkCancelled(ctx.signal);
-        const stepLog = log.child({
-          task: "SqlGeneration",
-          module: "pipeline/steps/sql-generation",
-        });
-        ctx.logger = stepLog;
-        await logStep(PipelineStep.SqlGeneration, stepLog, async () => {
-          await updateRunStatus(
-            runId,
-            "running",
-            PipelineStep.SqlGeneration,
-            67,
-            undefined,
-            `Generating SQL for ${ctx.useCases.length} use cases...`,
-          );
-          ctx.useCases = await runSqlGeneration(ctx, runId);
-          sqlOk = ctx.useCases.filter((uc) => uc.sqlStatus === "generated").length;
-          await updateRunStatus(
-            runId,
-            "running",
-            PipelineStep.SqlGeneration,
-            85,
-            undefined,
-            `Generated SQL for ${sqlOk}/${ctx.useCases.length} use cases`,
-          );
+      // SQL generation now runs as a background job. If the prior failed
+      // attempt got past scoring, we still need to flip every use case to
+      // "pending" so the background job picks them up and the UI shows
+      // the queue depth correctly.
+      try {
+        await markUseCasesSqlPending(runId);
+      } catch (err) {
+        log.warn("Failed to mark use cases as SQL pending on resume (non-fatal)", {
+          fn: "resumePipeline",
+          error: err instanceof Error ? err.message : String(err),
         });
       }
-
-      // Final use case checkpoint after SQL generation (Step 7)
-      if (resumeIndex <= 7) {
-        await persistUseCases(runId, ctx.useCases, log);
+      for (const uc of ctx.useCases) {
+        uc.sqlStatus = "pending";
+        uc.sqlCode = null;
       }
 
       // Step 8 (Business Value Analysis) now runs as a background job after
@@ -1298,14 +1284,13 @@ export async function resumePipeline(
         runId,
         "completed",
         null,
-        100,
+        95,
         undefined,
-        `Pipeline complete: ${ctx.useCases.length} use cases across ${finalDomains} domains (${sqlOk} with SQL)`,
+        `Pipeline complete: ${ctx.useCases.length} use cases across ${finalDomains} domains (SQL generating in background)`,
       );
       log.info("Resumed pipeline completed", {
         phase: "end",
         useCaseCount: ctx.useCases.length,
-        sqlOk,
       });
 
       startBackgroundJobs(ctx, runId, log, { includeBv });
@@ -1367,22 +1352,35 @@ export async function resumePipeline(
 // ---------------------------------------------------------------------------
 
 /**
- * Fire-and-forget background jobs. Business Value, Genie, and Dashboard all
- * run concurrently after the main pipeline marks the run "completed".
+ * Fire-and-forget background jobs. SQL generation, Business Value, Genie,
+ * and Dashboard all run after the main pipeline marks the run "completed".
  *
- * - Business Value: 4 LLM passes (financial / roadmap / synthesis / stakeholders)
- *   pinned to a premium reasoning model, plus a downstream embedding step.
- * - Genie: per-domain Genie Space generation.
- * - Dashboard: AI/BI dashboard recommendations. Gracefully handles missing
- *   Genie data; it fetches whatever recommendations exist in Lakebase at the
- *   time it runs.
+ * Sequencing:
  *
- * Each job's progress is tracked independently via its own status module
- * (`bv-engine-status`, `genie/engine-status`, `dashboard/engine-status`).
+ *   ┌──────────────────────────────────────────────────────────────────┐
+ *   │ Steps 1-6 complete (run flipped to "completed" at 95%)           │
+ *   └────────────────────────┬─────────────────────────────────────────┘
+ *                            │
+ *           ┌────────────────┴────────────────┐
+ *           ▼                                 ▼
+ *      sqlTask (SQL generation)         bvTask (in parallel — no SQL dep)
+ *           │
+ *           ▼ (only after SQL resolves; preserves grounded grounding)
+ *      genieTask + dashboardTask (in parallel)
  *
- * The BV task writes directly to the four BV Lakebase tables incrementally
- * as each pass completes, so any UI page that polls Lakebase will see
- * partial data appear while later passes are still running.
+ * - SQL: per-use-case SQL generation, written through to Lakebase as each
+ *   row completes. Independent status module: `sql-engine-status`.
+ * - Business Value: 4 LLM passes (financial / roadmap / synthesis /
+ *   stakeholders) pinned to a premium reasoning model, plus a downstream
+ *   embedding step. Status: `bv-engine-status`.
+ * - Genie: per-domain Genie Space generation. Reads `uc.sqlCode` for
+ *   benchmark + example grounding, so it deliberately waits for SQL.
+ * - Dashboard: AI/BI dashboard recommendations. Also benefits from
+ *   SQL-grounded use cases when picking measures and filters.
+ *
+ * Each task's progress is tracked independently. The BV / SQL tasks write
+ * directly to Lakebase incrementally, so any UI page polling Lakebase
+ * will see partial data appear while later passes are still running.
  */
 function startBackgroundJobs(
   ctx: PipelineContext,
@@ -1524,11 +1522,123 @@ function startBackgroundJobs(
     }
   };
 
-  const tasks = [genieTask(), dashboardTask()];
-  if (opts.includeBv) {
-    tasks.push(bvTask());
-  }
-  Promise.allSettled(tasks);
+  const sqlLog = parentLog.child({
+    task: "SqlGeneration",
+    module: "pipeline/steps/sql-generation",
+  });
+  type SqlTaskOutcome = {
+    generated: number;
+    failed: number;
+    cancelled: boolean;
+  };
+  const sqlTask = async (): Promise<SqlTaskOutcome> => {
+    await startSqlJob(runId);
+    setSqlJobTotal(runId, ctx.useCases.length);
+    void logActivity("sql_engine_started", {
+      userId: ctx.ownerEmail,
+      resourceId: runId,
+      metadata: { useCaseCount: ctx.useCases.length },
+    });
+    const controller = getSqlJobController(runId);
+    try {
+      ctx.logger = sqlLog;
+      ctx.useCases = await runSqlGeneration(ctx, runId, {
+        signal: controller?.signal,
+        streamPersistence: true,
+        onProgress: (message, percent) => updateSqlJob(runId, message, percent),
+      });
+      const generated = ctx.useCases.filter((uc) => uc.sqlStatus === "generated").length;
+      const failed = ctx.useCases.filter((uc) => uc.sqlStatus === "failed").length;
+      await completeSqlJob(runId, generated, failed);
+      sqlLog.info("Background SQL generation completed", {
+        phase: "end",
+        generated,
+        failed,
+        total: ctx.useCases.length,
+      });
+      void logActivity("sql_engine_completed", {
+        userId: ctx.ownerEmail,
+        resourceId: runId,
+        metadata: { generated, failed, total: ctx.useCases.length },
+      });
+
+      // Recompute the `sql_generated_rate` quality metric now that SQL has
+      // finished. The metric written at scoring time was always ~0 because
+      // SQL had not run yet.
+      try {
+        const { insertQualityMetrics } = await import("@/lib/lakebase/quality-metrics");
+        const rate = ctx.useCases.length > 0 ? generated / ctx.useCases.length : 0;
+        await insertQualityMetrics([
+          {
+            metricType: "run",
+            metricName: "sql_generated_rate",
+            metricValue: rate,
+            floorValue: 0.7,
+            passed: rate >= 0.7,
+            runId,
+          },
+        ]);
+      } catch (err) {
+        sqlLog.warn("Failed to recompute sql_generated_rate (non-fatal)", {
+          errorCategory: "db",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      return { generated, failed, cancelled: false };
+    } catch (err) {
+      if (err instanceof PipelineCancelledError) {
+        sqlLog.info("Background SQL generation cancelled");
+        await cancelSqlJob(runId);
+        void logActivity("sql_engine_cancelled", {
+          userId: ctx.ownerEmail,
+          resourceId: runId,
+        });
+        return { generated: 0, failed: 0, cancelled: true };
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      await failSqlJob(runId, msg);
+      sqlLog.error("Background SQL generation failed", { phase: "error", error: msg });
+      void logActivity("sql_engine_failed", {
+        userId: ctx.ownerEmail,
+        resourceId: runId,
+        metadata: { error: msg.substring(0, 500) },
+      });
+      throw err;
+    }
+  };
+
+  // SQL must finish before Genie + Dashboard so those engines read fully
+  // grounded use cases (uc.sqlCode is critical for join inference and
+  // example SQL in Genie spaces, and for measure selection in dashboards).
+  // BV has no SQL dependency and runs in parallel with the SQL job.
+  //
+  // Gating semantics:
+  //   - SQL FAILURE (some UCs generated, others failed): downstream still
+  //     fires. Genie/Dashboard handle missing sqlCode gracefully and the
+  //     subset that succeeded is valuable input.
+  //   - SQL CANCELLATION (user clicked cancel; most UCs still "pending"):
+  //     skip Genie + Dashboard. Running them now would burn compute on a
+  //     half-empty dataset and contradict the user's stop intent.
+  const sqlPromise = sqlTask().catch<SqlTaskOutcome>(() => {
+    // Hard failure (not the cancellation path, which returns normally).
+    // Treat as "ran to completion" so Genie/Dashboard can use whatever
+    // SQL did persist; surfaced via failSqlJob for the status surface.
+    return { generated: 0, failed: 0, cancelled: false };
+  });
+  const bvPromise = opts.includeBv ? bvTask() : Promise.resolve();
+  const dependentChain = sqlPromise.then(async (outcome) => {
+    if (outcome.cancelled) {
+      sqlLog.info("Skipping Genie + Dashboard because SQL was cancelled", {
+        phase: "skip-dependents",
+      });
+      return;
+    }
+    await Promise.allSettled([genieTask(), dashboardTask()]);
+  });
+  // Fire-and-forget the whole graph. Errors are already routed to each
+  // task's status module — top-level rejection here is a safety net only.
+  void Promise.allSettled([sqlPromise, bvPromise, dependentChain]);
 }
 
 /**

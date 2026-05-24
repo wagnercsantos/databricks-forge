@@ -54,6 +54,11 @@ export function ExportToolbar({ runId, businessName, scanId }: ExportToolbarProp
   const [exporting, setExporting] = useState<string | null>(null);
   const [notebookUrl, setNotebookUrl] = useState<string | null>(null);
   const [hasDeployed, setHasDeployed] = useState(false);
+  const [sqlProgress, setSqlProgress] = useState<{
+    generating: boolean;
+    generated: number;
+    total: number;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,6 +78,42 @@ export function ExportToolbar({ runId, businessName, scanId }: ExportToolbarProp
       .catch(() => {});
     return () => {
       cancelled = true;
+    };
+  }, [runId]);
+
+  // Poll the SQL engine status so the toolbar can warn the user that
+  // notebook / Excel exports will contain partial SQL while the background
+  // job is still in flight. Self-stops once the job leaves `generating`.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/runs/${runId}/sql-engine/generate/status`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const generating = data?.status === "generating";
+        setSqlProgress({
+          generating,
+          generated: data?.counts?.generated ?? 0,
+          total: data?.counts?.total ?? data?.total ?? 0,
+        });
+        if (generating) {
+          timer = setTimeout(tick, 5000);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    tick();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [runId]);
 
@@ -147,6 +188,16 @@ export function ExportToolbar({ runId, businessName, scanId }: ExportToolbarProp
 
   return (
     <div className="flex items-center gap-2">
+      {sqlProgress?.generating && (
+        <span
+          className="hidden gap-1 rounded-md border border-blue-500/30 bg-blue-500/5 px-2 py-1 text-[11px] text-blue-700 dark:text-blue-300 sm:inline-flex"
+          title="SQL generation is still running. Exports will include partial SQL until the background job finishes."
+        >
+          <Loader2 className="h-3 w-3 animate-spin" />
+          SQL in progress — {sqlProgress.generated}/{sqlProgress.total} ready; exports use partial
+          SQL
+        </span>
+      )}
       {/* Export dropdown */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

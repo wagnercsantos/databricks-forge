@@ -44,13 +44,10 @@ const BASE_STEPS = [
     pct: 55,
     tip: PIPELINE_STEPS["domain-clustering"],
   },
-  { key: PipelineStep.Scoring, label: "Scoring & Dedup", pct: 65, tip: PIPELINE_STEPS["scoring"] },
-  {
-    key: PipelineStep.SqlGeneration,
-    label: "SQL Generation",
-    pct: 80,
-    tip: PIPELINE_STEPS["sql-generation"],
-  },
+  { key: PipelineStep.Scoring, label: "Scoring & Dedup", pct: 75, tip: PIPELINE_STEPS["scoring"] },
+  // SQL Generation is no longer a synchronous step — it runs as a background job
+  // after the run is marked completed. See `lib/pipeline/sql-engine-status.ts`
+  // and the SqlProgressBanner on the run detail page.
   {
     key: PipelineStep.BusinessValueAnalysis,
     label: "Business Value",

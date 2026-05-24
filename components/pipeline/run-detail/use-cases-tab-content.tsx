@@ -7,6 +7,7 @@ import type { UseCase } from "@/lib/domain/types";
 export function UseCasesTabContent({
   useCases,
   lineageDiscoveredFqns,
+  runId,
   onUpdate,
   highlightUseCaseId,
 }: {
@@ -32,6 +33,7 @@ export function UseCasesTabContent({
       lineageDiscoveredFqns={lineageDiscoveredFqns}
       onUpdate={onUpdate}
       highlightUseCaseId={highlightUseCaseId}
+      runId={runId}
     />
   );
 }

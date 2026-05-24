@@ -57,6 +57,32 @@ import { validateColumnReferences } from "@/lib/validation/sql-columns";
 import { resolveEndpoint } from "@/lib/dbx/client";
 import "@/lib/skills/content";
 import { resolveForPipelineStep, formatContextSections } from "@/lib/skills/resolver";
+import { PipelineCancelledError } from "@/lib/ai/agent";
+import {
+  markUseCasesSqlPending,
+  updateUseCaseSql,
+} from "@/lib/lakebase/usecases";
+
+/**
+ * Options for `runSqlGeneration` when invoked as a background job. All
+ * fields are optional so the legacy synchronous-pipeline call site
+ * (which mutated `ctx.useCases` in place) continues to work unchanged
+ * for resume-from-failure scenarios.
+ */
+export interface SqlGenerationOptions {
+  /** AbortSignal for fast cancellation between waves. */
+  signal?: AbortSignal;
+  /** Progress callback: (message, percent 0-100) → void. */
+  onProgress?: (message: string, percent: number) => void;
+  /**
+   * When true, stream per-use-case SQL writes to Lakebase via
+   * `updateUseCaseSql`. The background job sets this so the UI sees
+   * rows turning from "pending" → "generating" → "generated"/"failed"
+   * live. Resume / legacy callers leave this false and rely on the
+   * orchestrator's final `persistUseCases` batch.
+   */
+  streamPersistence?: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -73,7 +99,11 @@ const WAVE_DELAY_MS = Math.max(0, parseInt(process.env.SQL_GEN_WAVE_DELAY_MS ?? 
 // Main entry point
 // ---------------------------------------------------------------------------
 
-export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Promise<UseCase[]> {
+export async function runSqlGeneration(
+  ctx: PipelineContext,
+  runId?: string,
+  opts: SqlGenerationOptions = {},
+): Promise<UseCase[]> {
   const log = ctx.logger ?? fallbackLogger;
   const { run, metadata } = ctx;
   if (!metadata) throw new Error("Metadata not available");
@@ -84,6 +114,20 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
   const colBudget = resolveColumnBudget();
 
   if (useCases.length === 0) return useCases;
+
+  // Background job entry point: flip every use case to "pending" so the
+  // UI immediately reflects the queue depth. Synchronous-pipeline /
+  // resume callers don't stream persistence and skip this step.
+  if (opts.streamPersistence && runId) {
+    try {
+      await markUseCasesSqlPending(runId);
+    } catch (err) {
+      log.warn("Failed to mark use cases as pending (non-fatal)", {
+        fn: "runSqlGeneration",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   // Build column score options from FK metadata for intelligent column selection
   const fkColumnNames = new Set<string>();
@@ -176,10 +220,18 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
   // Progress interpolation: SQL generation spans 67% → 79% of overall pipeline.
   // Must stay below 80 (the SQL Generation step.pct threshold in RunProgress)
   // so the UI keeps the step "active" until all use cases are processed.
+  //
+  // ONLY used by the legacy synchronous-pipeline / resume-from-failure call
+  // path. The background-job path (streamPersistence=true) skips
+  // updateRunMessage entirely because the run is already marked "completed"
+  // by the orchestrator at 95% — re-writing 67–79% here would regress the
+  // run's progressPct in the runs list and run-detail header. The background
+  // job surface is updated via opts.onProgress on a separate 0–100 scale.
   const PROGRESS_START = 67;
   const PROGRESS_END = 79;
   const progressPerUseCase =
     totalUseCases > 0 ? (PROGRESS_END - PROGRESS_START) / totalUseCases : 0;
+  const writeRunProgress = !opts.streamPersistence;
 
   function currentProgress(): number {
     return Math.round(PROGRESS_START + completed * progressPerUseCase);
@@ -192,8 +244,19 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
     sampleRows,
   });
 
+  // Emit an initial progress signal so the status surface (in-memory job
+  // map, banner) updates with the use case total before any wave runs.
+  if (opts.onProgress) {
+    opts.onProgress(`Starting SQL generation for ${totalUseCases} use cases...`, 0);
+  }
+
   for (const [domain, domainCases] of sortedDomains) {
-    if (runId) {
+    // Fast cancellation between domains.
+    if (opts.signal?.aborted) {
+      throw new PipelineCancelledError(runId ?? "unknown");
+    }
+
+    if (runId && writeRunProgress) {
       await updateRunMessage(
         runId,
         `Generating SQL for domain "${domain}" (${domainCases.length} use cases, ${completed}/${totalUseCases} done)...`,
@@ -203,7 +266,25 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
 
     // Process use cases within this domain in waves of MAX_CONCURRENT_SQL
     for (let i = 0; i < domainCases.length; i += MAX_CONCURRENT_SQL) {
+      // Fast cancellation between waves.
+      if (opts.signal?.aborted) {
+        throw new PipelineCancelledError(runId ?? "unknown");
+      }
+
       const wave = domainCases.slice(i, i + MAX_CONCURRENT_SQL);
+
+      // Flip every UC in this wave to "generating" so the UI shows
+      // per-row spinners while the wave is in flight. Best-effort —
+      // failures here only affect the optimistic UI hint.
+      if (opts.streamPersistence) {
+        await Promise.all(
+          wave.map((uc) =>
+            updateUseCaseSql(uc.id, null, "generating").catch(() => {
+              /* non-fatal: per-row UI hint */
+            }),
+          ),
+        );
+      }
 
       const results = await Promise.allSettled(
         wave.map((uc) =>
@@ -241,6 +322,18 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
           const { sql: genSql, diag } = result.value;
           uc.sqlCode = genSql;
           uc.sqlStatus = "generated";
+
+          if (opts.streamPersistence) {
+            try {
+              await updateUseCaseSql(uc.id, genSql, "generated");
+            } catch (err) {
+              log.warn("Per-use-case SQL persistence failed (non-fatal)", {
+                fn: "runSqlGeneration",
+                useCaseId: uc.id,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
 
           if (diag.hadHallucination) hallucinationAttempts++;
           if (diag.hallucinationFixed) hallucinationFixed++;
@@ -284,6 +377,19 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
           uc.sqlCode = null;
           uc.sqlStatus = "failed";
           failed++;
+
+          if (opts.streamPersistence) {
+            try {
+              await updateUseCaseSql(uc.id, null, "failed");
+            } catch (err) {
+              log.warn("Per-use-case SQL persistence failed (non-fatal)", {
+                fn: "runSqlGeneration",
+                useCaseId: uc.id,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
+
           outcomes.push({
             id: uc.id,
             name: uc.name,
@@ -294,11 +400,25 @@ export async function runSqlGeneration(ctx: PipelineContext, runId?: string): Pr
         completed++;
       }
 
-      if (runId) {
+      if (runId && writeRunProgress) {
         await updateRunMessage(
           runId,
           `SQL generation: ${completed}/${totalUseCases} complete (${failed} failed)`,
           currentProgress(),
+        );
+      }
+
+      if (opts.onProgress) {
+        // Map per-use-case completion to a 0-100 scale for the SQL
+        // engine status banner (independent of the main pipeline's
+        // PROGRESS_START/PROGRESS_END window).
+        const pct =
+          totalUseCases > 0 ? Math.round((completed / totalUseCases) * 100) : 0;
+        opts.onProgress(
+          `SQL generation: ${completed}/${totalUseCases} complete${
+            failed > 0 ? ` (${failed} failed)` : ""
+          }`,
+          pct,
         );
       }
 

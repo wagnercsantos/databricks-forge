@@ -118,11 +118,53 @@ The core pipeline runs these steps sequentially:
 3. **table-filtering** -- Classify tables as business vs technical via Model Serving (JSON mode) **[fast]**
 4. **usecase-generation** -- Generate use cases in parallel batches via Model Serving (JSON mode) **[premium]**
 5. **domain-clustering** -- Assign domains and subdomains via Model Serving (JSON mode) **[fast]**
-6. **scoring** -- Score **[premium]**, deduplicate **[fast]**, calibrate **[premium]**, and rank use cases
-7. **sql-generation** -- Generate bespoke SQL for each use case via Model Serving (streaming) **[premium]**
-8. **business-value-analysis** -- Financial quantification, roadmap phasing, executive synthesis, stakeholder analysis via Model Serving (JSON mode) **[fast]**
+6. **scoring** -- Score **[premium]**, deduplicate **[fast]**, calibrate **[premium]**, and rank use cases. The run is marked **`completed` at 95% progress** here so users can explore use cases immediately; the remaining 5% covers the SQL background job and post-completion engines.
+
+After scoring resolves, the engine fires four background jobs (see "SQL Engine
+(Background)" and "Business Value Engine" below):
+
+- **sql-engine** (sequential gate) -- bespoke SQL generated per use case via Model Serving (streaming) **[premium]**, streaming `sqlStatus` updates per row.
+- **business-value-analysis** (parallel) -- Financial quantification, roadmap phasing, executive synthesis, stakeholder analysis via Model Serving (JSON mode) **[fast]**. No SQL dependency, runs in parallel with `sql-engine`.
+- **genie-engine** (deferred) -- Fires only after `sql-engine` resolves so generated SQL grounds the Genie space recommendations.
+- **dashboard-engine** (deferred) -- Fires only after `sql-engine` resolves so generated SQL grounds the Lakeview dashboard recommendations.
 
 Each step updates progress in Lakebase. The frontend polls for status.
+
+## SQL Engine (Background)
+
+SQL generation moved off the blocking critical path in 2026 — it now runs as a
+fire-and-forget background job after step 6 (Scoring) so users can explore use
+cases immediately. The job streams `sqlStatus` per use case so the UI can show
+per-row badges (`pending` → `generating` → `generated` / `failed`) as SQL
+lands. See `docs/release-notes/RELEASE_NOTES_2026_05_23.md` (if present) and
+the implementation files below.
+
+Key modules:
+- `lib/pipeline/steps/sql-generation.ts` -- `runSqlGeneration(ctx, runId, opts)` with `SqlGenerationOptions` (`signal`, `onProgress`, `streamPersistence`). Per-wave abort checks; per-row `updateUseCaseSql` writes when `streamPersistence` is enabled.
+- `lib/pipeline/sql-engine-status.ts` -- in-memory job status + `AbortController` + write-through to `ForgeBackgroundJob` (mirrors `lib/genie/engine-status.ts`).
+- `lib/pipeline/engine.ts` -- `startBackgroundJobs()` runs SQL first; only after SQL resolves do Genie + Dashboard fire; BV runs in parallel.
+- `lib/lakebase/usecases.ts` -- `updateUseCaseSql`, `markUseCasesSqlPending`, `getSqlStatusCounts`.
+
+`sqlStatus` value space on `ForgeUseCase`:
+- `null` -- legacy row, not in scope
+- `"pending"` -- queued for the SQL background job
+- `"generating"` -- currently in flight
+- `"generated"` -- success
+- `"failed"` -- terminal failure (UI shows a per-run "Retry SQL generation" CTA)
+
+API routes (`requireUser` via `proxy.ts`; `loadRunOrRespond("edit")` / `("read")`):
+- `POST /api/runs/[runId]/sql-engine/generate` -- manual regenerate (409 if a job is already in flight); logs `sql_engine_regenerated`.
+- `GET /api/runs/[runId]/sql-engine/generate/status` -- returns the engine status plus `getSqlStatusCounts(runId)` (pending/generating/generated/failed/total).
+- `POST /api/runs/[runId]/sql-engine/generate/cancel` -- aborts the in-flight job; logs `sql_engine_cancelled`.
+
+UI surfaces:
+- `components/pipeline/sql-progress-banner.tsx` -- run-detail banner that polls the status endpoint and triggers `router.refresh()` on terminal transitions.
+- `components/pipeline/sql-status-badge.tsx` -- per-use-case pill rendered on the use-case table.
+- `components/pipeline/use-case-table.tsx` -- SQL Code section renders skeleton (pending/generating), retry CTA (failed), or the code block (generated).
+- `lib/hooks/use-run-detail.ts` -- exposes `sqlGenerating` + a refresh loop that re-fetches the run every ~7s while the SQL job is active so badges update live.
+
+Activity log additions: `sql_engine_started`, `sql_engine_completed`,
+`sql_engine_failed`, `sql_engine_cancelled`, `sql_engine_regenerated`.
 
 ## Genie Studio
 

@@ -18,6 +18,7 @@ import {
   PbiResultBanner,
   PbiScanDialog,
 } from "@/components/pipeline/run-detail";
+import { SqlProgressBanner } from "@/components/pipeline/sql-progress-banner";
 import { computeDomainStats } from "@/lib/domain/scoring";
 import { computeIndustryCoverage } from "@/lib/domain/industry-coverage";
 import { toast } from "sonner";
@@ -169,6 +170,8 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
         onEdit={() => setIndustryEditing(true)}
         onCancelEdit={() => setIndustryEditing(false)}
       />
+
+      {isCompleted && <SqlProgressBanner runId={runId} />}
 
       {isQueued && <RunQueuedCard run={run} onCancel={handleCancel} />}
       {isActive && <RunProgressCard run={run} runId={runId} onCancel={handleCancel} />}

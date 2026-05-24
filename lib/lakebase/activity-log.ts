@@ -47,7 +47,12 @@ export type ActivityAction =
   | "waf_dashboard_generated"
   | "waf_genie_generated"
   | "bv_step_degraded"
-  | "app_config_updated";
+  | "app_config_updated"
+  | "sql_engine_started"
+  | "sql_engine_completed"
+  | "sql_engine_failed"
+  | "sql_engine_cancelled"
+  | "sql_engine_regenerated";
 
 export interface ActivityLogEntry {
   activityId: string;

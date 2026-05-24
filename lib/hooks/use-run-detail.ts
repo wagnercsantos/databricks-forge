@@ -28,6 +28,9 @@ export function useRunDetail(runId: string) {
   const dashboardPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [bvGenerating, setBvGenerating] = useState(false);
   const bvPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [sqlGenerating, setSqlGenerating] = useState(false);
+  const sqlPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sqlRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [promptLogs, setPromptLogs] = useState<PromptLogEntry[]>([]);
   const [promptStats, setPromptStats] = useState<PromptLogStats | null>(null);
@@ -392,6 +395,88 @@ export function useRunDetail(runId: string) {
     };
   }, [run?.status, runId, useCases.length]);
 
+  // SQL Engine background-job indicator. Async SQL generation runs after
+  // step 6 marks the run completed; we poll the status endpoint with
+  // exponential backoff while the job is active so the page can render an
+  // in-flight banner and per-UC `sqlStatus` badges. Once the job moves out
+  // of `generating`, polling stops; the SqlProgressBanner triggers a
+  // `router.refresh()` so the server component picks up the final state.
+  useEffect(() => {
+    if (run?.status !== "completed" || useCases.length === 0) return;
+    let cancelled = false;
+    async function checkSqlStatus() {
+      try {
+        const res = await fetch(`/api/runs/${runId}/sql-engine/generate/status`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (data.status === "generating") {
+          setSqlGenerating(true);
+          if (!sqlPollRef.current) {
+            let sqlDelay = 2500;
+            const sqlPoll = async () => {
+              try {
+                const r = await fetch(`/api/runs/${runId}/sql-engine/generate/status`);
+                if (r.ok) {
+                  const d = await r.json();
+                  if (d.status !== "generating") {
+                    setSqlGenerating(false);
+                    sqlPollRef.current = null;
+                    // Final refresh to pick up the freshly-persisted SQL.
+                    fetchRunRef.current();
+                    return;
+                  }
+                }
+              } catch {
+                /* ignore */
+              }
+              sqlDelay = Math.min(sqlDelay * 1.2, 8000);
+              sqlPollRef.current = setTimeout(sqlPoll, sqlDelay);
+            };
+            sqlPollRef.current = setTimeout(sqlPoll, sqlDelay);
+          }
+        } else setSqlGenerating(false);
+      } catch {
+        /* ignore */
+      }
+    }
+    checkSqlStatus();
+    return () => {
+      cancelled = true;
+      if (sqlPollRef.current) {
+        clearTimeout(sqlPollRef.current);
+        sqlPollRef.current = null;
+      }
+    };
+  }, [run?.status, runId, useCases.length]);
+
+  // While the SQL background job is generating, refresh the run (and its
+  // use cases) every ~7s so the per-UC SqlStatusBadge in the table reflects
+  // freshly-persisted `sqlStatus` transitions (pending → generating → generated).
+  // Polling stops once `sqlGenerating` flips back to false.
+  useEffect(() => {
+    if (!sqlGenerating) {
+      if (sqlRefreshRef.current) {
+        clearTimeout(sqlRefreshRef.current);
+        sqlRefreshRef.current = null;
+      }
+      return;
+    }
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      fetchRunRef.current();
+      sqlRefreshRef.current = setTimeout(tick, 7000);
+    };
+    sqlRefreshRef.current = setTimeout(tick, 7000);
+    return () => {
+      cancelled = true;
+      if (sqlRefreshRef.current) {
+        clearTimeout(sqlRefreshRef.current);
+        sqlRefreshRef.current = null;
+      }
+    };
+  }, [sqlGenerating]);
+
   return {
     run,
     useCases,
@@ -405,6 +490,7 @@ export function useRunDetail(runId: string) {
     genieGenerating,
     dashboardGenerating,
     bvGenerating,
+    sqlGenerating,
     promptLogs,
     promptStats,
     logsLoading,

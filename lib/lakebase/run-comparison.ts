@@ -147,7 +147,7 @@ function buildMetrics(
   const withSql = useCases.filter((uc) => uc.sqlCode);
   const sqlSuccessRate =
     withSql.length > 0
-      ? withSql.filter((uc) => uc.sqlStatus === "success").length / withSql.length
+      ? withSql.filter((uc) => uc.sqlStatus === "generated").length / withSql.length
       : 0;
 
   return {
