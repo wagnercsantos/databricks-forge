@@ -174,6 +174,92 @@
 
 ---
 
+## Outcome map registry consolidation
+
+### Bug Fixes
+
+- **Visible duplicates in the Outcomes browser.** `INDUSTRY_OUTCOMES` previously
+  registered both the v2 split modules AND their legacy collapsed variants, so
+  the dropdown listed Retail twice (`retail` + `rcg`-as-"Retail & Consumer
+  Goods"), Healthcare twice (`healthcare` + `hls`), and Sports Betting / Real
+  Money Gaming as a duplicate cluster. The legacy modules
+  (`rcg.ts`, `hls.ts`, `sports-betting.ts`) plus their `.enrichment.ts`
+  re-export shims have been **deleted**. `INDUSTRY_ALIAS_MAP` still resolves
+  legacy ids (`rcg`, `hls`, `sports-betting`) to the canonical v2 ids so old
+  `ForgeRun` rows continue to load.
+
+- **Demo wizard auto-generated ad-hoc outcome maps.** The research engine
+  contained a Pass 3.5 (`runOutcomeMapGeneration`) and Pass 3.5b
+  (`runEnrichmentOnlyGeneration`) that, when the classifier returned
+  `isNew: true`, fired an LLM to invent an outcome map and persisted it to
+  `forge_outcome_maps` stamped `createdBy='demo-wizard'`. Discovery itself
+  never created maps; this was a Demo Mode regression. The pass file, the
+  wizard's "New industry outcome map generated and saved" banner, the
+  `outcome-map-generation` phase label, the `OUTCOME_MAP_GENERATION_PROMPT`
+  and `ENRICHMENT_ONLY_GENERATION_PROMPT` templates, and the
+  `generatedOutcomeMap` field on `ResearchEngineResult` are all gone. The
+  classifier prompt is now closed-list — it MUST return one of the registered
+  industry ids — and the engine still routes the result through
+  `normalizeIndustryId` with a closest-match fallback so a degenerate LLM
+  response cannot bypass the registry.
+
+### Improvements
+
+- **Consultant-grade depth across the v2 split modules.** RCG / HLS /
+  SPORTS_BETTING content (deep `whyChange` narratives,
+  `businessValue` outcome statements, `typicalDataEntities`, and
+  `typicalSourceSystems` per use case) was lifted into the canonical v2
+  modules:
+  - `rcg.ts` → split across `retail.ts` (omni-channel fulfilment, CDP /
+    real-time personalisation, multi-brand loyalty, store labour /
+    in-store execution, competitor pricing) and `consumer-goods.ts`
+    (supplier risk + demand forecasting, retailer-supplier collaboration,
+    field operations, knowledge management, consumer sentiment).
+  - `hls.ts` → split across `healthcare.ts` (patient care, population
+    health, claims, payer ops) and `life-sciences.ts` (drug discovery,
+    clinical trials, pharmacovigilance). Cross-cutting compliance use
+    cases got authored on both sides with industry-appropriate sourcing.
+  - `sports-betting.ts` → folded wholesale into `real-money-gaming.ts`.
+- **Five thin v2 modules uplifted to the same bar.** `capital-markets.ts`,
+  `media-advertising.ts`, `energy-utilities.ts`, `games.ts`, and
+  `digital-natives.ts` previously had only name + 1-line description per
+  use case. Each now ships deep `whyChange` prose, quantified
+  `businessValue` outcomes (sourced from the existing
+  `*.enrichment.ts` `kpiTarget` + `benchmarkImpact` data), 4-6
+  `typicalDataEntities`, and 3-5 `typicalSourceSystems` per reference
+  use case.
+- **Master Repository converter writes directly to v2.**
+  `scripts/convert-master-repo.mjs` now maps the XLSX names directly to
+  the canonical v2 ids (`Retail` → `retail`, `Consumer Goods` →
+  `consumer-goods`, `Life Sciences` → `life-sciences`, `Healthcare` →
+  `healthcare`, `Real Money Gaming [Digital]` → `real-money-gaming`).
+  Future re-runs no longer round-trip through the legacy id namespace.
+
+### Behavior Changes
+
+- The Outcomes browser dropdown is shorter and free of duplicates. Three
+  legacy entries (`rcg`, `hls`, `sports-betting`) are gone from the visible
+  list; they continue to resolve to canonical ids for existing
+  `ForgeRun.config.industry` rows.
+- The Demo wizard timeline no longer shows an "Industry Knowledge" step
+  and never writes to `forge_outcome_maps`. If the classifier picks an id
+  that is somehow unmapped, the engine logs a server-side warning and
+  falls back to the closest registered industry — it never papers over
+  the gap with a per-customer LLM-generated map.
+- `forge_outcome_maps` rows previously stamped `createdBy='demo-wizard'`
+  are NOT auto-deleted; they continue to override the (now-richer)
+  built-ins for any colliding `industryId`. To purge them in one shot:
+  `prisma.forgeOutcomeMap.deleteMany({ where: { createdBy: "demo-wizard" } })`.
+
+### Known Limitations
+
+- The per-industry benchmark packs in `data/benchmark/{rcg,hls,sports-betting}*.json`
+  remain on disk. They're keyed by the legacy industry ids and are still
+  consulted by older runs that resolve through `INDUSTRY_ALIAS_MAP`.
+  Retiring them properly needs a benchmark migration tracked separately.
+
+---
+
 ## All Commits
 
 | Hash | Summary |

@@ -63,23 +63,37 @@ const INDUSTRY_MAP = {
     exportName: "ENERGY_UTILITIES",
     name: "Energy & Utilities",
   },
-  Retail: { id: "rcg", exportName: "RCG", name: "Retail & Consumer Goods" },
-  "Consumer Goods": { id: "rcg", exportName: "RCG", name: "Retail & Consumer Goods" },
-  "Life Sciences": { id: "hls", exportName: "HLS", name: "Health & Life Sciences" },
-  Healthcare: { id: "hls", exportName: "HLS", name: "Health & Life Sciences" },
+  // v2 canonical ids: each Master Repo industry maps directly to its own
+  // dedicated outcome map module after the May 2026 registry consolidation.
+  Retail: { id: "retail", exportName: "RETAIL", name: "Retail" },
+  "Consumer Goods": {
+    id: "consumer-goods",
+    exportName: "CONSUMER_GOODS",
+    name: "Consumer Goods",
+  },
+  "Life Sciences": {
+    id: "life-sciences",
+    exportName: "LIFE_SCIENCES",
+    name: "Life Sciences",
+  },
+  Healthcare: { id: "healthcare", exportName: "HEALTHCARE", name: "Healthcare" },
   "Banking & Payments": { id: "banking", exportName: "BANKING", name: "Banking & Payments" },
-  "Capital Markets": { id: "banking", exportName: "BANKING", name: "Banking & Payments" },
+  "Capital Markets": {
+    id: "capital-markets",
+    exportName: "CAPITAL_MARKETS",
+    name: "Capital Markets",
+  },
   Insurance: { id: "insurance", exportName: "INSURANCE", name: "Insurance" },
   "Recreational Gaming": { id: "games", exportName: "GAMES", name: "Recreational Gaming" },
   "Real Money Gaming [Digital]": {
-    id: "sports-betting",
-    exportName: "SPORTS_BETTING",
-    name: "Sports Betting & Real Money Gaming",
+    id: "real-money-gaming",
+    exportName: "REAL_MONEY_GAMING",
+    name: "Real Money Gaming (Digital)",
   },
   "Casinos & Resorts": {
-    id: "sports-betting",
-    exportName: "SPORTS_BETTING",
-    name: "Sports Betting & Real Money Gaming",
+    id: "casinos-resorts",
+    exportName: "CASINOS_RESORTS",
+    name: "Casinos & Resorts",
   },
   "Digital Natives/Born in the Cloud": {
     id: "digital-natives",

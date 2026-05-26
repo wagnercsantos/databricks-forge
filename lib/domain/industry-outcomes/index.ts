@@ -54,8 +54,6 @@ export interface IndustryOutcome {
 
 import { BANKING } from "./banking";
 import { INSURANCE } from "./insurance";
-import { HLS } from "./hls";
-import { RCG } from "./rcg";
 import { MANUFACTURING } from "./manufacturing";
 import { ENERGY_UTILITIES } from "./energy-utilities";
 import { WATER_UTILITIES } from "./water-utilities";
@@ -65,12 +63,11 @@ import { DIGITAL_NATIVES } from "./digital-natives";
 import { GAMES } from "./games";
 import { RAIL_TRANSPORT } from "./rail-transport";
 import { AUTOMOTIVE_MOBILITY } from "./automotive-mobility";
-import { SPORTS_BETTING } from "./sports-betting";
 import { SUPERANNUATION } from "./superannuation";
 import { CONSTRUCTION_INFRASTRUCTURE } from "./construction-infrastructure";
 import { MINING } from "./mining";
 
-// New Master Repo v2 industries (split from previous collapsed ids).
+// Master Repo v2 canonical industries.
 import { RETAIL } from "./retail";
 import { CONSUMER_GOODS } from "./consumer-goods";
 import { LIFE_SCIENCES } from "./life-sciences";
@@ -83,9 +80,16 @@ import { REAL_MONEY_GAMING } from "./real-money-gaming";
 // Registry -- Built-in (static) outcome maps
 // ---------------------------------------------------------------------------
 
-/** Built-in industry outcome maps (curated from /docs/outcome maps/). */
+/**
+ * Built-in industry outcome maps. As of the May 2026 registry consolidation
+ * the legacy collapsed ids (`rcg`, `hls`, `sports-betting`) are no longer
+ * registered as standalone modules -- their consultant-grade content was
+ * lifted into the canonical v2 modules (RETAIL + CONSUMER_GOODS,
+ * HEALTHCARE + LIFE_SCIENCES, REAL_MONEY_GAMING). Existing
+ * `ForgeRun.config.industry` rows keyed by the legacy ids continue to
+ * resolve via `INDUSTRY_ALIAS_MAP` below.
+ */
 export const INDUSTRY_OUTCOMES: IndustryOutcome[] = [
-  // New, split-out v2 industries first so they show up as the canonical pick.
   RETAIL,
   CONSUMER_GOODS,
   LIFE_SCIENCES,
@@ -93,12 +97,8 @@ export const INDUSTRY_OUTCOMES: IndustryOutcome[] = [
   CAPITAL_MARKETS,
   CASINOS_RESORTS,
   REAL_MONEY_GAMING,
-  // Legacy collapsed ids retained for backwards compatibility with existing
-  // ForgeRun.config.industry rows. See INDUSTRY_ALIAS_MAP below.
   BANKING,
   INSURANCE,
-  HLS,
-  RCG,
   MANUFACTURING,
   ENERGY_UTILITIES,
   WATER_UTILITIES,
@@ -108,7 +108,6 @@ export const INDUSTRY_OUTCOMES: IndustryOutcome[] = [
   GAMES,
   RAIL_TRANSPORT,
   AUTOMOTIVE_MOBILITY,
-  SPORTS_BETTING,
   SUPERANNUATION,
   CONSTRUCTION_INFRASTRUCTURE,
   MINING,
@@ -116,10 +115,10 @@ export const INDUSTRY_OUTCOMES: IndustryOutcome[] = [
 
 /**
  * Maps legacy collapsed industry ids to the canonical v2 id used by the
- * Master Repository seed. Old `ForgeRun.config.industry='rcg'` rows continue
- * to resolve their handcrafted outcome map (`RCG`), but downstream master
- * repo enrichment lookups should prefer the canonical v2 id when a caller
- * needs to read structured fields like `economicPatternName`.
+ * Master Repository seed. Old `ForgeRun.config.industry='rcg'|'hls'|
+ * 'sports-betting'` rows continue to resolve their outcome map via this
+ * alias table after the May 2026 registry consolidation removed the
+ * standalone legacy modules.
  */
 export const INDUSTRY_ALIAS_MAP: Record<string, string> = {
   rcg: "retail",
@@ -139,11 +138,20 @@ export function resolveIndustryId(id: string | null | undefined): string | null 
 
 /**
  * Look up an industry outcome by its id (built-in only, synchronous).
+ * Resolves legacy collapsed ids (`rcg`, `hls`, `sports-betting`) via
+ * `INDUSTRY_ALIAS_MAP` so old `ForgeRun.config.industry` rows still
+ * resolve to a registered outcome map after the May 2026 consolidation.
  * For server-side code that should also check custom maps, use
  * `getIndustryOutcomeAsync` instead.
  */
 export function getIndustryOutcome(id: string): IndustryOutcome | undefined {
-  return INDUSTRY_OUTCOMES.find((i) => i.id === id);
+  const direct = INDUSTRY_OUTCOMES.find((i) => i.id === id);
+  if (direct) return direct;
+  const aliased = INDUSTRY_ALIAS_MAP[id];
+  if (aliased && aliased !== id) {
+    return INDUSTRY_OUTCOMES.find((i) => i.id === aliased);
+  }
+  return undefined;
 }
 
 /**

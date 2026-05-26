@@ -143,8 +143,7 @@ Click **Start Research** to kick off the Research Engine.
 The wizard shows a step-by-step timeline with real-time progress:
 
 - **Gathering Sources** -- website scraping, IR document discovery
-- **Classifying Industry** -- LLM-based industry detection (if auto-detect)
-- **Industry Knowledge** -- checking/generating outcome map and enrichment
+- **Classifying Industry** -- LLM-based, closed-list industry pick from the registered v2 outcome maps (with `normalizeIndustryId` closest-match fallback). The wizard never invents or auto-generates outcome maps; missing registry coverage shows up as a server-side warning, not a per-customer LLM workaround.
 - **Industry Landscape / Key Quotes / Source Summaries** -- Phase-1 fan-out runs in parallel (Balanced + Full)
 - **Analytical Passes** -- varies by preset: Quick = 1 synthesis pass; Balanced = combined strategy-narrative; Full = deep-dive → data strategy → demo narrative
 - **Persona Talk Tracks / Evidence Linking** -- Phase-5 fan-out runs in parallel; the evidence-linking pass retrieves verbatim quotes from the `company_research` pgvector store to ground every `sourced` claim
@@ -587,14 +586,14 @@ it, the engine has less context for nomenclature and realistic values.
 |---|---|
 | `lib/demo/research-engine/engine.ts` | `runResearchEngine()` orchestrator with parallel fan-outs (Phase-1 and Phase-5) + `normalizeIndustryId()` |
 | `lib/demo/research-engine/types.ts` | Input, deps, result, intermediate analysis types (`Evidence`, `ExecutiveBrief`, `PersonaTalkTrack`, `KeyQuote`, `SourceSummary`, expanded `KillerMoment`) |
-| `lib/demo/research-engine/prompts.ts` | All prompt templates (incl. `KEY_QUOTES_PROMPT`, `SOURCE_SUMMARIES_PROMPT`, `PERSONA_TALK_TRACK_PROMPT`, `ENRICHMENT_ONLY_GENERATION_PROMPT`) |
+| `lib/demo/research-engine/prompts.ts` | All prompt templates (incl. `KEY_QUOTES_PROMPT`, `SOURCE_SUMMARIES_PROMPT`, `PERSONA_TALK_TRACK_PROMPT`, `INDUSTRY_CLASSIFICATION_PROMPT`). The closed-list classification prompt forbids inventing new industry ids -- every customer is mapped onto one of the registered v2 industries. |
 | `lib/demo/research-engine/engine-status.ts` | In-memory status tracking (no ForgeBackgroundJob) |
 | `lib/demo/research-engine/industry-cache.ts` | In-memory LRU cache (24h TTL) for `industry-landscape` outputs keyed by `industryId::subVertical` |
 | `lib/demo/research-engine/passes/key-quotes.ts` | `runKeyQuotesExtraction()` -- verbatim executive-worthy quote extraction |
 | `lib/demo/research-engine/passes/source-summaries.ts` | `runSourceSummaries()` -- per-source 2-sentence summary + 3 takeaways |
 | `lib/demo/research-engine/passes/persona-talk-track.ts` | `runPersonaTalkTrack()` -- 5-persona objection-handling talk tracks |
 | `lib/demo/research-engine/passes/evidence-linking.ts` | `runEvidenceLinking()` -- RAG-backed quote attachment via pgvector `company_research` index |
-| `lib/demo/research-engine/passes/*.ts` | Other pass implementations (incl. `runEnrichmentOnlyGeneration`) |
+| `lib/demo/research-engine/passes/*.ts` | Other pass implementations (industry-classification, quick-synthesis, industry-landscape, company-deep-dive, data-strategy-mapping, demo-narrative). Outcome-map and enrichment auto-generation passes were removed in May 2026 -- the registry is now authoritative. |
 
 ### Data Engine
 

@@ -469,13 +469,12 @@ Key modules:
 - `lib/demo/research-engine/engine-status.ts` -- in-memory + Lakebase job status
 - `lib/demo/research-engine/prompts.ts` -- prompt templates for all passes
 - `lib/demo/research-engine/types.ts` -- `ResearchEngineInput`, `ResearchEngineResult`
-- `lib/demo/research-engine/passes/` -- individual pass modules (website-scrape, ir-crawler, doc-parser, industry-classification, outcome-map-generation, quick-synthesis, industry-landscape, company-deep-dive, data-strategy-mapping, demo-narrative, **key-quotes-extraction**, **source-summaries**, **persona-talk-track**, **evidence-linking**)
+- `lib/demo/research-engine/passes/` -- individual pass modules (website-scrape, ir-crawler, doc-parser, industry-classification, quick-synthesis, industry-landscape, company-deep-dive, data-strategy-mapping, demo-narrative, **key-quotes-extraction**, **source-summaries**, **persona-talk-track**, **evidence-linking**). The wizard does NOT auto-generate outcome maps -- every customer is mapped to one of the registered industries via `normalizeIndustryId` with a closest-match fallback (May 2026 consolidation removed the `outcome-map-generation` and `enrichment-only-generation` passes).
 - `lib/demo/research-engine/industry-cache.ts` -- in-memory LRU cache (24h TTL) keyed by `industryId::subVertical` for reusing `industry-landscape` outputs across sessions in the same segment
 - `lib/demo/research-engine/recency.ts` -- `recencyWeight()` / `isStale()` / `publishedYearOf()` utilities; tunable constants `RECENT_YEARS`, `HARD_FLOOR_YEARS`, `STALE_YEARS`, `UNKNOWN_DATE_WEIGHT` (single source of truth for the recency bias curve)
 - `lib/demo/research-engine/date-extraction.ts` -- detects `publishedAt` from sitemap `lastmod`, SEC filing dates, HTTP `Last-Modified`, HTML meta / JSON-LD, URL / filename year regex, and text-body scan; tags a `dateConfidence` of `high` | `medium` | `low` | `unknown`
 
-Passes (vary by preset): source collection → industry classification → outcome map
-generation (if needed) → Phase-1 fan-out (industry-landscape ∥ key-quotes-extraction ∥ source-summaries) → analysis passes (quick-synthesis for Quick; strategy-and-narrative for Balanced; company-deep-dive → data-strategy-mapping → demo-narrative for Full) → Phase-5 fan-out (persona-talk-track ∥ evidence-linking).
+Passes (vary by preset): source collection → industry classification (closed-list pick from registered v2 industries) → Phase-1 fan-out (industry-landscape ∥ key-quotes-extraction ∥ source-summaries) → analysis passes (quick-synthesis for Quick; strategy-and-narrative for Balanced; company-deep-dive → data-strategy-mapping → demo-narrative for Full) → Phase-5 fan-out (persona-talk-track ∥ evidence-linking).
 
 **Consultant-grade outputs** (Balanced + Full): every major assertion is
 grounded via a tiered `Evidence` model -- `sourced` (verbatim quote + URL),

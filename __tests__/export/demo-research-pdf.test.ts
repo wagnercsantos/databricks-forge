@@ -53,7 +53,6 @@ function makeResearch(sourceCount: number): ResearchEngineResult {
     sources: manySources(sourceCount),
     confidence: 0.5,
     passTimings: {},
-    generatedOutcomeMap: false,
   };
 }
 
@@ -88,7 +87,6 @@ describe("generateDemoResearchPdf", () => {
       sources: [],
       confidence: 0.1,
       passTimings: {},
-      generatedOutcomeMap: false,
     };
     const buf = await generateDemoResearchPdf(minimal, "Acme");
     expect(buf.length).toBeGreaterThan(500);

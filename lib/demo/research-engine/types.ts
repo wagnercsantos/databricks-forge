@@ -65,7 +65,6 @@ export type ResearchPhase =
   | "doc-parsing"
   | "embedding"
   | "industry-classification"
-  | "outcome-map-generation"
   | "quick-synthesis"
   | "key-quotes-extraction"
   | "source-summaries"
@@ -196,7 +195,6 @@ export interface IndustryClassification {
   industryId: string;
   industryName: string;
   confidence: number;
-  isNew: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -376,5 +374,4 @@ export interface ResearchEngineResult {
   sources: ResearchSource[];
   confidence: number;
   passTimings: Record<string, number>;
-  generatedOutcomeMap: boolean;
 }

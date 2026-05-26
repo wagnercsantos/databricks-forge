@@ -54,7 +54,6 @@ function makeResearch(): ResearchEngineResult {
     sources: [],
     confidence: 0.5,
     passTimings: {},
-    generatedOutcomeMap: false,
   };
 }
 
@@ -89,7 +88,6 @@ describe("generateDemoResearchPptx", () => {
       sources: [],
       confidence: 0.1,
       passTimings: {},
-      generatedOutcomeMap: false,
     };
     const buf = await generateDemoResearchPptx(minimal, "Acme");
     expect(buf.length).toBeGreaterThan(1000);

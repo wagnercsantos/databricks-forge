@@ -1,9 +1,14 @@
 /**
  * Research Engine -- multi-pass, preset-aware company intelligence gathering.
  *
- * Orchestrates source collection, industry classification, outcome map
- * generation, and analytical passes. Consultant-grade outputs come from
- * parallel fan-outs:
+ * Orchestrates source collection, industry classification, and analytical
+ * passes. The wizard never auto-generates outcome maps; every customer is
+ * mapped to one of the registered industries via `normalizeIndustryId`
+ * (with closest-match fallback). The May 2026 consolidation removed the
+ * outcome-map-generation and enrichment-only-generation passes -- the
+ * registered v2 industries cover the field.
+ *
+ * Consultant-grade outputs come from parallel fan-outs:
  *   - Phase 1: industry-landscape || key-quotes-extraction || source-summaries
  *   - Phase 2: company-deep-dive (Full) or strategy-and-narrative (Balanced)
  *   - Phase 3: data-strategy-mapping (Full)
@@ -38,7 +43,6 @@ import { runIRDiscovery } from "./passes/ir-crawler";
 import { embedResearchSources } from "./passes/research-embedder";
 import { runDocParsing } from "./passes/doc-parser";
 import { runIndustryClassification } from "./passes/industry-classification";
-import { runOutcomeMapGeneration, runEnrichmentOnlyGeneration } from "./passes/outcome-map-generation";
 import { runQuickSynthesis } from "./passes/quick-synthesis";
 import { runIndustryLandscape } from "./passes/industry-landscape";
 import { runStrategyAndNarrative } from "./passes/strategy-and-narrative";
@@ -51,50 +55,13 @@ import { runPersonaTalkTrack } from "./passes/persona-talk-track";
 import { runEvidenceLinking } from "./passes/evidence-linking";
 import { getCachedIndustryLandscape, setCachedIndustryLandscape } from "./industry-cache";
 import { recencyWeight } from "./recency";
+import { normalizeIndustryId, closestIndustryMatch } from "./industry-match";
 
 export class ResearchCancelledError extends Error {
   constructor() {
     super("Research was cancelled");
     this.name = "ResearchCancelledError";
   }
-}
-
-/**
- * Normalize a free-form industry string to a known industry outcome ID.
- * Tries: exact match -> kebab-case -> starts-with -> name match -> no match.
- */
-function normalizeIndustryId(
-  raw: string,
-  allOutcomes: Array<{ id: string; name: string }>,
-): string | null {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-
-  if (allOutcomes.some((o) => o.id === trimmed)) return trimmed;
-
-  const kebab = trimmed
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-
-  const exactKebab = allOutcomes.find((o) => o.id === kebab);
-  if (exactKebab) return exactKebab.id;
-
-  const startsWith = allOutcomes.find(
-    (o) => o.id.startsWith(kebab) || kebab.startsWith(o.id),
-  );
-  if (startsWith) return startsWith.id;
-
-  const lowerName = trimmed.toLowerCase();
-  const nameMatch = allOutcomes.find(
-    (o) =>
-      o.name.toLowerCase() === lowerName ||
-      o.name.toLowerCase().includes(lowerName) ||
-      lowerName.includes(o.name.toLowerCase()),
-  );
-  if (nameMatch) return nameMatch.id;
-
-  return null;
 }
 
 export async function runResearchEngine(
@@ -275,7 +242,6 @@ export async function runResearchEngine(
   const classificationAndOutcomeTask = (async () => {
     let industryIdInner = input.industryId ?? "";
     let industryNameInner = "";
-    let generatedOutcomeMapInner = false;
 
     const allOutcomes = await getAllIndustryOutcomes();
     const allOutcomeSummaries = allOutcomes.map((o) => ({ id: o.id, name: o.name }));
@@ -307,6 +273,31 @@ export async function runResearchEngine(
         industryIdInner = normalized;
         const match = allOutcomeSummaries.find((o) => o.id === normalized);
         if (match) industryNameInner = match.name;
+      } else {
+        // Closest-match fallback. Compares the classifier's raw id AND name
+        // against every registered industry's id AND name (normalised
+        // Levenshtein), so a degenerate LLM output ("rmg" / "betting") still
+        // routes to the most similar registered industry rather than to
+        // whichever happens to be alphabetically first. Only the truly
+        // empty case (LLM returned nothing) falls through to picking the
+        // first registered entry as a last-ditch default.
+        const closest = closestIndustryMatch(
+          classification.industryId,
+          classification.industryName,
+          allOutcomeSummaries,
+        );
+        const fallback = closest ?? allOutcomeSummaries[0];
+        log.warn("Industry classification produced no canonical match; using closest-match fallback", {
+          rawId: classification.industryId,
+          rawName: classification.industryName,
+          fallback: fallback?.id,
+          fallbackName: fallback?.name,
+          mode: closest ? "closest-match" : "first-registered",
+        });
+        if (fallback) {
+          industryIdInner = fallback.id;
+          industryNameInner = fallback.name;
+        }
       }
 
       progress("industry-classification", 19, `Classified as ${industryNameInner} (${Math.round(classification.confidence * 100)}% confidence)`);
@@ -320,50 +311,24 @@ export async function runResearchEngine(
 
     checkCancelled(signal);
 
-    progress("outcome-map-generation", 20, "Checking existing industry knowledge...");
-
+    // Sanity-check the registry has both the outcome map and the master
+    // repo enrichment for the resolved industry. We never auto-generate;
+    // missing data is a registry/config gap and surfaces as a warning so
+    // it can be fixed centrally instead of papered over per-customer.
     const existingOutcome = await getIndustryOutcomeAsync(industryIdInner);
     const existingEnrichment = await getMasterRepoEnrichmentAsync(industryIdInner);
-
-    if (existingOutcome && existingEnrichment) {
-      progress("outcome-map-generation", 23, `Using existing outcome map + enrichment for ${industryNameInner}`);
-      log.info("Outcome map + enrichment both exist, skipping generation", { industryId: industryIdInner });
-    } else if (existingOutcome && !existingEnrichment) {
-      progress("outcome-map-generation", 21, `Generating data asset enrichment for ${industryNameInner}...`);
-      t0 = Date.now();
-
-      await runEnrichmentOnlyGeneration(industryIdInner, industryNameInner, existingOutcome, combinedSourceText, {
-        llm,
-        logger: log,
-        signal,
-        modelTier,
-      });
-
-      generatedOutcomeMapInner = true;
-      const reloadedEnrichment = await getMasterRepoEnrichmentAsync(industryIdInner);
-      progress("outcome-map-generation", 23, `Generated ${reloadedEnrichment?.dataAssets?.length ?? 0} data assets`);
-      passTimings["outcome-map-generation"] = Date.now() - t0;
-    } else {
-      progress("outcome-map-generation", 21, `No existing outcome map -- generating for ${industryNameInner}...`);
-      t0 = Date.now();
-
-      const genResult = await runOutcomeMapGeneration(industryIdInner, industryNameInner, combinedSourceText, {
-        llm,
-        logger: log,
-        signal,
-        modelTier,
-      });
-
-      generatedOutcomeMapInner = true;
-      progress("outcome-map-generation", 23, `Generated ${genResult.enrichment.dataAssets.length} data assets and ${genResult.enrichment.useCases.length} use cases`);
-      passTimings["outcome-map-generation"] = Date.now() - t0;
+    if (!existingOutcome) {
+      log.warn("Resolved industry has no registered outcome map", { industryId: industryIdInner });
+    }
+    if (!existingEnrichment) {
+      log.warn("Resolved industry has no master-repo enrichment", { industryId: industryIdInner });
     }
 
-    return { industryId: industryIdInner, industryName: industryNameInner, generatedOutcomeMap: generatedOutcomeMapInner };
+    return { industryId: industryIdInner, industryName: industryNameInner };
   })();
 
   const [, classResult] = await Promise.all([embeddingTask, classificationAndOutcomeTask]);
-  const { industryId, industryName, generatedOutcomeMap } = classResult;
+  const { industryId, industryName } = classResult;
 
   checkCancelled(signal);
 
@@ -797,7 +762,6 @@ export async function runResearchEngine(
     sources: allSources,
     confidence,
     passTimings,
-    generatedOutcomeMap,
   };
 
   const totalMs = Date.now() - startTime;

@@ -2,7 +2,11 @@
  * Pass 3.25: Industry Classification
  *
  * Conditional pass -- only runs when industryId was not pre-selected.
- * Matches against existing outcome map registry or proposes a new industry.
+ * Matches the company against the closed list of registered outcome map
+ * industries. The classifier MUST return one of the registered ids; the
+ * caller still runs the result through `normalizeIndustryId` with a
+ * closest-match fallback so a degenerate LLM response cannot bypass the
+ * registry. The wizard never invents new industries.
  */
 
 import { parseLLMJson } from "@/lib/toolkit/parse-llm-json";
@@ -51,13 +55,11 @@ export async function runIndustryClassification(
     industryId: parsed.industryId,
     industryName: parsed.industryName,
     confidence: parsed.confidence,
-    isNew: parsed.isNew,
   });
 
   return {
     industryId: parsed.industryId,
     industryName: parsed.industryName,
     confidence: parsed.confidence ?? 0.8,
-    isNew: parsed.isNew ?? false,
   };
 }

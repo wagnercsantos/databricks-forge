@@ -20,7 +20,6 @@ import {
   Link2,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ResearchEngineResult } from "@/lib/demo/research-engine/types";
 import type { ResearchJobStatus } from "@/lib/demo/research-engine/engine-status";
@@ -39,7 +38,6 @@ const PHASE_LABELS: Record<string, { label: string; icon: React.ReactNode }> = {
   "doc-parsing": { label: "Parsing Documents", icon: <FileText className="h-4 w-4" /> },
   embedding: { label: "Embedding for Ask Forge", icon: <CircleDot className="h-4 w-4" /> },
   "industry-classification": { label: "Classifying Industry", icon: <Search className="h-4 w-4" /> },
-  "outcome-map-generation": { label: "Industry Knowledge", icon: <Map className="h-4 w-4" /> },
   "quick-synthesis": { label: "Quick Synthesis", icon: <Sparkles className="h-4 w-4" /> },
   "industry-landscape": { label: "Industry Landscape", icon: <BarChart3 className="h-4 w-4" /> },
   "key-quotes-extraction": { label: "Extracting Key Quotes", icon: <Quote className="h-4 w-4" /> },
@@ -60,7 +58,6 @@ const PHASE_ORDER: ResearchPhase[] = [
   "doc-parsing",
   "embedding",
   "industry-classification",
-  "outcome-map-generation",
   "quick-synthesis",
   "industry-landscape",
   "key-quotes-extraction",
@@ -298,13 +295,6 @@ function ResearchSummary({
         </div>
       )}
 
-      {/* Generated outcome map banner */}
-      {research.generatedOutcomeMap && (
-        <div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-          <Sparkles className="h-3.5 w-3.5 shrink-0" />
-          New industry outcome map generated and saved for future use.
-        </div>
-      )}
     </div>
   );
 }

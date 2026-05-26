@@ -10,113 +10,30 @@
 // Pass 3.25: Industry Classification
 // ---------------------------------------------------------------------------
 
-export const INDUSTRY_CLASSIFICATION_PROMPT = `You are an expert industry analyst. Given text about a company, classify which industry it belongs to.
+export const INDUSTRY_CLASSIFICATION_PROMPT = `You are an expert industry analyst. Given text about a company, pick the single best-fit industry from a CLOSED LIST.
 
-# EXISTING INDUSTRIES
-These are the industries that already have outcome maps. Match to one if a reasonable fit exists:
+# EXISTING INDUSTRIES (CLOSED LIST -- DO NOT INVENT NEW IDS)
+You MUST return one of the ids below. Forge maintains consultant-grade outcome maps only for these industries; new ids are not honoured downstream and will be rejected.
 {existing_industries}
 
 # COMPANY INFORMATION
 {source_text}
 
 # TASK
-Classify this company into one industry.
+Classify this company into the single best-fit industry from the list above.
 
-If one of the existing industries is a reasonable fit, return its exact id.
-Only propose a new industry if none of the existing options are appropriate.
-If proposing new: return a lowercase slug id (e.g., "agriculture", "hospitality") and a display name.
+Rules:
+- Return the exact id from the list (lowercase slug). Do not invent new ids.
+- If no industry is a perfect fit, pick the closest match and lower the confidence accordingly. Never return an id that is not in the list.
+- Prefer the more specific industry when two could apply (e.g. prefer "capital-markets" over "banking" for an asset manager).
 
 # OUTPUT FORMAT
 Return JSON:
 {
-  "industryId": "string",
-  "industryName": "string",
+  "industryId": "string (must be one of the ids above)",
+  "industryName": "string (display name for the chosen id)",
   "confidence": 0.0-1.0,
-  "isNew": boolean,
   "reasoning": "one sentence explaining the classification"
-}`;
-
-// ---------------------------------------------------------------------------
-// Pass 3.5: Outcome Map Generation
-// ---------------------------------------------------------------------------
-
-export const OUTCOME_MAP_GENERATION_PROMPT = `# PERSONA
-You are a senior industry strategist with 20 years of experience in {industry_name}.
-
-# TASK
-Generate a comprehensive industry outcome map for the {industry_name} industry.
-This will be used to guide demo data generation for customer engagements.
-
-# FEW-SHOT EXAMPLE
-Here is an abbreviated example of the structure expected (from Banking & Payments):
-{few_shot_example}
-
-# ADDITIONAL CONTEXT
-{source_context}
-
-# REQUIREMENTS
-1. Generate 3-4 strategic objectives, each with:
-   - A "whyChange" narrative explaining the industry pressure
-   - 2-3 strategic priorities with 3-5 use cases each
-   - KPIs and personas per priority
-2. Generate 15-25 Reference Data Assets with:
-   - Unique id (e.g. "A01"), name, description, systemLocation, assetFamily
-   - easeOfAccess rating, lakeflowConnect/ucFederation/lakebridgeMigrate (High/Low)
-3. Generate 10-20 use cases with:
-   - name, description, rationale, modelType
-   - kpiTarget, benchmarkImpact (realistic industry-typical ranges)
-   - strategicImperative, strategicPillar
-   - dataAssetIds linking to the data assets above
-   - dataAssetCriticality mapping (MC = Mission Critical, VA = Value Add)
-
-IMPORTANT: Leave benchmarkSource and benchmarkUrl empty -- do not fabricate citations.
-For benchmarkImpact, provide realistic industry-typical ranges (e.g., "+15-25%", "2-3x improvement").
-
-# OUTPUT FORMAT
-Return a single JSON object with exactly these keys:
-{
-  "outcomeMap": { IndustryOutcome schema },
-  "enrichment": {
-    "useCases": [ MasterRepoUseCase[] ],
-    "dataAssets": [ ReferenceDataAsset[] ]
-  }
-}`;
-
-// ---------------------------------------------------------------------------
-// Pass 3.5b: Enrichment-Only Generation (when outcome map exists but no enrichment)
-// ---------------------------------------------------------------------------
-
-export const ENRICHMENT_ONLY_GENERATION_PROMPT = `# PERSONA
-You are a senior industry data architect specialising in {industry_name}.
-
-# TASK
-Generate the Master Repository enrichment (data assets + use cases) for the {industry_name} industry.
-The industry outcome map already exists (provided below) -- you only need to generate the data asset and use case layer.
-
-# EXISTING OUTCOME MAP
-{outcome_map_json}
-
-# ADDITIONAL CONTEXT
-{source_context}
-
-# REQUIREMENTS
-1. Generate 15-25 Reference Data Assets with:
-   - Unique id (e.g. "A01"), name, description, systemLocation, assetFamily
-   - easeOfAccess rating, lakeflowConnect/ucFederation/lakebridgeMigrate (High/Low)
-2. Generate 10-20 use cases with:
-   - name, description, rationale, modelType
-   - kpiTarget, benchmarkImpact (realistic industry-typical ranges)
-   - strategicImperative, strategicPillar
-   - dataAssetIds linking to the data assets above
-   - dataAssetCriticality mapping (MC = Mission Critical, VA = Value Add)
-
-IMPORTANT: Align data assets and use cases with the objectives and priorities from the outcome map above.
-
-# OUTPUT FORMAT
-Return a single JSON object:
-{
-  "dataAssets": [ ReferenceDataAsset[] ],
-  "useCases": [ MasterRepoUseCase[] ]
 }`;
 
 // ---------------------------------------------------------------------------
