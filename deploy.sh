@@ -15,17 +15,33 @@
 #   ./deploy.sh --endpoint "model" --fast-endpoint "fast-model" --review-endpoint "review-model"
 #   ./deploy.sh --reasoning-endpoint-2 "model" --generation-endpoint "model" --sql-endpoint "model"
 #   ./deploy.sh --allowed-models "model1,model2"
-# Required: Lakebase resource binding (postgres app resource)
+#
+# Lakebase resource binding (auto-provisioned by default):
+#   ./deploy.sh                                     # auto-provision project = sanitized app-name
+#   ./deploy.sh --lakebase-project-id "my-project"  # auto-provision into a named project
+#
+# Power-user override (skip auto-provision; use an existing project/branch/database):
 #   ./deploy.sh --lakebase-branch   "projects/<PROJECT_ID>/branches/<BRANCH_ID>"
 #               --lakebase-database "projects/<PROJECT_ID>/branches/<BRANCH_ID>/databases/<DB_ID>"
 #
-# Discover via:
+# Discover existing via:
 #   databricks postgres list-projects
 #   databricks postgres list-branches projects/<PROJECT_ID>
 #   databricks postgres list-databases projects/<PROJECT_ID>/branches/<BRANCH_ID>
 #
-# Optional Lakebase bootstrap grants:
+# Scale-to-zero (Lakebase Autoscaling) — applied to the branch at deploy time:
+#   ./deploy.sh --lakebase-scale-to-zero-seconds 300  # default
+#   ./deploy.sh --lakebase-scale-to-zero-seconds 0    # disabled (always-on)
+#
+# Optional Lakebase bootstrap grants (defaults to deploying user when auto-provisioning):
 #   ./deploy.sh --lakebase-bootstrap-user "user@company.com"
+#   ./deploy.sh --lakebase-bootstrap-user ""          # explicit opt-out
+#
+# Destroy flow (interactive prompt + non-interactive flags):
+#   ./deploy.sh --destroy                       # prompts about the Lakebase project
+#   ./deploy.sh --destroy --destroy-database    # also delete the project (soft)
+#   ./deploy.sh --destroy --purge-database      # also delete the project (hard / immediate)
+#   ./deploy.sh --destroy --keep-database       # skip the prompt, preserve the project
 # Optional benchmark seeding behavior:
 #   ./deploy.sh --seed-benchmarks --seed-benchmarks-all-industries
 #               --seed-benchmark-industries "banking,hls,rcg"
@@ -83,8 +99,15 @@ ARG_SQL_ENDPOINT=""
 ARG_LIGHTWEIGHT_ENDPOINT=""
 ARG_ALLOWED_MODELS=""
 ARG_LAKEBASE_BOOTSTRAP_USER=""
+ARG_LAKEBASE_BOOTSTRAP_USER_SET=false
 ARG_LAKEBASE_BRANCH=""
 ARG_LAKEBASE_DATABASE=""
+ARG_LAKEBASE_PROJECT_ID=""
+ARG_LAKEBASE_SCALE_TO_ZERO_SECONDS=""
+ARG_LAKEBASE_SCALE_TO_ZERO_SET=false
+ARG_DESTROY_DATABASE=false
+ARG_PURGE_DATABASE=false
+ARG_KEEP_DATABASE=false
 ARG_SEED_BENCHMARKS=false
 ARG_SEED_BENCHMARKS_ALL_INDUSTRIES=false
 ARG_SEED_BENCHMARK_INDUSTRIES=""
@@ -130,16 +153,32 @@ Options:
   --lightweight-endpoint NAME Optional lightweight/fast-classification model endpoint
   --allowed-models CSV        Comma-separated list of models the app may use
   --lakebase-bootstrap-user EMAIL
-                             Optional Databricks user email to bootstrap
-                             Lakebase OAuth role/grants during startup
-  --lakebase-branch NAME     Lakebase branch resource name to bind as the
-                             `postgres` app resource.
+                             Databricks user email to bootstrap with the same
+                             Postgres grants as the app's service principal.
+                             Defaults to the deploying user's email when the
+                             script auto-provisions the Lakebase project on
+                             this run. Pass an empty string to opt out:
+                               --lakebase-bootstrap-user ""
+  --lakebase-project-id ID   Optional override for the auto-provisioned
+                             Lakebase project ID. Defaults to a sanitized
+                             form of --app-name. Ignored when --lakebase-branch
+                             and --lakebase-database are both passed.
+  --lakebase-branch NAME     (Advanced) Lakebase branch resource name. Only
+                             needed to bind an existing, externally-managed
+                             project/branch. Default: auto-resolved from the
+                             app's existing binding, else auto-provisioned.
                              Format: projects/<PROJECT_ID>/branches/<BRANCH_ID>
-                             Required when binding postgres on a new app.
-  --lakebase-database NAME   Lakebase database resource name to bind as the
-                             `postgres` app resource.
+  --lakebase-database NAME   (Advanced) Lakebase database resource name. Only
+                             needed alongside --lakebase-branch to bind an
+                             existing, externally-managed database.
                              Format: projects/<PROJECT_ID>/branches/<BRANCH_ID>/databases/<DB_ID>
-                             Required when binding postgres on a new app.
+  --lakebase-scale-to-zero-seconds N
+                             Inactivity timeout (seconds) before the Lakebase
+                             branch scales to zero. Default: 300 on auto-
+                             provisioned projects, leave existing branches
+                             untouched on re-deploys. Set to 0 to disable
+                             scale-to-zero (always-on; latency-critical prod).
+                             Minimum: 60 (Lakebase floor).
   --seed-benchmarks          Seed benchmark catalog during app startup
   --seed-benchmarks-all-industries
                              Include generated baseline records for every
@@ -196,7 +235,20 @@ Options:
                              workspaces that block serverless egress.
   --full                      Full sync: upload all files (slower, but guarantees clean state).
                              Default is diff sync: only upload changed files since last deploy.
-  --destroy                   Remove the app and clean up workspace files
+  --destroy                   Remove the app and clean up workspace files.
+                             Interactively prompts about deleting the
+                             associated Lakebase project (default: keep).
+                             Non-interactive operation:
+                               --destroy-database  delete the project (soft)
+                               --purge-database    delete the project (hard)
+                               --keep-database     preserve the project, no prompt
+  --destroy-database          Used with --destroy: delete the Lakebase project
+                             (soft delete; recoverable) without prompting.
+  --purge-database            Used with --destroy: hard-delete the Lakebase
+                             project (immediate, unrecoverable). Implies
+                             --destroy-database.
+  --keep-database             Used with --destroy: preserve the Lakebase
+                             project and skip the prompt (useful in CI).
   -h, --help              Show this help message
 
 Prerequisites:
@@ -219,9 +271,11 @@ while [[ $# -gt 0 ]]; do
     --sql-endpoint)        ARG_SQL_ENDPOINT="$2"; shift 2 ;;
     --lightweight-endpoint) ARG_LIGHTWEIGHT_ENDPOINT="$2"; shift 2 ;;
     --allowed-models)      ARG_ALLOWED_MODELS="$2"; shift 2 ;;
-    --lakebase-bootstrap-user) ARG_LAKEBASE_BOOTSTRAP_USER="$2"; shift 2 ;;
+    --lakebase-bootstrap-user) ARG_LAKEBASE_BOOTSTRAP_USER="$2"; ARG_LAKEBASE_BOOTSTRAP_USER_SET=true; shift 2 ;;
     --lakebase-branch) ARG_LAKEBASE_BRANCH="$2"; shift 2 ;;
     --lakebase-database) ARG_LAKEBASE_DATABASE="$2"; shift 2 ;;
+    --lakebase-project-id) ARG_LAKEBASE_PROJECT_ID="$2"; shift 2 ;;
+    --lakebase-scale-to-zero-seconds) ARG_LAKEBASE_SCALE_TO_ZERO_SECONDS="$2"; ARG_LAKEBASE_SCALE_TO_ZERO_SET=true; shift 2 ;;
     --seed-benchmarks) ARG_SEED_BENCHMARKS=true; shift ;;
     --seed-benchmarks-all-industries) ARG_SEED_BENCHMARKS_ALL_INDUSTRIES=true; shift ;;
     --seed-benchmark-industries) ARG_SEED_BENCHMARK_INDUSTRIES="$2"; shift 2 ;;
@@ -240,6 +294,9 @@ while [[ $# -gt 0 ]]; do
     --zero-egress)         ARG_ZERO_EGRESS=true; shift ;;
     --full)                ARG_FULL_SYNC=true; shift ;;
     --destroy)             ARG_DESTROY=true; shift ;;
+    --destroy-database)    ARG_DESTROY_DATABASE=true; shift ;;
+    --purge-database)      ARG_PURGE_DATABASE=true; ARG_DESTROY_DATABASE=true; shift ;;
+    --keep-database)       ARG_KEEP_DATABASE=true; shift ;;
     -h|--help)        print_usage; exit 0 ;;
     *)                printf "\n  ERROR: Unknown flag: %s\n  Run ./deploy.sh --help\n\n" "$1" >&2; exit 1 ;;
   esac
@@ -253,6 +310,18 @@ if [[ -n "$ARG_PROFILE" ]]; then
   export DATABRICKS_CONFIG_PROFILE="$ARG_PROFILE"
 fi
 
+# -------------------------------------------------------------------------
+# Output helpers (defined early so flag-validation guards below can call die).
+# -------------------------------------------------------------------------
+die()  { printf "\n  ERROR: %s\n\n" "$1" >&2; exit 1; }
+warn() { printf "\n  WARN: %s\n" "$1" >&2; }
+info() { printf "  %-48s" "$1"; }
+ok()   { if [ -n "${1:-}" ]; then printf "OK  (%s)\n" "$1"; else printf "OK\n"; fi; }
+
+# Extract a value from JSON via Python 3.
+# Usage: echo '{"k":"v"}' | json_val "['k']"
+json_val() { python3 -c "import sys,json; print(json.load(sys.stdin)$1)"; }
+
 ENDPOINT="${ARG_ENDPOINT:-$DEFAULT_ENDPOINT}"
 FAST_ENDPOINT="${ARG_FAST_ENDPOINT:-$DEFAULT_FAST_ENDPOINT}"
 EMBEDDING_ENDPOINT="${ARG_EMBEDDING_ENDPOINT:-$DEFAULT_EMBEDDING_ENDPOINT}"
@@ -263,8 +332,17 @@ SQL_ENDPOINT="${ARG_SQL_ENDPOINT:-$DEFAULT_SQL_ENDPOINT}"
 LIGHTWEIGHT_ENDPOINT="${ARG_LIGHTWEIGHT_ENDPOINT:-$DEFAULT_LIGHTWEIGHT_ENDPOINT}"
 ALLOWED_MODELS="${ARG_ALLOWED_MODELS:-}"
 LAKEBASE_BOOTSTRAP_USER="${ARG_LAKEBASE_BOOTSTRAP_USER:-}"
+LAKEBASE_BOOTSTRAP_USER_SET="${ARG_LAKEBASE_BOOTSTRAP_USER_SET}"
 LAKEBASE_BRANCH="${ARG_LAKEBASE_BRANCH:-}"
 LAKEBASE_DATABASE="${ARG_LAKEBASE_DATABASE:-}"
+LAKEBASE_PROJECT_ID="${ARG_LAKEBASE_PROJECT_ID:-}"
+LAKEBASE_SCALE_TO_ZERO_SECONDS="${ARG_LAKEBASE_SCALE_TO_ZERO_SECONDS:-}"
+LAKEBASE_SCALE_TO_ZERO_SET="${ARG_LAKEBASE_SCALE_TO_ZERO_SET}"
+LAKEBASE_AUTOPROVISIONED=false
+LAKEBASE_ENDPOINT_PATH=""
+DESTROY_DATABASE="${ARG_DESTROY_DATABASE}"
+PURGE_DATABASE="${ARG_PURGE_DATABASE}"
+KEEP_DATABASE="${ARG_KEEP_DATABASE}"
 SEED_BENCHMARKS="${ARG_SEED_BENCHMARKS}"
 SEED_BENCHMARKS_ALL_INDUSTRIES="${ARG_SEED_BENCHMARKS_ALL_INDUSTRIES}"
 SEED_BENCHMARK_INDUSTRIES="${ARG_SEED_BENCHMARK_INDUSTRIES:-}"
@@ -349,17 +427,35 @@ if [[ -n "$LAKEBASE_DATABASE" ]]; then
   esac
 fi
 
-# -------------------------------------------------------------------------
-# Output helpers
-# -------------------------------------------------------------------------
-die()  { printf "\n  ERROR: %s\n\n" "$1" >&2; exit 1; }
-warn() { printf "\n  WARN: %s\n" "$1" >&2; }
-info() { printf "  %-48s" "$1"; }
-ok()   { if [ -n "${1:-}" ]; then printf "OK  (%s)\n" "$1"; else printf "OK\n"; fi; }
+# Validate scale-to-zero flag (when passed): integer >= 0; non-zero values
+# must respect the Lakebase floor of 60 seconds.
+if [[ "$LAKEBASE_SCALE_TO_ZERO_SET" = "true" ]]; then
+  if ! [[ "$LAKEBASE_SCALE_TO_ZERO_SECONDS" =~ ^[0-9]+$ ]]; then
+    die "--lakebase-scale-to-zero-seconds must be a non-negative integer (got '$LAKEBASE_SCALE_TO_ZERO_SECONDS')."
+  fi
+  if [[ "$LAKEBASE_SCALE_TO_ZERO_SECONDS" -gt 0 && "$LAKEBASE_SCALE_TO_ZERO_SECONDS" -lt 60 ]]; then
+    die "--lakebase-scale-to-zero-seconds must be 0 (disabled) or >= 60 (Lakebase floor). Got: $LAKEBASE_SCALE_TO_ZERO_SECONDS"
+  fi
+fi
 
-# Extract a value from JSON via Python 3.
-# Usage: echo '{"k":"v"}' | json_val "['k']"
-json_val() { python3 -c "import sys,json; print(json.load(sys.stdin)$1)"; }
+# Destroy-database flag conflict guard.
+if [[ "$DESTROY_DATABASE" = "true" && "$KEEP_DATABASE" = "true" ]]; then
+  die "--destroy-database / --purge-database conflict with --keep-database. Pick one."
+fi
+# These flags are only meaningful with --destroy.
+if [[ "$ARG_DESTROY" != "true" ]]; then
+  if [[ "$DESTROY_DATABASE" = "true" || "$PURGE_DATABASE" = "true" || "$KEEP_DATABASE" = "true" ]]; then
+    die "--destroy-database / --purge-database / --keep-database only apply with --destroy."
+  fi
+fi
+
+# --lakebase-project-id is only meaningful when we auto-provision. If the
+# operator also passed --lakebase-branch (i.e. opted into manual binding),
+# the project-id override is ignored — surface that immediately rather than
+# silently dropping it.
+if [[ -n "$LAKEBASE_PROJECT_ID" && -n "$LAKEBASE_BRANCH" ]]; then
+  die "--lakebase-project-id is only valid for auto-provisioned deploys. It cannot be combined with --lakebase-branch/--lakebase-database; the project is implied by the branch path."
+fi
 
 # -------------------------------------------------------------------------
 # Model endpoint probing and fallback
@@ -487,16 +583,21 @@ get_app_compute_state() {
 
 wait_for_app_absent() {
   local attempts=0
-  local max_attempts=30
+  local max_attempts=90
   local sleep_secs=10
   local state
+  local last_logged_state=""
 
-  info "Waiting for app deletion..."
+  info "Waiting for app deletion (up to 15 min)..."
   while [ $attempts -lt $max_attempts ]; do
     state="$(get_app_compute_state)"
     if [ "$state" = "MISSING" ]; then
       ok "deleted"
       return 0
+    fi
+    if [ "$state" != "$last_logged_state" ]; then
+      printf "\n  app compute: %s (waiting)\n" "$state" >&2
+      last_logged_state="$state"
     fi
     sleep "$sleep_secs"
     attempts=$((attempts + 1))
@@ -573,44 +674,15 @@ prepare_app_yaml() {
   # PGHOST/PGUSER/PGDATABASE/PGPORT/PGSSLMODE from the `postgres` resource
   # binding, but NOT the endpoint resource path — that has to come from
   # `databricks postgres list-endpoints` against the bound branch.
-  LAKEBASE_ENDPOINT_NAME=""
-  if [ -n "$LAKEBASE_BRANCH" ]; then
+  # Reuse the endpoint path resolved by resolve_lakebase_binding(). If for
+  # some reason it wasn't populated (e.g. someone called prepare_app_yaml
+  # in isolation), fall back to discovery here.
+  LAKEBASE_ENDPOINT_NAME="$LAKEBASE_ENDPOINT_PATH"
+  if [ -z "$LAKEBASE_ENDPOINT_NAME" ] && [ -n "$LAKEBASE_BRANCH" ]; then
     info "Discovering Lakebase endpoint on $LAKEBASE_BRANCH..."
-    local endpoints_json
-    if endpoints_json=$(databricks postgres list-endpoints "$LAKEBASE_BRANCH" -o json 2>&1); then
-      LAKEBASE_ENDPOINT_NAME=$(LAKEBASE_ENDPOINTS_JSON="$endpoints_json" python3 <<'PY'
-import json, os, sys
-raw = os.environ.get("LAKEBASE_ENDPOINTS_JSON", "")
-try:
-    data = json.loads(raw)
-except Exception:
-    sys.exit(0)
-if not isinstance(data, list) or not data:
-    sys.exit(0)
-# Prefer an ACTIVE READ_WRITE endpoint; fall back to the first entry.
-best = None
-for ep in data:
-    status = ep.get("status", {}) or {}
-    if status.get("current_state") == "ACTIVE" and status.get("endpoint_type") == "ENDPOINT_TYPE_READ_WRITE":
-        best = ep
-        break
-if best is None:
-    best = data[0]
-name = best.get("name", "")
-if name:
-    print(name)
-PY
-)
-      if [ -n "$LAKEBASE_ENDPOINT_NAME" ]; then
-        ok "$LAKEBASE_ENDPOINT_NAME"
-      else
-        printf "FAILED\n"
-        die "Could not parse a Lakebase endpoint from list-endpoints output. Confirm an endpoint exists on $LAKEBASE_BRANCH.\n  $endpoints_json"
-      fi
-    else
-      printf "FAILED\n"
-      die "Failed to list Lakebase endpoints on $LAKEBASE_BRANCH.\n  $endpoints_json"
-    fi
+    resolve_lakebase_endpoint_path "$LAKEBASE_BRANCH"
+    LAKEBASE_ENDPOINT_NAME="$LAKEBASE_ENDPOINT_PATH"
+    ok "$LAKEBASE_ENDPOINT_NAME"
   fi
 
   export APP_NAME
@@ -1228,6 +1300,734 @@ else:
 # -------------------------------------------------------------------------
 APP_SCOPES='["sql","catalog.tables:read","catalog.schemas:read","catalog.catalogs:read","files.files","dashboards.genie"]'
 
+# -------------------------------------------------------------------------
+# Lakebase: auto-resolve the postgres resource binding.
+#
+# Resolution order (first hit wins):
+#   1. Explicit --lakebase-branch + --lakebase-database from the operator
+#      → use them as-is; just discover the endpoint path.
+#   2. The Databricks App already has a postgres resource bound (from a
+#      previous deploy) → reuse the same branch + database (keyed by app-name).
+#   3. Auto-provision a fresh Lakebase project named after --app-name
+#      (or --lakebase-project-id), using the default `databricks_postgres`
+#      database that ships with every new project.
+#
+# Side effects: populates LAKEBASE_BRANCH, LAKEBASE_DATABASE, and
+# LAKEBASE_ENDPOINT_PATH; sets LAKEBASE_AUTOPROVISIONED=true on path (3) so
+# downstream steps (scale-to-zero, bootstrap-user default, success banner)
+# can branch on it.
+# -------------------------------------------------------------------------
+sanitize_lakebase_project_id() {
+  # Lakebase project IDs are restricted to [a-z0-9-]{1,63} and must start
+  # with a letter. Build a deterministic ID from the app name so re-deploys
+  # land on the same project.
+  local input="$1"
+  RAW_INPUT="$input" python3 - <<'PY'
+import os, re, sys
+raw = os.environ.get("RAW_INPUT", "").strip().lower()
+s = re.sub(r'[^a-z0-9-]', '-', raw)
+s = re.sub(r'-+', '-', s).strip('-')
+if not s:
+    s = "forge-app"
+if not s[0].isalpha():
+    s = "app-" + s
+s = s[:63].rstrip('-')
+print(s or "forge-app")
+PY
+}
+
+resolve_lakebase_endpoint_path() {
+  # Find the read-write endpoint on the given branch path and cache it in
+  # LAKEBASE_ENDPOINT_PATH. Skipped when LAKEBASE_ENDPOINT_PATH is already
+  # populated (e.g. just minted by the auto-provision path).
+  local branch_path="$1"
+  if [ -n "$LAKEBASE_ENDPOINT_PATH" ]; then
+    return
+  fi
+  local endpoints_json
+  if ! endpoints_json=$(databricks postgres list-endpoints "$branch_path" -o json 2>&1); then
+    die "Failed to list Lakebase endpoints on $branch_path.\n  $endpoints_json"
+  fi
+  LAKEBASE_ENDPOINT_PATH=$(LAKEBASE_ENDPOINTS_JSON="$endpoints_json" python3 <<'PY'
+import json, os, sys
+raw = os.environ.get("LAKEBASE_ENDPOINTS_JSON", "")
+try:
+    data = json.loads(raw)
+except Exception:
+    sys.exit(0)
+items = data if isinstance(data, list) else data.get("endpoints", []) or []
+if not items:
+    sys.exit(0)
+best = None
+for ep in items:
+    status = ep.get("status", {}) or {}
+    if status.get("current_state") == "ACTIVE" and status.get("endpoint_type") == "ENDPOINT_TYPE_READ_WRITE":
+        best = ep
+        break
+if best is None:
+    best = items[0]
+name = best.get("name", "")
+if name:
+    print(name)
+PY
+)
+  if [ -z "$LAKEBASE_ENDPOINT_PATH" ]; then
+    die "Could not parse a Lakebase endpoint from list-endpoints on $branch_path."
+  fi
+}
+
+# -------------------------------------------------------------------------
+# Lakebase: bootstrap grants for the app service principal.
+#
+# Lakebase auto-creates a Postgres role for the app SP on first bind, but
+# the public schema is owned by the deploying user, so the SP has zero
+# rights on it. We need to:
+#   1. Install pgvector + databricks_auth as the project owner.
+#   2. Make sure the SP role exists.
+#   3. Grant the SP CONNECT + USAGE/CREATE on public + table/sequence
+#      privileges + ALTER DEFAULT PRIVILEGES for future tables.
+#   4. Transfer ownership of any pre-existing public tables to the SP so
+#      Prisma can ALTER/DROP them (mirrors .deploy_local.sh).
+#
+# Caller-must-be-owner: if the deploying user is not the project owner
+# (e.g. a teammate re-deploys), skip with a warning — they can't run the
+# grants, and the original deploy presumably already did.
+#
+# Runs after configure_app so the postgres binding is live and Lakebase
+# has had a chance to mint the SP role.
+# -------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+# Default LAKEBASE_BOOTSTRAP_USER to the deploying user when:
+#   - the operator did NOT pass --lakebase-bootstrap-user (any value,
+#     including the empty string opt-out), AND
+#   - this script auto-provisioned the Lakebase project on this run, so
+#     we know the deployer is the project owner and can be granted SQL
+#     Editor access without surprising anyone.
+#
+# This guarantees the deployer can open the SQL Editor against their own
+# deploy without an extra flag. Power users who don't want this can pass
+# --lakebase-bootstrap-user "" to opt out explicitly.
+# -------------------------------------------------------------------------
+default_bootstrap_user() {
+  if [ "$LAKEBASE_BOOTSTRAP_USER_SET" = "true" ]; then
+    return
+  fi
+  if [ "$LAKEBASE_AUTOPROVISIONED" != "true" ]; then
+    return
+  fi
+  if [ -z "$USER_EMAIL" ]; then
+    return
+  fi
+  LAKEBASE_BOOTSTRAP_USER="$USER_EMAIL"
+  info "Lakebase bootstrap user (auto)..."
+  ok "$USER_EMAIL"
+}
+
+bootstrap_lakebase_sp_grants() {
+  info "Bootstrapping Lakebase grants for app SP..."
+
+  if [ -z "$LAKEBASE_ENDPOINT_PATH" ] || [ -z "$LAKEBASE_DATABASE" ]; then
+    printf "FAILED\n"
+    die "Internal error: LAKEBASE_ENDPOINT_PATH or LAKEBASE_DATABASE not set before bootstrap."
+  fi
+
+  # 1. Extract the SP client ID — this is the SP's Postgres role name.
+  local app_json sp_client_id
+  if ! app_json=$(databricks apps get "$APP_NAME" -o json 2>&1); then
+    printf "FAILED\n"
+    die "Failed to read app metadata to discover SP client ID.\n  $app_json"
+  fi
+  sp_client_id=$(APP_JSON="$app_json" python3 -c "
+import sys, json, os
+d = json.loads(os.environ['APP_JSON'])
+print(d.get('service_principal_client_id', ''))
+")
+  if [ -z "$sp_client_id" ]; then
+    printf "FAILED\n"
+    die "App '$APP_NAME' has no service_principal_client_id yet. Re-run after the app's compute state stabilises."
+  fi
+
+  # 2. Resolve the actual Postgres database name from the database
+  #    resource. Lakebase's resource ID (the last path segment) and the
+  #    Postgres database name often differ -- a project's default DB
+  #    resource is "databricks-postgres" (with a dash) while the real DB
+  #    is "databricks_postgres" (with an underscore). We MUST connect to
+  #    the underscore name and grant on the underscore name; the dashed
+  #    resource ID is not a valid Postgres identifier in libpq.
+  #
+  #    Source of truth: status.postgres_database on the database resource.
+  local db_name db_res_json
+  if ! db_res_json=$(databricks postgres get-database "$LAKEBASE_DATABASE" -o json 2>&1); then
+    # Older CLI versions / API rollouts may not expose get-database;
+    # fall back to list-databases + match on resource name.
+    local parent_branch
+    parent_branch=$(printf "%s" "$LAKEBASE_DATABASE" | awk -F'/' '{print $1"/"$2"/"$3"/"$4}')
+    local list_json
+    if ! list_json=$(databricks postgres list-databases "$parent_branch" -o json 2>&1); then
+      printf "FAILED\n"
+      die "Failed to read Lakebase database $LAKEBASE_DATABASE for db-name resolution.\n  $db_res_json\n  $list_json"
+    fi
+    db_name=$(LB_LIST_JSON="$list_json" TARGET="$LAKEBASE_DATABASE" python3 - <<'PY'
+import json, os, sys
+raw = os.environ.get("LB_LIST_JSON", "")
+target = os.environ.get("TARGET", "")
+try:
+    data = json.loads(raw)
+except Exception:
+    sys.exit(0)
+items = data if isinstance(data, list) else data.get("databases", []) or []
+for d in items:
+    if d.get("name") == target:
+        st = d.get("status") or {}
+        pg = st.get("postgres_database") or st.get("database_id") or ""
+        if pg:
+            print(pg)
+            sys.exit(0)
+PY
+)
+  else
+    db_name=$(DB_JSON="$db_res_json" python3 - <<'PY'
+import json, os, sys
+try:
+    d = json.loads(os.environ.get("DB_JSON", ""))
+except Exception:
+    sys.exit(0)
+st = d.get("status") or {}
+pg = st.get("postgres_database") or st.get("database_id") or ""
+if pg:
+    print(pg)
+PY
+)
+  fi
+  # Last-resort fallback: use the path's last segment with any dashes
+  # converted to underscores (matches Lakebase's default naming rule
+  # where the auto-created "databricks-postgres" resource maps to the
+  # "databricks_postgres" Postgres DB).
+  if [ -z "$db_name" ]; then
+    db_name=$(printf "%s" "$LAKEBASE_DATABASE" | awk -F'/' '{print $NF}' | tr '-' '_')
+  fi
+  if [ -z "$db_name" ]; then
+    printf "FAILED\n"
+    die "Could not resolve a Postgres database name from $LAKEBASE_DATABASE."
+  fi
+
+  # 3. Discover the endpoint host (needed to build a libpq URL).
+  local endpoint_json endpoint_host
+  if ! endpoint_json=$(databricks postgres get-endpoint "$LAKEBASE_ENDPOINT_PATH" -o json 2>&1); then
+    printf "FAILED\n"
+    die "Failed to read Lakebase endpoint details.\n  $endpoint_json"
+  fi
+  endpoint_host=$(ENDPOINT_JSON="$endpoint_json" python3 -c "
+import sys, json, os
+d = json.loads(os.environ['ENDPOINT_JSON'])
+status = d.get('status') or {}
+hosts = status.get('hosts') or {}
+print(hosts.get('host') or status.get('host') or '')
+")
+  if [ -z "$endpoint_host" ]; then
+    printf "FAILED\n"
+    die "Could not determine endpoint host for $LAKEBASE_ENDPOINT_PATH. The endpoint may still be warming up — wait a minute and retry."
+  fi
+
+  # 4. Mint a short-lived deployer credential.
+  local cred_json deployer_token
+  if ! cred_json=$(databricks postgres generate-database-credential "$LAKEBASE_ENDPOINT_PATH" -o json 2>&1); then
+    printf "FAILED\n"
+    die "Failed to mint Lakebase deployer credential.\n  $cred_json"
+  fi
+  deployer_token=$(CRED_JSON="$cred_json" python3 -c "
+import sys, json, os
+d = json.loads(os.environ['CRED_JSON'])
+print(d.get('token') or d.get('password') or '')
+")
+  if [ -z "$deployer_token" ]; then
+    printf "FAILED\n"
+    die "generate-database-credential returned no token."
+  fi
+
+  # 5. Build the deployer DATABASE_URL.
+  local deployer_url
+  deployer_url=$(USER_EMAIL="$USER_EMAIL" \
+                 DEPLOYER_TOKEN="$deployer_token" \
+                 ENDPOINT_HOST="$endpoint_host" \
+                 DB_NAME="$db_name" \
+                 python3 -c "
+import os, urllib.parse
+u = urllib.parse.quote(os.environ['USER_EMAIL'], safe='')
+p = urllib.parse.quote(os.environ['DEPLOYER_TOKEN'], safe='')
+h = os.environ['ENDPOINT_HOST']
+d = os.environ['DB_NAME']
+print(f'postgresql://{u}:{p}@{h}/{d}?sslmode=require&uselibpqcompat=true')
+")
+
+  # 6. Run the SQL bootstrap via node + pg with retry (matches .deploy_local.sh
+  #    pattern lines 326-347 to absorb endpoint cold-start delays).
+  if ! command -v node &>/dev/null; then
+    printf "FAILED\n"
+    die "node is required to run the Lakebase SP-grant bootstrap. Install Node.js >= 18 and retry."
+  fi
+
+  local attempts=0 max=5 interval=3 sp_setup_ok=false sp_setup_err=""
+  while [ "$attempts" -lt "$max" ]; do
+    # IMPORTANT: under `set -e`, a bare `var=$(failing-cmd)` exits the
+    # shell immediately, before we reach the `$?` capture and the retry
+    # logic below. Wrap with `|| sp_exit=$?` so the failure is captured
+    # in a variable instead.
+    local sp_exit=0
+    sp_setup_err=$(DATABASE_URL="$deployer_url" \
+                   SP_CLIENT_ID="$sp_client_id" \
+                   DB_NAME="$db_name" \
+                   node -e "
+const pg = require('pg');
+(async () => {
+  const role = process.env.SP_CLIENT_ID;
+  const dbName = process.env.DB_NAME;
+  const safeRole = '\"' + role.replace(/\"/g, '\"\"') + '\"';
+  const safeDb = '\"' + dbName.replace(/\"/g, '\"\"') + '\"';
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1, connectionTimeoutMillis: 15000 });
+  try {
+    // Tight statement / lock timeouts so a single bad query can't hang
+    // the entire bootstrap (e.g. ALTER OWNER TO blocked by a cloud_admin
+    // monitoring query).
+    await pool.query(\"SET statement_timeout = '10s'\");
+    await pool.query(\"SET lock_timeout = '3s'\");
+
+    // Ownership check: bail out cleanly if the caller can't run grants.
+    const own = await pool.query(
+      \"SELECT pg_has_role(current_user, oid, 'USAGE') AS owner FROM pg_database WHERE datname = current_database()\"
+    );
+    const isOwner = own.rows[0] && own.rows[0].owner;
+    // has_database_privilege on CREATE is also a good proxy.
+    const canCreate = await pool.query(
+      \"SELECT has_database_privilege(current_user, current_database(), 'CREATE') AS ok\"
+    );
+    if (!canCreate.rows[0] || !canCreate.rows[0].ok) {
+      console.log('NOT_OWNER');
+      return;
+    }
+
+    // Install extensions as project owner so start.sh's CREATE EXTENSION vector is a no-op.
+    await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
+    try {
+      await pool.query('CREATE EXTENSION IF NOT EXISTS databricks_auth');
+    } catch (_) {
+      // Some Lakebase versions install databricks_auth eagerly; CREATE may
+      // 42710 (already exists) or 42501 (cannot install) — both are fine.
+    }
+
+    // Ensure the SP role exists. Lakebase usually mints it on first connect
+    // via the postgres binding; this is a defensive no-op if so.
+    const roleExists = await pool.query(
+      'SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = \$1) AS ok', [role]
+    );
+    if (!roleExists.rows[0] || !roleExists.rows[0].ok) {
+      // databricks_create_role is the Lakebase-blessed way to provision an
+      // SP role. If unavailable, the SP will materialize on its first connect.
+      try {
+        await pool.query(\"SELECT databricks_create_role(\$1, 'service_principal')\", [role]);
+      } catch (e) {
+        console.log('  Note: SP role does not yet exist and databricks_create_role is unavailable; it will be created on first app connect.');
+      }
+    }
+
+    // Idempotent grants.
+    await pool.query('GRANT CONNECT ON DATABASE ' + safeDb + ' TO ' + safeRole);
+    await pool.query('GRANT USAGE, CREATE ON SCHEMA public TO ' + safeRole);
+    await pool.query('GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public TO ' + safeRole);
+    await pool.query('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ' + safeRole);
+    await pool.query('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO ' + safeRole);
+    await pool.query('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ' + safeRole);
+
+    // Attempt to transfer ownership of pre-existing tables to the SP.
+    // On Lakebase, the deploying user can do this on a FRESH database
+    // (deployer owns objects and ALTER OWNER TO targets the SP role
+    // they implicitly created). On a REUSED database (--keep-database),
+    // PostgreSQL requires the deployer be a member of the new SP role
+    // with SET ROLE privilege — Lakebase does NOT grant this. Those
+    // ALTERs fail with \"must be able to SET ROLE ...\" and are silently
+    // skipped. App start will then fail when Prisma tries to DROP
+    // objects it doesn't own (idx_embeddings_hnsw, etc.). See release
+    // notes on the --keep-database limitation.
+    const { rows: tables } = await pool.query(
+      \"SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tableowner <> \$1\",
+      [role]
+    );
+    let xferTables = 0, xferSkipped = 0;
+    for (const { tablename } of tables) {
+      const safeT = '\"' + tablename.replace(/\"/g, '\"\"') + '\"';
+      try {
+        await pool.query('ALTER TABLE public.' + safeT + ' OWNER TO ' + safeRole);
+        xferTables++;
+      } catch (_) { xferSkipped++; }
+    }
+    if (xferTables > 0) {
+      console.log('  Transferred ownership of ' + xferTables + ' table(s) to the SP.');
+    }
+    if (xferSkipped > 0) {
+      console.log('  REUSE_OWNERSHIP_GAP:' + xferSkipped);
+    }
+    console.log('OK');
+  } finally {
+    try { await pool.end(); } catch (_) {}
+  }
+  // Force a hard exit. pg.Pool sometimes leaves a TCP keepalive socket
+  // open after pool.end() that prevents node from exiting on its own.
+  // Without this, deploy.sh hangs forever in the command substitution
+  // (\`var=\$(node -e ...)\`) even though the bootstrap completed.
+  process.exit(0);
+})().catch((err) => {
+  console.error(err && err.message ? err.message : String(err));
+  process.exit(1);
+});
+" 2>&1) || sp_exit=$?
+    if [ "$sp_exit" -eq 0 ]; then
+      if echo "$sp_setup_err" | grep -q '^NOT_OWNER$'; then
+        printf "SKIP\n"
+        warn "Skipping SP grant bootstrap — the deploying user is not the Lakebase project owner. Assuming a prior deploy already applied the grants. If the app fails to push Prisma schema on startup, the original project owner needs to re-run ./deploy.sh."
+        return
+      fi
+      sp_setup_ok=true
+      break
+    fi
+    if [ "$attempts" -lt "$((max - 1))" ]; then
+      sleep "$interval"
+    fi
+    attempts=$((attempts + 1))
+  done
+
+  if [ "$sp_setup_ok" != "true" ]; then
+    printf "FAILED\n"
+    die "Failed to apply SP grants on Lakebase after $max attempts. Last error:\n  $sp_setup_err\n\nThis blocks the app from running 'prisma db push' on startup. Confirm the endpoint $LAKEBASE_ENDPOINT_PATH is ACTIVE and re-run ./deploy.sh."
+  fi
+
+  # Surface --keep-database limitation: if some pre-existing tables could
+  # not be re-owned by the new SP, Prisma db push will fail at app start
+  # (\"must be owner of <index>\"). PostgreSQL requires the deployer be a
+  # member of the new SP role with SET ROLE option to transfer ownership;
+  # Lakebase does NOT grant this option automatically. We surface the
+  # warning here so the operator can react BEFORE the app crashes.
+  local gap_count
+  gap_count=$(echo "$sp_setup_err" | sed -n 's/.*REUSE_OWNERSHIP_GAP:\([0-9][0-9]*\).*/\1/p' | head -1)
+  if [ -n "$gap_count" ] && [ "$gap_count" -gt 0 ]; then
+    ok "$sp_client_id ($gap_count pre-existing tables not re-owned)"
+    warn "Detected $gap_count pre-existing table(s) owned by a previous deployer/SP that the new SP cannot take over.
+  This usually happens after ./deploy.sh --destroy --keep-database followed by a fresh deploy.
+  PostgreSQL requires the deployer to be a member of the new SP role with ADMIN OPTION
+  to transfer ownership; Lakebase does NOT grant that option, so the SP can READ/WRITE
+  existing tables but cannot ALTER/DROP them.
+
+  Impact: the app will CRASH at startup when Prisma db push tries to drop drift
+  indexes (idx_embeddings_hnsw etc.) it does not own.
+
+  Workarounds (pick one):
+    a) Run \`./deploy.sh --destroy --destroy-database\` to wipe and start fresh.
+    b) Manually grant the deployer role membership on the new SP via Postgres SQL
+       editor: GRANT \"<new-sp-uuid>\" TO \"<deployer-email>\" WITH ADMIN OPTION;
+       Then re-run \`./deploy.sh\` to retry the ownership transfer."
+    return
+  fi
+
+  ok "$sp_client_id"
+}
+
+# -------------------------------------------------------------------------
+# Lakebase: report on configured scale-to-zero.
+#
+# IMPORTANT: scale-to-zero (`suspend_timeout_duration` on the default
+# endpoint settings) is fixed at project-creation time. Lakebase's
+# update-project / update-endpoint APIs reject `suspend_timeout_duration`
+# in the update_mask, so once a project exists, the value is immutable.
+#
+# Auto-provisioning therefore folds scale-to-zero into the create-project
+# spec (see resolve_lakebase_binding). This helper only:
+#   - Reports the configured value (read-only) on every deploy, so the
+#     operator sees what they're paying for.
+#   - If the operator passes --lakebase-scale-to-zero-seconds N on a
+#     reuse path and the live value differs, emits a warning explaining
+#     that they must destroy and re-create the project to change it.
+# -------------------------------------------------------------------------
+configure_lakebase_scale_to_zero() {
+  if [ -z "$LAKEBASE_BRANCH" ]; then
+    return
+  fi
+  local project_path
+  project_path=$(printf "%s" "$LAKEBASE_BRANCH" | awk -F'/' '{print $1"/"$2}')
+  if [ -z "$project_path" ]; then
+    return
+  fi
+  local project_json
+  if ! project_json=$(databricks postgres get-project "$project_path" -o json 2>&1); then
+    return
+  fi
+  local current_seconds
+  current_seconds=$(PROJECT_JSON="$project_json" python3 - <<'PY'
+import json, os, re, sys
+try:
+    d = json.loads(os.environ.get("PROJECT_JSON", ""))
+except Exception:
+    sys.exit(0)
+st = d.get("status") or d.get("spec") or {}
+des = st.get("default_endpoint_settings") or {}
+raw = des.get("suspend_timeout_duration", "")
+m = re.match(r"^(\d+)s?$", str(raw))
+if m:
+    print(m.group(1))
+PY
+)
+  if [ -z "$current_seconds" ]; then
+    return
+  fi
+  if [ "$current_seconds" -eq 0 ]; then
+    info "Lakebase scale-to-zero..."
+    printf "disabled (always-on)\n"
+  else
+    info "Lakebase scale-to-zero..."
+    printf "%ss (project default)\n" "$current_seconds"
+  fi
+
+  if [ "$LAKEBASE_SCALE_TO_ZERO_SET" = "true" ] && [ "$LAKEBASE_AUTOPROVISIONED" != "true" ]; then
+    if [ "$LAKEBASE_SCALE_TO_ZERO_SECONDS" -ne "$current_seconds" ]; then
+      warn "--lakebase-scale-to-zero-seconds ${LAKEBASE_SCALE_TO_ZERO_SECONDS} requested, but the existing project is fixed at ${current_seconds}s.
+  Lakebase does not support changing suspend_timeout_duration on an existing project.
+  To take effect, destroy this project (./deploy.sh --destroy --destroy-database) and re-deploy with the new value, OR migrate to a fresh project (--lakebase-project-id NEW)."
+    fi
+  fi
+}
+
+wait_for_endpoint_active() {
+  # Poll the cached LAKEBASE_ENDPOINT_PATH until status.current_state == ACTIVE.
+  # Only meaningful right after auto-create-project — reused endpoints are
+  # already warm. Skip silently when LAKEBASE_AUTOPROVISIONED is false.
+  if [ "$LAKEBASE_AUTOPROVISIONED" != "true" ]; then
+    return
+  fi
+  if [ -z "$LAKEBASE_ENDPOINT_PATH" ]; then
+    return
+  fi
+  info "Waiting for Lakebase endpoint to become ACTIVE..."
+  # Cold-create endpoints take 30–60s; budget ~120s with 5s interval.
+  local attempts=0 max=24 state="" detail_json=""
+  while [ "$attempts" -lt "$max" ]; do
+    if detail_json=$(databricks postgres get-endpoint "$LAKEBASE_ENDPOINT_PATH" -o json 2>/dev/null); then
+      state=$(ENDPOINT_JSON="$detail_json" python3 -c "
+import sys, json, os
+data = json.loads(os.environ.get('ENDPOINT_JSON', '{}'))
+print((data.get('status') or {}).get('current_state', ''))
+" 2>/dev/null || echo "")
+      if [ "$state" = "ACTIVE" ]; then
+        ok "$state"
+        return
+      fi
+    fi
+    sleep 5
+    attempts=$((attempts + 1))
+  done
+  printf "FAILED\n"
+  die "Lakebase endpoint $LAKEBASE_ENDPOINT_PATH did not reach ACTIVE within $((max * 5))s (last state: '${state:-unknown}'). Wait a minute and re-run ./deploy.sh."
+}
+
+resolve_lakebase_binding() {
+  # ---- Path 1: explicit branch + database from the operator -------------
+  if [ -n "$LAKEBASE_BRANCH" ] && [ -n "$LAKEBASE_DATABASE" ]; then
+    info "Lakebase binding (explicit)..."
+    ok "$LAKEBASE_BRANCH"
+    resolve_lakebase_endpoint_path "$LAKEBASE_BRANCH"
+    return
+  fi
+
+  # ---- Path 2: reuse the binding already attached to the app -----------
+  info "Lakebase binding for \"$APP_NAME\"..."
+  local app_json
+  if app_json=$(databricks apps get "$APP_NAME" -o json 2>/dev/null); then
+    local pg
+    pg=$(APP_JSON="$app_json" python3 - <<'PY'
+import json, os, sys
+data = json.loads(os.environ['APP_JSON'])
+for r in data.get('resources', []) or []:
+    pg = r.get('postgres')
+    if pg and pg.get('branch') and pg.get('database'):
+        print(json.dumps({'branch': pg['branch'], 'database': pg['database']}))
+        sys.exit(0)
+PY
+)
+    if [ -n "$pg" ]; then
+      LAKEBASE_BRANCH=$(echo "$pg" | python3 -c "import sys,json; print(json.load(sys.stdin)['branch'])")
+      LAKEBASE_DATABASE=$(echo "$pg" | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])")
+      ok "reused $LAKEBASE_BRANCH"
+      resolve_lakebase_endpoint_path "$LAKEBASE_BRANCH"
+      return
+    fi
+  fi
+
+  # ---- Path 3: auto-provision a Lakebase project + default database -----
+  if [ -z "$LAKEBASE_PROJECT_ID" ]; then
+    LAKEBASE_PROJECT_ID=$(sanitize_lakebase_project_id "$APP_NAME")
+  fi
+  printf "auto-provisioning %s\n" "$LAKEBASE_PROJECT_ID"
+
+  local project_path="projects/$LAKEBASE_PROJECT_ID"
+  if databricks postgres get-project "$project_path" -o json &>/dev/null; then
+    info "Lakebase project \"$LAKEBASE_PROJECT_ID\"..."
+    ok "already exists"
+  else
+    # Pick a scale-to-zero default. Lakebase fixes
+    # suspend_timeout_duration at create-project time -- no update API
+    # works -- so this is the operator's one chance to set it.
+    local stz_seconds="300"
+    if [ "$LAKEBASE_SCALE_TO_ZERO_SET" = "true" ]; then
+      stz_seconds="$LAKEBASE_SCALE_TO_ZERO_SECONDS"
+    fi
+    info "Creating Lakebase project \"$LAKEBASE_PROJECT_ID\" (scale-to-zero ${stz_seconds}s)..."
+    local create_json
+    create_json=$(LAKEBASE_PROJECT_ID="$LAKEBASE_PROJECT_ID" \
+                   APP_NAME="$APP_NAME" \
+                   BUDGET_POLICY_ID="$BUDGET_POLICY_ID" \
+                   STZ_SECONDS="$stz_seconds" \
+                   python3 - <<'PY'
+import json, os
+spec = {"display_name": f"{os.environ['APP_NAME']} (auto-provisioned)"}
+bp = os.environ.get("BUDGET_POLICY_ID", "").strip()
+if bp:
+    spec["budget_policy_id"] = bp
+try:
+    stz = int(os.environ.get("STZ_SECONDS", "0"))
+except Exception:
+    stz = 0
+# Only set when the operator actually wants scale-to-zero. Lakebase's
+# project-level default (24h) kicks in when we omit the field, but for
+# Forge apps we always want a tighter default to keep idle DBU spend low.
+if stz >= 0:
+    spec["default_endpoint_settings"] = {"suspend_timeout_duration": f"{stz}s"}
+print(json.dumps({"spec": spec}))
+PY
+)
+    local create_err
+    if ! create_err=$(databricks postgres create-project "$LAKEBASE_PROJECT_ID" \
+                       --json "$create_json" 2>&1); then
+      printf "FAILED\n"
+      die "Failed to auto-provision Lakebase project '$LAKEBASE_PROJECT_ID'.\n  $create_err\n\nPass --lakebase-project-id ID to pick a different name, or --lakebase-branch + --lakebase-database to bind an existing project."
+    fi
+    LAKEBASE_AUTOPROVISIONED=true
+    ok "created"
+  fi
+
+  # Discover branch. Prefer the branch explicitly marked
+  # `status.default == true` (Lakebase guarantees exactly one). Fall
+  # back to the canonical 'production' name, then to the first entry
+  # only as a last resort. This protects against routing the app to a
+  # non-production branch (e.g. a developer sandbox) when a project
+  # has multiple branches.
+  info "Discovering Lakebase branch..."
+  local branches_json branch_id
+  if ! branches_json=$(databricks postgres list-branches "$project_path" -o json 2>&1); then
+    printf "FAILED\n"
+    die "Failed to list branches on $project_path.\n  $branches_json"
+  fi
+  branch_id=$(LB_BRANCHES_JSON="$branches_json" python3 - <<'PY'
+import json, os, sys
+raw = os.environ.get("LB_BRANCHES_JSON", "")
+try:
+    data = json.loads(raw)
+except Exception:
+    sys.exit(0)
+items = data if isinstance(data, list) else data.get("branches", []) or []
+
+def branch_id_of(b):
+    bid = (b.get("status") or {}).get("branch_id")
+    if bid:
+        return bid
+    name = b.get("name", "")
+    parts = name.split("/")
+    return parts[3] if len(parts) >= 4 else ""
+
+# 1) status.default == true (Lakebase marks exactly one).
+for b in items:
+    if (b.get("status") or {}).get("default") is True:
+        bid = branch_id_of(b)
+        if bid:
+            print(bid)
+            sys.exit(0)
+# 2) Canonical 'production' name (or legacy 'main').
+for canonical in ("production", "main"):
+    for b in items:
+        if branch_id_of(b) == canonical:
+            print(canonical)
+            sys.exit(0)
+# 3) Last resort: first entry.
+for b in items:
+    bid = branch_id_of(b)
+    if bid:
+        print(bid)
+        sys.exit(0)
+PY
+)
+  if [ -z "$branch_id" ]; then
+    die "No branch found in Lakebase project '$LAKEBASE_PROJECT_ID'."
+  fi
+  LAKEBASE_BRANCH="projects/$LAKEBASE_PROJECT_ID/branches/$branch_id"
+  ok "$branch_id"
+
+  # Discover or create the default databricks_postgres database.
+  info "Discovering Lakebase database..."
+  local databases_json db_id
+  if ! databases_json=$(databricks postgres list-databases "$LAKEBASE_BRANCH" -o json 2>&1); then
+    printf "FAILED\n"
+    die "Failed to list databases on $LAKEBASE_BRANCH.\n  $databases_json"
+  fi
+  db_id=$(LB_DBS_JSON="$databases_json" python3 - <<'PY'
+import json, os, sys
+raw = os.environ.get("LB_DBS_JSON", "")
+try:
+    data = json.loads(raw)
+except Exception:
+    sys.exit(0)
+items = data if isinstance(data, list) else data.get("databases", []) or []
+# Prefer the canonical default; otherwise fall back to whatever's there.
+for d in items:
+    name = d.get("name", "")
+    parts = name.split("/")
+    if len(parts) >= 6 and parts[5] == "databricks_postgres":
+        print("databricks_postgres")
+        sys.exit(0)
+for d in items:
+    name = d.get("name", "")
+    parts = name.split("/")
+    if len(parts) >= 6:
+        print(parts[5])
+        sys.exit(0)
+PY
+)
+  if [ -z "$db_id" ]; then
+    info "Creating Lakebase database \"databricks_postgres\"..."
+    local create_db_err
+    if ! create_db_err=$(databricks postgres create-database \
+         "$LAKEBASE_BRANCH" \
+         --json '{"spec": {}}' \
+         databricks_postgres 2>&1); then
+      printf "FAILED\n"
+      die "Failed to create database 'databricks_postgres' on $LAKEBASE_BRANCH.\n  $create_db_err"
+    fi
+    db_id="databricks_postgres"
+    ok "created"
+  else
+    ok "$db_id"
+  fi
+  LAKEBASE_DATABASE="$LAKEBASE_BRANCH/databases/$db_id"
+
+  resolve_lakebase_endpoint_path "$LAKEBASE_BRANCH"
+
+  # Hard-fail guard: every code path above must populate both LAKEBASE_BRANCH
+  # and LAKEBASE_DATABASE. If they're still empty, refuse to proceed rather
+  # than silently deploy without a postgres resource (the failure mode that
+  # crashed the app on startup with "FATAL: Lakebase resource binding env
+  # vars missing").
+  if [ -z "$LAKEBASE_BRANCH" ] || [ -z "$LAKEBASE_DATABASE" ]; then
+    die "Could not resolve a Lakebase binding for app '$APP_NAME'.
+  Pass --lakebase-branch + --lakebase-database explicitly to bind an
+  existing project, or unset both flags to let deploy.sh auto-provision."
+  fi
+}
+
 create_app() {
   printf "\n"
   info "App \"$APP_NAME\"..."
@@ -1555,14 +2355,15 @@ print_success() {
   if [ -n "$LAKEBASE_BOOTSTRAP_USER" ]; then
     printf "      Bootstrap user:   %s\n" "$LAKEBASE_BOOTSTRAP_USER"
   fi
-  if [ -n "$LAKEBASE_BRANCH" ] && [ -n "$LAKEBASE_DATABASE" ]; then
-    printf "      Postgres branch:  %s\n" "$LAKEBASE_BRANCH"
-    printf "      Postgres database:%s\n" " $LAKEBASE_DATABASE"
-    if [ -n "$LAKEBASE_ENDPOINT_NAME" ]; then
-      printf "      Postgres endpoint:%s\n" " $LAKEBASE_ENDPOINT_NAME"
-    fi
-  else
-    printf "      Postgres binding: (not set - app must already have postgres resource)\n"
+  # Postgres binding: always populated by resolve_lakebase_binding (the
+  # hard-fail guard there prevents reaching this banner with empty values).
+  printf "      Postgres branch:  %s\n" "$LAKEBASE_BRANCH"
+  printf "      Postgres database:%s\n" " $LAKEBASE_DATABASE"
+  if [ -n "$LAKEBASE_ENDPOINT_NAME" ]; then
+    printf "      Postgres endpoint:%s\n" " $LAKEBASE_ENDPOINT_NAME"
+  fi
+  if [ "$LAKEBASE_AUTOPROVISIONED" = "true" ]; then
+    printf "      Auto-provisioned project: %s (created on this run)\n" "$LAKEBASE_PROJECT_ID"
   fi
   printf "      Seed benchmarks:  %s\n" "$( [ "$SEED_BENCHMARKS" = "true" ] && echo "enabled" || echo "disabled" )"
   printf "      Seed all industries: %s\n" "$( [ "$SEED_BENCHMARKS_ALL_INDUSTRIES" = "true" ] && echo "enabled" || echo "disabled" )"
@@ -1607,23 +2408,50 @@ destroy() {
   fi
 
   info "Deleting app..."
-  local delete_err
-  if ! delete_err=$(databricks apps delete "$APP_NAME" 2>&1); then
+  local delete_err delete_attempt=0 delete_max=24 delete_sleep=60
+  while :; do
+    delete_attempt=$((delete_attempt + 1))
+    if delete_err=$(databricks apps delete "$APP_NAME" 2>&1); then
+      ok "delete requested"
+      break
+    fi
     case "$delete_err" in
       *"does not exist"*|*"RESOURCE_DOES_NOT_EXIST"*|*"not found"*)
+        # App was deleted out-of-band (Databricks UI, prior aborted run,
+        # teammate, etc.). DO NOT return — workspace files and the
+        # Lakebase project still need cleanup, especially when
+        # --destroy-database is set. Fall through to the post-loop
+        # cleanup phase via break.
         ok "already deleted"
+        break
         ;;
-      *"state DELETING"*|*"updated less than 20 minutes ago"*)
+      *"state DELETING"*)
+        # Delete really IS in flight server-side — proceed to wait_for_app_absent.
         ok "already deleting"
+        break
+        ;;
+      *"updated less than 20 minutes ago"*|*"pending deployment in progress"*|*"pending update"*)
+        # Transient Databricks Apps 20-min lock after a recent update/deploy.
+        # The delete has NOT been accepted yet. Retry on a 60s cadence,
+        # capped at 24 attempts (24 minutes) so we cover the worst-case
+        # full 20-min lock plus a buffer.
+        if [ "$delete_attempt" -ge "$delete_max" ]; then
+          printf "FAILED\n"
+          die "App is still locked by a recent deployment after $((delete_max * delete_sleep / 60))min of retries.\n  $delete_err"
+        fi
+        if [ "$delete_attempt" -eq 1 ]; then
+          printf "\n  Databricks Apps is locked for ~20min after a recent deployment.\n  Retrying delete every %ds (up to %d min)...\n" "$delete_sleep" "$((delete_max * delete_sleep / 60))" >&2
+        else
+          printf "  retry %d/%d (waiting %ds for lock to clear)\n" "$delete_attempt" "$delete_max" "$delete_sleep" >&2
+        fi
+        sleep "$delete_sleep"
         ;;
       *)
         printf "FAILED\n"
         die "Failed to delete app.\n  $delete_err"
         ;;
     esac
-  else
-    ok
-  fi
+  done
 
   if [ "$(get_app_compute_state)" != "MISSING" ]; then
     if ! wait_for_app_absent; then
@@ -1635,7 +2463,125 @@ destroy() {
   info "Cleaning workspace files..."
   if databricks workspace delete --recursive "$WORKSPACE_PATH" 2>/dev/null; then ok; else ok "already clean"; fi
 
+  destroy_lakebase_project
+
   printf "\n  App removed successfully.\n\n"
+}
+
+# -------------------------------------------------------------------------
+# Optional: delete the auto-provisioned Lakebase project alongside the app.
+# Default behaviour is to PRESERVE the project (data > convenience). The
+# operator can opt into deletion via the prompt or non-interactive flags:
+#   --destroy-database  → soft delete (recoverable)
+#   --purge-database    → hard delete (immediate, unrecoverable)
+#   --keep-database     → skip the prompt, preserve
+# -------------------------------------------------------------------------
+destroy_lakebase_project() {
+  # Resolve the project ID the same way resolve_lakebase_binding() does:
+  # explicit --lakebase-project-id wins, otherwise derive from app name.
+  local project_id="${LAKEBASE_PROJECT_ID:-}"
+  if [ -z "$project_id" ]; then
+    project_id=$(sanitize_lakebase_project_id "$APP_NAME")
+  fi
+  local project_path="projects/$project_id"
+
+  # If the exact-name project doesn't exist, look for projects that were
+  # auto-provisioned with a uniqueness suffix (e.g. `forge-demo-69aa11f1`).
+  # The Lakebase auto-provision picks `<app>-<8 hex>` when the bare name
+  # is taken, so a destroy that derives the bare name would otherwise
+  # leave the suffixed project orphaned.
+  local project_json
+  if ! project_json=$(databricks postgres get-project "$project_path" -o json 2>/dev/null); then
+    local candidates
+    candidates=$(databricks postgres list-projects -o json 2>/dev/null | python3 -c "
+import json, re, sys
+try:
+    projects = json.load(sys.stdin) or []
+except Exception:
+    sys.exit(0)
+prefix = sys.argv[1] + '-'
+pat = re.compile(r'^' + re.escape(sys.argv[1]) + r'-[0-9a-f]{8}$')
+for p in projects:
+    name = p.get('name') or ''
+    if pat.match(name):
+        print(name)
+" "$project_id" 2>/dev/null || true)
+    if [ -z "$candidates" ]; then
+      return
+    fi
+    local match_count
+    match_count=$(printf "%s\n" "$candidates" | wc -l | tr -d ' ')
+    if [ "$match_count" -gt 1 ]; then
+      warn "Multiple suffixed Lakebase projects matched '$project_id-*':
+$(printf "    %s\n" "$candidates" | sed -e "s/^/    /")
+  Skipping deletion. Re-run with --lakebase-project-id <name> to pick one."
+      return
+    fi
+    project_id=$(printf "%s\n" "$candidates" | head -1)
+    project_path="projects/$project_id"
+    info "Lakebase project (auto-discovered)..."
+    ok "$project_id (suffixed)"
+    project_json=$(databricks postgres get-project "$project_path" -o json 2>/dev/null) || return
+  fi
+
+  local should_delete=false
+  if [ "$KEEP_DATABASE" = "true" ]; then
+    printf "\n  Lakebase project '%s' preserved (--keep-database).\n" "$project_id"
+    return
+  elif [ "$DESTROY_DATABASE" = "true" ]; then
+    should_delete=true
+  else
+    # Interactive prompt. Default to N (preserve).
+    printf "\n  Lakebase project still exists:\n"
+    printf "    Project:   %s\n" "$project_path"
+    printf "    Database:  databricks_postgres\n"
+    if [ -n "$LAKEBASE_ENDPOINT_PATH" ]; then
+      printf "    Endpoint:  %s\n" "$LAKEBASE_ENDPOINT_PATH"
+    fi
+    printf "  This contains ALL Forge data (runs, scans, embeddings, demo sessions, etc).\n"
+    printf "  Delete the project? [y/N]: "
+    local answer=""
+    # 60s timeout. If non-interactive (no TTY), default to N.
+    if [ -t 0 ]; then
+      if ! IFS= read -r -t 60 answer; then
+        printf "\n  (no answer — keeping Lakebase project)\n"
+        return
+      fi
+    else
+      printf "\n  (non-interactive — keeping Lakebase project; pass --destroy-database or --keep-database to silence this)\n"
+      return
+    fi
+    case "$answer" in
+      y|Y|yes|YES) should_delete=true ;;
+      *) printf "  Lakebase project preserved.\n"; return ;;
+    esac
+  fi
+
+  if [ "$should_delete" != "true" ]; then
+    return
+  fi
+
+  local delete_args=("$project_path")
+  local delete_kind="soft"
+  if [ "$PURGE_DATABASE" = "true" ]; then
+    delete_args+=("--purge")
+    delete_kind="hard / immediate"
+  fi
+
+  info "Deleting Lakebase project ($delete_kind)..."
+  local delete_err manual_purge_flag=""
+  if [ "$PURGE_DATABASE" = "true" ]; then
+    manual_purge_flag=" --purge"
+  fi
+  if ! delete_err=$(databricks postgres delete-project "${delete_args[@]}" 2>&1); then
+    printf "FAILED\n"
+    warn "Failed to delete Lakebase project '$project_id'.
+  $delete_err
+  Delete manually with:
+    databricks postgres delete-project ${project_path}${manual_purge_flag}"
+    return
+  fi
+  ok "$delete_kind"
 }
 
 # -------------------------------------------------------------------------
@@ -1660,8 +2606,13 @@ main() {
   select_warehouse
   create_app
   wait_for_stable_state
+  resolve_lakebase_binding
+  wait_for_endpoint_active
+  configure_lakebase_scale_to_zero
   configure_app
   apply_app_tags
+  bootstrap_lakebase_sp_grants
+  default_bootstrap_user
   prepare_app_yaml
 
   if [ "$ARG_ZERO_EGRESS" = "true" ]; then

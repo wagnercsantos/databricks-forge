@@ -37,17 +37,20 @@ cd databricks-forge
 ./deploy.sh
 ```
 
-Native password rotation and rollback examples:
+Lakebase is auto-provisioned by default — no flags required. Common
+variations:
 
 ```bash
-# Rotate native password during deploy (recommended for production rotations)
-./deploy.sh --rotate-lakebase-native-password
+# Deploy a separate demo instance (isolated app + auto-provisioned database)
+./deploy.sh --app-name "forge-demo"
 
-# Optional: print generated password to terminal (use with caution)
-./deploy.sh --rotate-lakebase-native-password --print-generated-native-password
+# Bind an existing Lakebase project instead of auto-provisioning
+./deploy.sh \
+  --lakebase-branch   "projects/my-project/branches/production" \
+  --lakebase-database "projects/my-project/branches/production/databases/databricks_postgres"
 
-# Emergency rollback to OAuth mode
-./deploy.sh --lakebase-auth-mode oauth
+# Latency-critical deploy: disable scale-to-zero (keeps the DB warm)
+./deploy.sh --lakebase-scale-to-zero-seconds 0
 ```
 
 The deploy script discovers your SQL Warehouses, lets you pick one, creates
@@ -153,16 +156,12 @@ for full details and troubleshooting.
 | `DATABRICKS_SERVING_ENDPOINT` | Premium Model Serving endpoint name | Set by `deploy.sh` (default: `databricks-claude-opus-4-7`) |
 | `DATABRICKS_SERVING_ENDPOINT_FAST` | Fast Model Serving endpoint name | Set by `deploy.sh` (default: `databricks-claude-sonnet-4-6`) |
 | `DATABRICKS_EMBEDDING_ENDPOINT` | Embedding Model Serving endpoint name | Set by `deploy.sh` (default: `databricks-qwen3-embedding-0-6b`) |
-| `LAKEBASE_ENDPOINT_NAME` | Lakebase endpoint resource name | Auto-generated at startup by `scripts/provision-lakebase.mjs` |
-| `LAKEBASE_POOLER_HOST` | Lakebase pooler hostname | Auto-generated at startup by `scripts/provision-lakebase.mjs` |
-| `LAKEBASE_USERNAME` | Lakebase runtime username | Auto-generated at startup by `scripts/provision-lakebase.mjs` |
-| `LAKEBASE_AUTH_MODE` | Runtime DB auth mode | Set by `deploy.sh` override or startup default (`native_password`) |
-| `LAKEBASE_NATIVE_USER` | Native Postgres runtime user | Set by `deploy.sh` override or startup default (`forge_app_runtime`) |
-| `LAKEBASE_NATIVE_PASSWORD` | Native Postgres runtime password | Set/rotated by `deploy.sh` or fallback-generated at startup |
-| `LAKEBASE_REQUIRE_NATIVE_PASSWORD` | Native password policy guardrail | Optional; when `true`, startup fails if native password is missing |
-| `DATABASE_URL` | Lakebase connection string | Local development fallback only |
+| `PGHOST` / `PGUSER` / `PGDATABASE` / `PGPORT` / `PGSSLMODE` | Lakebase connection metadata | Auto-injected by the platform from the `postgres` resource binding |
+| `LAKEBASE_ENDPOINT` | Lakebase endpoint resource path (`projects/.../branches/.../endpoints/...`) | Set by `deploy.sh` in `app.yaml` |
+| `LAKEBASE_BOOTSTRAP_USER` | Optional Databricks user granted the same Postgres role as the SP | Set by `deploy.sh` (defaults to the deploying user when auto-provisioning) |
+| `DATABASE_URL` | Lakebase connection string | Local development fallback only (production mints a fresh OAuth credential per process) |
 
-> `DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, and `DATABRICKS_CLIENT_SECRET` are injected automatically. Runtime mode is `native_password` by default (pooler endpoint); OAuth mode remains available as an explicit deploy override.
+> `DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, and `DATABRICKS_CLIENT_SECRET` are injected automatically. The app authenticates to Lakebase via short-lived OAuth credentials minted from the app's service principal — no long-lived passwords are stored on disk.
 
 ### Auth model
 
@@ -196,7 +195,7 @@ The app uses **two complementary auth models** ([docs](https://docs.databricks.c
 | "DATABASE_URL is not set and Lakebase auto-provisioning is not available" | Running locally without `.env` | Set `DATABASE_URL` in `.env` for local dev |
 | "Lakebase provisioning returned empty URL" | SP lacks permission to create Lakebase projects | Ensure the app's service principal can manage Lakebase resources |
 | "Create project failed (403)" | Lakebase Autoscale not available in region | Check [supported regions](https://docs.databricks.com/aws/en/oltp/projects/authentication); for local fallback use a manual `DATABASE_URL` |
-| Native mode fails with missing password | Password not provided and strict mode enabled | Use `./deploy.sh --rotate-lakebase-native-password` or provide `--lakebase-native-password` |
+| `prisma db push` fails with "permission denied for schema public" | App SP was not granted `CREATE` on `public` (only happens on legacy deploys predating auto-grant bootstrap) | Re-run `./deploy.sh` from a workspace user who owns the Lakebase project — the SP grant bootstrap step will fix it |
 | Schema push fails at startup | Lakebase compute still waking from scale-to-zero | Restart the app -- compute wakes automatically and retries succeed |
 | "Failed to connect to warehouse" | Warehouse binding missing or stopped | Verify `sql-warehouse` resource is configured and warehouse is running |
 | "Model serving request failed" | Serving endpoint binding missing | Verify `serving-endpoint` resource is configured. If fast tasks fail, check `serving-endpoint-fast` or remove it to fall back to premium |
@@ -298,18 +297,22 @@ The app persists all state (pipeline runs, use cases, exports) in [Lakebase Auto
 
 ### How it works
 
-**No manual database setup is required.** When deployed as a Databricks App, the app automatically:
+**No manual database setup is required.** `./deploy.sh`:
 
-1. **Creates a Lakebase Autoscale project** (`databricks-forge`) on first boot using the platform-injected service principal credentials
-2. **Uses direct endpoint for startup DDL/schema sync** (`prisma db push`, extensions, index setup)
-3. **Bootstraps a native runtime role** (`forge_app_runtime` by default) and grants required privileges
-4. **Runs runtime traffic through pooler endpoint** in `native_password` mode by default
-5. **Allows explicit OAuth fallback** via `./deploy.sh --lakebase-auth-mode oauth`
+1. **Auto-provisions a per-app Lakebase project** (named after `--app-name`, e.g. `databricks-forge`) — creates the project, default branch, and `databricks_postgres` database.
+2. **Re-uses the existing binding** on subsequent deploys (keyed by `--app-name`) — no duplicate projects.
+3. **Installs `pgvector` and `databricks_auth`** as the project owner before the app starts.
+4. **Grants the app's service principal** `CONNECT` + `USAGE`/`CREATE` on `public` + table/sequence privileges + default privileges so `prisma db push` succeeds on first boot.
+5. **Transfers ownership** of any pre-existing `public.*` tables to the SP so Prisma can `ALTER`/`DROP` them on schema migrations.
+6. **Configures scale-to-zero** (`300s` default; override with `--lakebase-scale-to-zero-seconds`).
+7. **Grants the deploying user** the same Postgres role as the SP by default, so they can open the SQL Editor against their new database immediately. Opt out with `--lakebase-bootstrap-user ""`.
 
-Use `deploy.sh` for deterministic password lifecycle:
+Advanced overrides (rarely needed):
 
-- `./deploy.sh --rotate-lakebase-native-password` to rotate password during deployment
-- `./deploy.sh --lakebase-native-password "<value>" --lakebase-auth-mode native_password` to pin an explicit password
+- `--lakebase-project-id ID` — override the auto-derived project ID.
+- `--lakebase-branch / --lakebase-database` — bind an existing, externally-managed project/branch/database instead of auto-provisioning.
+- `--lakebase-scale-to-zero-seconds N` — branch inactivity timeout (`0` = always-on).
+- `--lakebase-bootstrap-user EMAIL` — grant another Databricks user SQL Editor access.
 
 ### First deploy vs subsequent deploys
 

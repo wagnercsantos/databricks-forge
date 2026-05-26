@@ -77,18 +77,33 @@ Use `--skip-probe` to bypass this check.
 
 ### Lakebase (database)
 
+Lakebase is **auto-provisioned by default**. `./deploy.sh` with no flags
+creates a per-app Lakebase project (named after `--app-name`), enables
+`pgvector` + `databricks_auth`, grants the app's service principal the
+right `public` schema privileges, and configures scale-to-zero. Re-deploys
+against the same app reuse the same project.
+
+The flags below are advanced overrides — most operators never set them.
+
 | Flag | Description |
 |------|-------------|
-| `--lakebase-auth-mode "oauth\|native_password"` | Runtime DB auth mode |
-| `--lakebase-native-user "user"` | Native DB user (requires `native_password` mode) |
-| `--lakebase-native-password "pw"` | Native DB password (requires `native_password` mode) |
-| `--rotate-lakebase-native-password` | Auto-generate and rotate a 48-char password |
-| `--print-generated-native-password` | Print the generated password (use with caution) |
-| `--lakebase-bootstrap-user "email"` | Bootstrap OAuth role/grants for this user at startup |
-| `--lakebase-runtime-mode "oauth_direct_only\|pooler_preferred"` | Connection routing strategy |
-| `--lakebase-enable-pooler-experiment` | Enable pooler for future testing |
-| `--lakebase-scale-to-zero-timeout SECONDS` | Scale-to-zero inactivity timeout (default: 300, min: 60) |
-| `--lakebase-no-scale-to-zero` | Disable scale-to-zero (always-on compute) |
+| `--lakebase-project-id "id"` | Override the auto-provisioned project ID (default: sanitized `--app-name`). |
+| `--lakebase-branch "projects/.../branches/..."` | Bind an existing branch instead of auto-provisioning. Requires `--lakebase-database`. |
+| `--lakebase-database "projects/.../branches/.../databases/..."` | Bind an existing database. Requires `--lakebase-branch`. |
+| `--lakebase-bootstrap-user "email"` | Grant a Databricks user the same Postgres role as the app SP (defaults to the deploying user when auto-provisioning). Pass `""` to opt out. |
+| `--lakebase-scale-to-zero-seconds N` | Branch inactivity timeout before scale-to-zero (default `300`; `0` disables; minimum `60`). |
+
+### Destroy / cleanup
+
+`./deploy.sh --destroy` deletes the Databricks App, then **prompts** about
+the associated Lakebase project. Default answer is *keep* (data preservation
+wins over convenience). Use these flags to silence the prompt in CI:
+
+| Flag | Description |
+|------|-------------|
+| `--destroy-database` | Soft-delete the Lakebase project (recoverable). |
+| `--purge-database` | Hard-delete the Lakebase project (immediate, unrecoverable). Implies `--destroy-database`. |
+| `--keep-database` | Skip the prompt and preserve the project. |
 
 ### Feature flags
 
@@ -122,23 +137,35 @@ Use `--skip-probe` to bypass this check.
 # Lock benchmark admin to specific users
 ./deploy.sh --benchmark-admins "alice@company.com,bob@company.com"
 
-# Full production deploy with native password auth + benchmarks
+# Full production deploy with benchmarks (Lakebase is auto-provisioned)
 ./deploy.sh \
   --warehouse "Production Warehouse" \
-  --lakebase-auth-mode native_password \
-  --rotate-lakebase-native-password \
   --seed-benchmarks-all-industries \
   --benchmark-admins "data-team@company.com"
 
-# Deploy a separate demo instance (isolated app + database)
+# Bind an existing Lakebase project instead of auto-provisioning
+./deploy.sh \
+  --lakebase-branch   "projects/my-existing-project/branches/production" \
+  --lakebase-database "projects/my-existing-project/branches/production/databases/databricks_postgres"
+
+# Latency-critical deploy: disable scale-to-zero so the DB stays warm
+./deploy.sh --lakebase-scale-to-zero-seconds 0
+
+# Deploy a separate demo instance (isolated app + auto-provisioned database)
 ./deploy.sh --app-name "forge-demo" --warehouse "Demo Warehouse"
 
 # Deploy multiple instances side by side
 ./deploy.sh --app-name "forge-banking-demo" --seed-benchmark-industries "banking"
 ./deploy.sh --app-name "forge-hls-demo" --seed-benchmark-industries "hls"
 
-# Remove a named instance
+# Remove a named instance (prompts about deleting the Lakebase project)
 ./deploy.sh --app-name "forge-demo" --destroy
+
+# Non-interactive destroy: also delete the database
+./deploy.sh --app-name "forge-demo" --destroy --destroy-database
+
+# Non-interactive destroy: keep the database (useful in CI)
+./deploy.sh --app-name "forge-demo" --destroy --keep-database
 ```
 
 ---

@@ -17,26 +17,35 @@ endpoints. Override with flags if needed:
 ./deploy.sh --warehouse "My Warehouse" --endpoint "my-model" --fast-endpoint "my-fast-model"
 ```
 
-Native password auth and rotation examples:
+Lakebase is **auto-provisioned by default** — no flags required:
 
 ```bash
-# Default deployment path (repo startup default is native_password)
+# Zero-touch: deploy.sh creates a per-app Lakebase project, default
+# branch, databricks_postgres database, pgvector + databricks_auth
+# extensions, and grants the app SP the right public schema privileges.
 ./deploy.sh
 
-# Rotate native DB password during deploy
-./deploy.sh --rotate-lakebase-native-password
+# Bind an existing Lakebase project instead of auto-provisioning
+./deploy.sh \
+  --lakebase-branch   "projects/my-project/branches/production" \
+  --lakebase-database "projects/my-project/branches/production/databases/databricks_postgres"
 
-# Provide explicit native password (non-rotating)
-./deploy.sh --lakebase-auth-mode native_password --lakebase-native-user forge_app_runtime --lakebase-native-password "<password>"
-
-# Emergency rollback to OAuth runtime mode
-./deploy.sh --lakebase-auth-mode oauth
+# Latency-critical deploy: disable scale-to-zero (keeps the DB warm)
+./deploy.sh --lakebase-scale-to-zero-seconds 0
 ```
 
-To remove the app:
+To remove the app (prompts about the Lakebase project):
 
 ```bash
 ./deploy.sh --destroy
+```
+
+Non-interactive cleanup:
+
+```bash
+./deploy.sh --destroy --keep-database     # preserve the project (default in CI)
+./deploy.sh --destroy --destroy-database  # soft-delete (recoverable)
+./deploy.sh --destroy --purge-database    # hard-delete (immediate, unrecoverable)
 ```
 
 See [QUICKSTART.md](../QUICKSTART.md) for the full three-step setup.
@@ -53,29 +62,75 @@ authentication.
 
 1. Validates the Databricks CLI is installed and authenticated
 2. Lists SQL Warehouses and lets you pick one
-3. Creates the app (or detects an existing one)
-4. Binds resources (SQL warehouse, serving endpoints) and sets user
-   authorization scopes via the Apps API `create-update` endpoint
-5. Syncs the project source code to a workspace folder
-6. Deploys the app from that workspace folder
+3. Creates the Databricks App (or detects an existing one)
+4. **Resolves the Lakebase binding**: discovers an existing `postgres`
+   resource on the app, else auto-provisions a per-app Lakebase project,
+   default `databricks_postgres` database, and waits for the endpoint to
+   become `ACTIVE`
+5. Configures scale-to-zero on the branch (`300s` default on
+   auto-provisioned projects)
+6. Binds resources (SQL warehouse, serving endpoints, Postgres) and
+   user authorization scopes via the Apps API `create-update` endpoint
+7. **Bootstraps Postgres grants** for the app's service principal:
+   installs `pgvector` + `databricks_auth` as the project owner, ensures
+   the SP role exists, grants `CONNECT`/`USAGE`/`CREATE`/table/sequence
+   privileges + default privileges, and transfers ownership of any
+   pre-existing `public.*` tables to the SP so Prisma can ALTER/DROP them
+8. Optionally grants the deploying user the same Postgres role (default
+   on auto-provisioned deploys) so they get SQL Editor access immediately
+9. Syncs the project source code to a workspace folder
+10. Deploys the app from that workspace folder
 
 No manual UI configuration is needed. The script handles everything.
 
-### Lakebase auth/secret controls
+### Lakebase auto-provisioning
 
-Use `deploy.sh` to keep auth and password lifecycle auditable:
+By default, `./deploy.sh` is **zero-touch** for Lakebase: it derives a
+per-app project ID from `--app-name` (sanitized to `[a-z0-9-]{1,63}`),
+auto-creates the project, default branch, and `databricks_postgres`
+database, then re-uses the same binding on every subsequent re-deploy.
 
-- `--lakebase-auth-mode native_password|oauth` (optional override)
-- `--lakebase-native-user <user>` (requires native mode)
-- `--lakebase-native-password <password>` (requires native mode)
-- `--rotate-lakebase-native-password` (native mode only; generates and applies a new password)
-- `--print-generated-native-password` (only with rotate; use with caution)
+Power-user overrides (rarely needed):
 
-Validation rules enforced by the script:
+- `--lakebase-project-id ID` — override the auto-derived project ID
+  (still auto-creates if missing). Useful when running multiple apps
+  against the same project (not recommended; see "Per-app isolation").
+- `--lakebase-branch <path> --lakebase-database <path>` — bind an
+  existing, externally-managed project/branch/database. Disables
+  auto-provisioning.
+- `--lakebase-scale-to-zero-seconds N` — branch inactivity timeout
+  before scale-to-zero. Default `300` on auto-provisioned projects;
+  `0` disables (always-on, latency-critical prod); minimum `60`.
+  Re-deploys against an existing branch leave the value alone unless
+  this flag is explicitly passed.
+- `--lakebase-bootstrap-user EMAIL` — grant a specific Databricks user
+  the same Postgres role as the app SP. Defaults to the deploying user
+  when `deploy.sh` auto-provisions the project. Pass `""` to opt out.
 
-- Native user/password flags require `native_password` mode.
-- Rotate cannot be combined with explicit `--lakebase-native-password`.
-- Print-generated-password requires rotate.
+### Destroy / cleanup
+
+`./deploy.sh --destroy` removes the Databricks App, then **prompts**
+about deleting the associated Lakebase project. Default is *keep*
+(data preservation wins over convenience).
+
+Non-interactive flags:
+
+- `--destroy-database` — soft-delete the Lakebase project (recoverable).
+- `--purge-database` — hard-delete (immediate, unrecoverable). Implies
+  `--destroy-database`.
+- `--keep-database` — skip the prompt, preserve the project (default in
+  non-interactive contexts like CI without a TTY).
+
+### Per-app isolation
+
+Each `--app-name` deploys to its own Databricks App AND its own
+auto-provisioned Lakebase project (named after the app). Demos and dev
+instances are completely isolated from production:
+
+```bash
+./deploy.sh                              # → app: databricks-forge / project: databricks-forge
+./deploy.sh --app-name forge-demo        # → app: forge-demo      / project: forge-demo
+```
 
 ### Resource bindings
 
@@ -160,23 +215,14 @@ needed -- the platform handles containerisation.
 1. `npm install` (runs `postinstall` which triggers `prisma generate`)
 2. `npm run build` (runs `prisma generate && next build && sh scripts/postbuild.sh`)
 3. `scripts/start.sh`:
-   - Auto-provisions Lakebase Autoscale (if `DATABRICKS_CLIENT_ID` is set)
-   - Uses the direct endpoint for startup DDL/schema sync
-   - Bootstraps native runtime DB role/password/grants in `native_password` mode
-   - Passes pooler runtime metadata (`LAKEBASE_ENDPOINT_NAME`, `LAKEBASE_POOLER_HOST`, `LAKEBASE_USERNAME`) plus auth mode/runtime credentials to the server
+   - Mints a short-lived Lakebase OAuth credential as the app SP
+   - Runs `prisma db push` to sync the Postgres schema (the SP grants
+     applied by `deploy.sh` make this succeed on first deploy)
+   - Confirms `pgvector` is installed (no-op — `deploy.sh` already
+     installed it as the project owner)
+   - Optionally grants the `LAKEBASE_BOOTSTRAP_USER` the same Postgres
+     role as the SP so they can open the SQL Editor against the database
    - Starts the Next.js standalone server on `DATABRICKS_APP_PORT`
-
-### Rotation runbook
-
-1. Rotate:
-   - `./deploy.sh --rotate-lakebase-native-password`
-2. Verify runtime mode and health:
-   - `curl -s "$APP_URL/api/health" | jq '.authRuntime'`
-3. Confirm logs show:
-   - `Client created (native password mode)`
-   - pooler host + `forge_app_runtime`
-4. Rollback (if needed):
-   - `./deploy.sh --lakebase-auth-mode oauth`
 
 ---
 
