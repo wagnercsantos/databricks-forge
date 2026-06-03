@@ -22,6 +22,7 @@ import { resolveRegistry } from "@/lib/genie/health-checks/registry";
 import { chatCompletion } from "@/lib/dbx/model-serving";
 import { getGenieSpace, updateGenieSpace } from "@/lib/dbx/genie";
 import { logger } from "@/lib/logger";
+import { quoteIdentifier } from "@/lib/sql/identifiers";
 import { recordSpan } from "@/lib/observability/mlflow-tracing";
 import type { MetadataSnapshot, TableInfo, ColumnInfo, BusinessContext } from "@/lib/domain/types";
 import type { FixStrategy } from "@/lib/genie/health-checks/types";
@@ -282,7 +283,7 @@ export async function buildMetadataForSpace(tableFqns: string[]): Promise<Metada
     try {
       const sql = `
         SELECT column_name, data_type, ordinal_position, is_nullable, comment
-        FROM ${catalog}.information_schema.columns
+        FROM ${quoteIdentifier(catalog)}.information_schema.columns
         WHERE table_catalog = '${catalog}'
           AND table_schema = '${schema}'
           AND table_name = '${tableName}'

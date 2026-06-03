@@ -18,6 +18,7 @@ import { importNotebook, mkdirs } from "@/lib/dbx/workspace";
 import type { PipelineRun, UseCase } from "@/lib/domain/types";
 import { groupByDomain } from "@/lib/domain/scoring";
 import { logger } from "@/lib/logger";
+import { escapeFqn } from "@/lib/sql/identifiers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -349,7 +350,7 @@ function buildSqlCell(uc: UseCase): string[] {
     );
     lines.push(`-- Re-run the pipeline or use "Re-generate SQL" to generate SQL.\n\n`);
     if (uc.tablesInvolved.length > 0) {
-      lines.push(`SELECT * FROM ${uc.tablesInvolved[0]} LIMIT 10;\n`);
+      lines.push(`SELECT * FROM ${escapeFqn(uc.tablesInvolved[0])} LIMIT 10;\n`);
     } else {
       lines.push(`SELECT 'No tables specified for this use case' AS info;\n`);
     }

@@ -22,6 +22,7 @@ import type {
   QuestionComplexity,
 } from "@/lib/genie/types";
 import type { IndustryDetectionResult, ViewTarget } from "./types";
+import { escapeFqn } from "@/lib/sql/identifiers";
 
 // ---------------------------------------------------------------------------
 // View descriptions (hand-written for the Genie)
@@ -426,13 +427,14 @@ function buildExampleSqls(
   llmDetection: IndustryDetectionResult,
   hasLineage?: boolean,
 ): ExampleQuestionSql[] {
+  const safePrefix = escapeFqn(prefix);
   const examples: ExampleQuestionSql[] = [];
 
   examples.push({
     id: randomUUID(),
     question: ["How many tables do we have in each schema?"],
     sql: [
-      `SELECT table_catalog, table_schema, COUNT(*) AS table_count FROM ${prefix}.mdg_tables GROUP BY table_catalog, table_schema ORDER BY table_count DESC`,
+      `SELECT table_catalog, table_schema, COUNT(*) AS table_count FROM ${safePrefix}.mdg_tables GROUP BY table_catalog, table_schema ORDER BY table_count DESC`,
     ],
   });
 
@@ -440,7 +442,7 @@ function buildExampleSqls(
     id: randomUUID(),
     question: ["Which tables have no description?"],
     sql: [
-      `SELECT table_catalog, table_schema, table_name FROM ${prefix}.mdg_tables WHERE comment IS NULL OR TRIM(comment) = '' ORDER BY table_catalog, table_schema, table_name`,
+      `SELECT table_catalog, table_schema, table_name FROM ${safePrefix}.mdg_tables WHERE comment IS NULL OR TRIM(comment) = '' ORDER BY table_catalog, table_schema, table_name`,
     ],
   });
 
@@ -448,7 +450,7 @@ function buildExampleSqls(
     id: randomUUID(),
     question: ["What tables might be duplicated across schemas?"],
     sql: [
-      `SELECT table_name, COUNT(DISTINCT CONCAT(table_catalog, '.', table_schema)) AS schema_count, COLLECT_SET(CONCAT(table_catalog, '.', table_schema)) AS schemas FROM ${prefix}.mdg_tables GROUP BY table_name HAVING schema_count > 1 ORDER BY schema_count DESC`,
+      `SELECT table_name, COUNT(DISTINCT CONCAT(table_catalog, '.', table_schema)) AS schema_count, COLLECT_SET(CONCAT(table_catalog, '.', table_schema)) AS schemas FROM ${safePrefix}.mdg_tables GROUP BY table_name HAVING schema_count > 1 ORDER BY schema_count DESC`,
     ],
   });
 
@@ -460,7 +462,7 @@ function buildExampleSqls(
     id: randomUUID(),
     question: [`What tables contain ${searchTerm} data?`],
     sql: [
-      `SELECT table_catalog, table_schema, table_name, comment FROM ${prefix}.mdg_tables WHERE LOWER(table_name) LIKE '%${searchTerm}%' OR LOWER(comment) LIKE '%${searchTerm}%' ORDER BY table_catalog, table_schema, table_name`,
+      `SELECT table_catalog, table_schema, table_name, comment FROM ${safePrefix}.mdg_tables WHERE LOWER(table_name) LIKE '%${searchTerm}%' OR LOWER(comment) LIKE '%${searchTerm}%' ORDER BY table_catalog, table_schema, table_name`,
     ],
   });
 
@@ -468,7 +470,7 @@ function buildExampleSqls(
     id: randomUUID(),
     question: ["What are the most recently created tables?"],
     sql: [
-      `SELECT table_catalog, table_schema, table_name, table_type, created, created_by FROM ${prefix}.mdg_tables ORDER BY created DESC LIMIT 20`,
+      `SELECT table_catalog, table_schema, table_name, table_type, created, created_by FROM ${safePrefix}.mdg_tables ORDER BY created DESC LIMIT 20`,
     ],
   });
 
@@ -476,7 +478,7 @@ function buildExampleSqls(
     id: randomUUID(),
     question: ["What tags are applied to our tables?"],
     sql: [
-      `SELECT tag_name, tag_value, COUNT(*) AS table_count FROM ${prefix}.mdg_table_tags GROUP BY tag_name, tag_value ORDER BY table_count DESC`,
+      `SELECT tag_name, tag_value, COUNT(*) AS table_count FROM ${safePrefix}.mdg_table_tags GROUP BY tag_name, tag_value ORDER BY table_count DESC`,
     ],
   });
 
@@ -484,7 +486,7 @@ function buildExampleSqls(
     id: randomUUID(),
     question: ["Who has access to what data?"],
     sql: [
-      `SELECT grantee, privilege_type, COUNT(*) AS table_count FROM ${prefix}.mdg_table_privileges GROUP BY grantee, privilege_type ORDER BY table_count DESC`,
+      `SELECT grantee, privilege_type, COUNT(*) AS table_count FROM ${safePrefix}.mdg_table_privileges GROUP BY grantee, privilege_type ORDER BY table_count DESC`,
     ],
   });
 
@@ -492,7 +494,7 @@ function buildExampleSqls(
     id: randomUUID(),
     question: ["What columns have timestamp data types?"],
     sql: [
-      `SELECT table_catalog, table_schema, table_name, column_name, data_type FROM ${prefix}.mdg_columns WHERE LOWER(data_type) LIKE '%timestamp%' ORDER BY table_catalog, table_schema, table_name`,
+      `SELECT table_catalog, table_schema, table_name, column_name, data_type FROM ${safePrefix}.mdg_columns WHERE LOWER(data_type) LIKE '%timestamp%' ORDER BY table_catalog, table_schema, table_name`,
     ],
   });
 
@@ -500,7 +502,7 @@ function buildExampleSqls(
     id: randomUUID(),
     question: ["Which tables have primary key or foreign key constraints?"],
     sql: [
-      `SELECT constraint_type, COUNT(DISTINCT CONCAT(table_catalog, '.', table_schema, '.', table_name)) AS table_count FROM ${prefix}.mdg_table_constraints GROUP BY constraint_type ORDER BY table_count DESC`,
+      `SELECT constraint_type, COUNT(DISTINCT CONCAT(table_catalog, '.', table_schema, '.', table_name)) AS table_count FROM ${safePrefix}.mdg_table_constraints GROUP BY constraint_type ORDER BY table_count DESC`,
     ],
   });
 
@@ -508,7 +510,7 @@ function buildExampleSqls(
     id: randomUUID(),
     question: ["What data do we have in each catalog?"],
     sql: [
-      `SELECT c.catalog_name, c.comment, COUNT(DISTINCT CONCAT(s.catalog_name, '.', s.schema_name)) AS schema_count, COUNT(DISTINCT CONCAT(t.table_catalog, '.', t.table_schema, '.', t.table_name)) AS table_count FROM ${prefix}.mdg_catalogs c LEFT JOIN ${prefix}.mdg_schemas s ON c.catalog_name = s.catalog_name LEFT JOIN ${prefix}.mdg_tables t ON s.catalog_name = t.table_catalog AND s.schema_name = t.table_schema GROUP BY c.catalog_name, c.comment ORDER BY table_count DESC`,
+      `SELECT c.catalog_name, c.comment, COUNT(DISTINCT CONCAT(s.catalog_name, '.', s.schema_name)) AS schema_count, COUNT(DISTINCT CONCAT(t.table_catalog, '.', t.table_schema, '.', t.table_name)) AS table_count FROM ${safePrefix}.mdg_catalogs c LEFT JOIN ${safePrefix}.mdg_schemas s ON c.catalog_name = s.catalog_name LEFT JOIN ${safePrefix}.mdg_tables t ON s.catalog_name = t.table_catalog AND s.schema_name = t.table_schema GROUP BY c.catalog_name, c.comment ORDER BY table_count DESC`,
     ],
   });
 
@@ -517,7 +519,7 @@ function buildExampleSqls(
       id: randomUUID(),
       question: ["What are the upstream data sources for a table?"],
       sql: [
-        `SELECT source_table_full_name, source_type, COUNT(*) AS event_count, MAX(event_time) AS last_event FROM ${prefix}.mdg_lineage WHERE target_table_full_name LIKE '%table_name_here%' GROUP BY source_table_full_name, source_type ORDER BY last_event DESC`,
+        `SELECT source_table_full_name, source_type, COUNT(*) AS event_count, MAX(event_time) AS last_event FROM ${safePrefix}.mdg_lineage WHERE target_table_full_name LIKE '%table_name_here%' GROUP BY source_table_full_name, source_type ORDER BY last_event DESC`,
       ],
     });
   }
@@ -534,17 +536,18 @@ function buildSqlSnippets(
   outcomeMap: IndustryOutcome | null | undefined,
   hasLineage?: boolean,
 ): SqlSnippets {
+  const safePrefix = escapeFqn(prefix);
   const measures: SqlSnippetMeasure[] = [
     {
       id: randomUUID(),
       alias: "table_count_per_schema",
-      sql: [`COUNT(*) FROM ${prefix}.mdg_tables GROUP BY table_catalog, table_schema`],
+      sql: [`COUNT(*) FROM ${safePrefix}.mdg_tables GROUP BY table_catalog, table_schema`],
       synonyms: ["tables per schema", "schema size"],
     },
     {
       id: randomUUID(),
       alias: "column_count_per_table",
-      sql: [`COUNT(*) FROM ${prefix}.mdg_columns GROUP BY table_catalog, table_schema, table_name`],
+      sql: [`COUNT(*) FROM ${safePrefix}.mdg_columns GROUP BY table_catalog, table_schema, table_name`],
       synonyms: ["columns per table", "table width"],
     },
     {
@@ -613,7 +616,7 @@ function buildSqlSnippets(
     {
       id: randomUUID(),
       sql: [
-        `CONCAT(table_catalog, '.', table_schema, '.', table_name) IN (SELECT DISTINCT CONCAT(catalog_name, '.', schema_name, '.', table_name) FROM ${prefix}.mdg_table_tags)`,
+        `CONCAT(table_catalog, '.', table_schema, '.', table_name) IN (SELECT DISTINCT CONCAT(catalog_name, '.', schema_name, '.', table_name) FROM ${safePrefix}.mdg_table_tags)`,
       ],
       display_name: "Tables with tags",
       synonyms: ["tagged tables", "classified tables", "labelled tables"],
@@ -654,7 +657,7 @@ function buildSqlSnippets(
     filters.push({
       id: randomUUID(),
       sql: [
-        `CONCAT(table_catalog, '.', table_schema, '.', table_name) NOT IN (SELECT DISTINCT target_table_full_name FROM ${prefix}.mdg_lineage)`,
+        `CONCAT(table_catalog, '.', table_schema, '.', table_name) NOT IN (SELECT DISTINCT target_table_full_name FROM ${safePrefix}.mdg_lineage)`,
       ],
       display_name: "Tables with no upstream sources",
       synonyms: ["source tables", "root tables", "ingestion tables", "origin tables"],
@@ -666,7 +669,7 @@ function buildSqlSnippets(
       id: randomUUID(),
       alias: "potential_duplicates",
       sql: [
-        `table_name IN (SELECT table_name FROM ${prefix}.mdg_tables GROUP BY table_name HAVING COUNT(DISTINCT CONCAT(table_catalog, '.', table_schema)) > 1)`,
+        `table_name IN (SELECT table_name FROM ${safePrefix}.mdg_tables GROUP BY table_name HAVING COUNT(DISTINCT CONCAT(table_catalog, '.', table_schema)) > 1)`,
       ],
       synonyms: ["duplicated tables", "table copies", "redundant tables"],
     },
@@ -710,6 +713,7 @@ function buildSqlSnippets(
 // ---------------------------------------------------------------------------
 
 function buildBenchmarks(prefix: string): BenchmarkQuestion[] {
+  const safePrefix = escapeFqn(prefix);
   const bq = (question: string, sql: string, alternates: string[]): BenchmarkQuestion[] => {
     return [question, ...alternates].map((q) => ({
       id: randomUUID(),
@@ -721,32 +725,32 @@ function buildBenchmarks(prefix: string): BenchmarkQuestion[] {
   return [
     ...bq(
       "How many tables do we have?",
-      `SELECT COUNT(*) AS total_tables FROM ${prefix}.mdg_tables`,
+      `SELECT COUNT(*) AS total_tables FROM ${safePrefix}.mdg_tables`,
       ["total number of tables", "count all tables"],
     ),
     ...bq(
       "Which schemas have the most tables?",
-      `SELECT table_catalog, table_schema, COUNT(*) AS table_count FROM ${prefix}.mdg_tables GROUP BY table_catalog, table_schema ORDER BY table_count DESC LIMIT 20`,
+      `SELECT table_catalog, table_schema, COUNT(*) AS table_count FROM ${safePrefix}.mdg_tables GROUP BY table_catalog, table_schema ORDER BY table_count DESC LIMIT 20`,
       ["largest schemas", "biggest schemas by table count"],
     ),
     ...bq(
       "Show undocumented tables",
-      `SELECT table_catalog, table_schema, table_name, table_type FROM ${prefix}.mdg_tables WHERE comment IS NULL OR TRIM(comment) = '' ORDER BY table_catalog, table_schema, table_name`,
+      `SELECT table_catalog, table_schema, table_name, table_type FROM ${safePrefix}.mdg_tables WHERE comment IS NULL OR TRIM(comment) = '' ORDER BY table_catalog, table_schema, table_name`,
       ["tables without descriptions", "missing comments", "tables with no description"],
     ),
     ...bq(
       "What data formats are used?",
-      `SELECT data_source_format, COUNT(*) AS table_count FROM ${prefix}.mdg_tables WHERE data_source_format IS NOT NULL GROUP BY data_source_format ORDER BY table_count DESC`,
+      `SELECT data_source_format, COUNT(*) AS table_count FROM ${safePrefix}.mdg_tables WHERE data_source_format IS NOT NULL GROUP BY data_source_format ORDER BY table_count DESC`,
       ["delta vs parquet", "storage formats", "table formats"],
     ),
     ...bq(
       "Who owns the most tables?",
-      `SELECT table_owner, COUNT(*) AS table_count FROM ${prefix}.mdg_tables GROUP BY table_owner ORDER BY table_count DESC LIMIT 20`,
+      `SELECT table_owner, COUNT(*) AS table_count FROM ${safePrefix}.mdg_tables GROUP BY table_owner ORDER BY table_count DESC LIMIT 20`,
       ["table owners", "top table owners"],
     ),
     ...bq(
       "What catalogs do we have?",
-      `SELECT catalog_name, catalog_owner, comment FROM ${prefix}.mdg_catalogs ORDER BY catalog_name`,
+      `SELECT catalog_name, catalog_owner, comment FROM ${safePrefix}.mdg_catalogs ORDER BY catalog_name`,
       ["list catalogs", "show all catalogs", "available catalogs"],
     ),
   ];
