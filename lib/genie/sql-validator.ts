@@ -24,6 +24,7 @@ import { executeSQL } from "@/lib/dbx/sql";
 import { reviewSql, type ReviewResult } from "@/lib/ai/sql-reviewer";
 import { logger } from "@/lib/logger";
 import { withSpan } from "@/lib/observability/mlflow-tracing";
+import { escapeFqn } from "@/lib/sql/identifiers";
 
 // ---------------------------------------------------------------------------
 // Feature gate
@@ -200,22 +201,22 @@ export function buildTestQuery(item: ValidateAndRepairItem): string | null {
 
     case "measure":
       if (!item.tableFqn) return null;
-      return `SELECT ${stripTrailingSemi(sql)} AS measure_value FROM ${item.tableFqn} LIMIT 1`;
+      return `SELECT ${stripTrailingSemi(sql)} AS measure_value FROM ${escapeFqn(item.tableFqn)} LIMIT 1`;
 
     case "filter":
       if (!item.tableFqn) return null;
-      return `SELECT * FROM ${item.tableFqn} WHERE ${stripTrailingSemi(sql)} LIMIT 1`;
+      return `SELECT * FROM ${escapeFqn(item.tableFqn)} WHERE ${stripTrailingSemi(sql)} LIMIT 1`;
 
     case "named_expression":
       if (!item.tableFqn) return null;
-      return `SELECT ${stripTrailingSemi(sql)} AS expr_value FROM ${item.tableFqn} LIMIT 1`;
+      return `SELECT ${stripTrailingSemi(sql)} AS expr_value FROM ${escapeFqn(item.tableFqn)} LIMIT 1`;
 
     case "join": {
       if (!item.leftTable || !item.rightTable) return null;
       const leftAlias = pickAlias(item.leftTable, "a");
       const rightAlias = pickAlias(item.rightTable, "b") === leftAlias ? "b2" : pickAlias(item.rightTable, "b");
       const onClause = stripTrailingSemi(sql);
-      return `SELECT ${leftAlias}.* FROM ${item.leftTable} ${leftAlias} INNER JOIN ${item.rightTable} ${rightAlias} ON ${onClause} LIMIT 1`;
+      return `SELECT ${leftAlias}.* FROM ${escapeFqn(item.leftTable)} ${leftAlias} INNER JOIN ${escapeFqn(item.rightTable)} ${rightAlias} ON ${onClause} LIMIT 1`;
     }
   }
 }

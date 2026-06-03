@@ -12,6 +12,7 @@ import { reviewBatch } from "@/lib/ai/sql-reviewer";
 import { isReviewEnabled } from "@/lib/dbx/client";
 import { logger } from "@/lib/logger";
 import { sanitizeUserContext } from "./title-generation";
+import { escapeFqn, quoteIdentifier } from "@/lib/sql/identifiers";
 import "@/lib/skills/content";
 import {
   resolveForGeniePass,
@@ -122,18 +123,19 @@ export function buildDeterministicExampleQueries(
     if (!groupCol) continue;
 
     const tableName = table.split(".").pop() ?? table;
+    const safeTable = escapeFqn(table);
     const selectMetric = numericCol
-      ? `SUM(${table}.${numericCol.columnName}) AS total_value`
+      ? `SUM(${safeTable}.${quoteIdentifier(numericCol.columnName)}) AS total_value`
       : "COUNT(*) AS total_value";
     const whereTime = timeCol
-      ? `WHERE ${table}.${timeCol.columnName} >= DATEADD(day, -90, CURRENT_DATE())`
+      ? `WHERE ${safeTable}.${quoteIdentifier(timeCol.columnName)} >= DATEADD(day, -90, CURRENT_DATE())`
       : "";
 
     const sql = [
-      `SELECT ${table}.${groupCol.columnName} AS category, ${selectMetric}`,
-      `FROM ${table}`,
+      `SELECT ${safeTable}.${quoteIdentifier(groupCol.columnName)} AS category, ${selectMetric}`,
+      `FROM ${safeTable}`,
       whereTime,
-      `GROUP BY ${table}.${groupCol.columnName}`,
+      `GROUP BY ${safeTable}.${quoteIdentifier(groupCol.columnName)}`,
       "ORDER BY total_value DESC",
       "LIMIT 10",
     ]
@@ -155,8 +157,8 @@ export function buildDeterministicExampleQueries(
     const rightName = join.rightTable.split(".").pop() ?? join.rightTable;
     const joinSql = [
       "SELECT COUNT(*) AS linked_records",
-      `FROM ${join.leftTable}`,
-      `JOIN ${join.rightTable} ON ${join.sql}`,
+      `FROM ${escapeFqn(join.leftTable)}`,
+      `JOIN ${escapeFqn(join.rightTable)} ON ${join.sql}`,
     ].join("\n");
     if (validateSqlExpression(allowlist, joinSql, "example_query:join_coverage", true)) {
       queries.unshift({

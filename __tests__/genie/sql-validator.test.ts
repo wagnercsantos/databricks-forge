@@ -20,7 +20,7 @@ describe("buildTestQuery", () => {
       kind: "measure",
       tableFqn: "cat.sch.orders",
     });
-    expect(out).toBe("SELECT SUM(amount) AS measure_value FROM cat.sch.orders LIMIT 1");
+    expect(out).toBe("SELECT SUM(amount) AS measure_value FROM `cat`.`sch`.`orders` LIMIT 1");
   });
 
   it("wraps a filter as SELECT * FROM <fqn> WHERE <expr> LIMIT 1", () => {
@@ -29,7 +29,7 @@ describe("buildTestQuery", () => {
       kind: "filter",
       tableFqn: "cat.sch.users",
     });
-    expect(out).toBe("SELECT * FROM cat.sch.users WHERE status = 'active' LIMIT 1");
+    expect(out).toBe("SELECT * FROM `cat`.`sch`.`users` WHERE status = 'active' LIMIT 1");
   });
 
   it("wraps a named expression with an alias", () => {
@@ -39,7 +39,7 @@ describe("buildTestQuery", () => {
       tableFqn: "cat.sch.orders",
     });
     expect(out).toBe(
-      "SELECT DATE_TRUNC('month', order_date) AS expr_value FROM cat.sch.orders LIMIT 1",
+      "SELECT DATE_TRUNC('month', order_date) AS expr_value FROM `cat`.`sch`.`orders` LIMIT 1",
     );
   });
 
@@ -51,7 +51,7 @@ describe("buildTestQuery", () => {
       rightTable: "cat.sch.users",
     });
     expect(out).toBe(
-      "SELECT events.* FROM cat.sch.events events INNER JOIN cat.sch.users users ON a.user_id = b.id LIMIT 1",
+      "SELECT events.* FROM `cat`.`sch`.`events` events INNER JOIN `cat`.`sch`.`users` users ON a.user_id = b.id LIMIT 1",
     );
   });
 
@@ -61,7 +61,18 @@ describe("buildTestQuery", () => {
       kind: "filter",
       tableFqn: "cat.sch.users",
     });
-    expect(out).toBe("SELECT * FROM cat.sch.users WHERE status = 'active' LIMIT 1");
+    expect(out).toBe("SELECT * FROM `cat`.`sch`.`users` WHERE status = 'active' LIMIT 1");
+  });
+
+  it("escapes hyphenated catalog/schema identifiers (regression)", () => {
+    const out = buildTestQuery({
+      sql: "SUM(amount)",
+      kind: "measure",
+      tableFqn: "catalogo-sandbox.default.orders",
+    });
+    expect(out).toBe(
+      "SELECT SUM(amount) AS measure_value FROM `catalogo-sandbox`.`default`.`orders` LIMIT 1",
+    );
   });
 
   it("returns null when context is missing for fragment kinds", () => {

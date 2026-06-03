@@ -11,6 +11,7 @@ import { parseLLMJson } from "@/lib/genie/passes/parse-llm-json";
 import { resolveEndpoint } from "@/lib/dbx/client";
 import { mapWithConcurrency } from "@/lib/toolkit/concurrency";
 import { logger } from "@/lib/logger";
+import { buildFqn, escapeFqn, quoteIdentifier } from "@/lib/sql/identifiers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,9 +75,10 @@ export async function scanSchema(
 ): Promise<SchemaScanResult> {
   logger.info("Scanning schema", { catalog, schema });
 
+  const safeCatalog = quoteIdentifier(catalog);
   const tablesSql = `
     SELECT table_name, table_type, comment
-    FROM ${catalog}.information_schema.tables
+    FROM ${safeCatalog}.information_schema.tables
     WHERE table_schema = '${schema}'
       AND table_catalog = '${catalog}'
     ORDER BY table_name
@@ -104,7 +106,7 @@ export async function scanSchema(
 
   // Phantom table filtering: cross-check information_schema with SHOW TABLES
   try {
-    const showResult = await executeSQL(`SHOW TABLES IN ${catalog}.${schema}`);
+    const showResult = await executeSQL(`SHOW TABLES IN ${buildFqn(catalog, schema)}`);
     const liveNames = new Set(showResult.rows.map((r) => String(r[1] ?? r[0] ?? "").toLowerCase()));
     if (liveNames.size > 0) {
       const before = tables.length;
@@ -139,7 +141,7 @@ export async function scanSchema(
 
   const columnsSql = `
     SELECT table_name, column_name, full_data_type, comment, is_nullable, ordinal_position
-    FROM ${catalog}.information_schema.columns
+    FROM ${safeCatalog}.information_schema.columns
     WHERE table_schema = '${schema}'
       AND table_catalog = '${catalog}'
     ORDER BY table_name, ordinal_position
@@ -234,7 +236,7 @@ export async function profileKeyColumns(
       try {
         const sql = `
         SELECT ${profileClauses.join(",\n       ")}
-        FROM ${table.fqn}
+        FROM ${escapeFqn(table.fqn)}
       `;
         const result: SqlResult = await executeSQL(sql, undefined, undefined, {
           waitTimeout: "15s",
@@ -421,7 +423,7 @@ export async function sampleTableRows(
   const results = await mapWithConcurrency(
     toSample.map((fqn) => async (): Promise<SampleRowResult | null> => {
       try {
-        const sql = `SELECT * FROM ${fqn} LIMIT ${limit}`;
+        const sql = `SELECT * FROM ${escapeFqn(fqn)} LIMIT ${limit}`;
         const result = await executeSQL(sql, undefined, undefined, {
           waitTimeout: "10s",
           submitTimeoutMs: 15_000,
